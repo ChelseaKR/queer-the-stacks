@@ -38,6 +38,9 @@ class Config:
     aperture_strength: float = 0.0  # boost-only discovery-widening lens (0 = off)
     embeddings_enabled: bool = False  # optional, strictly-local semantic signal
     dnf_signals: bool = False  # opt-in soft down-weighting of stalled themes
+    goal_books: int = 0  # yearly book goal (0 = unset)
+    goal_pages: int = 0  # yearly page goal (0 = unset)
+    goal_streak_days: int = 0  # streak goal in days (0 = unset)
 
     @property
     def store_path(self) -> Path:
@@ -104,6 +107,15 @@ def load_config(
     except ValueError:
         aperture = 0.0
 
+    goals = _section(toml, "goals")
+
+    def pick_int(env_key: str, key: str) -> int:
+        raw = pick(env_key, goals, key)
+        try:
+            return max(0, int(raw)) if raw else 0
+        except ValueError:
+            return 0
+
     return Config(
         calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
         koreader_db=_opt_path(pick("STACKS_KOREADER_DB", koreader, "path")),
@@ -115,4 +127,7 @@ def load_config(
         aperture_strength=aperture,
         embeddings_enabled=resolved_env.get("STACKS_EMBEDDINGS") == "1",
         dnf_signals=resolved_env.get("STACKS_DNF_SIGNALS") == "1",
+        goal_books=pick_int("STACKS_GOAL_BOOKS", "books"),
+        goal_pages=pick_int("STACKS_GOAL_PAGES", "pages"),
+        goal_streak_days=pick_int("STACKS_GOAL_STREAK", "streak_days"),
     )

@@ -52,6 +52,9 @@ def _load_view() -> DashboardView:
             aperture_strength=config.aperture_strength,
             use_embeddings=config.embeddings_enabled,
             dnf_signals=config.dnf_signals,
+            goal_books=config.goal_books,
+            goal_pages=config.goal_pages,
+            goal_streak_days=config.goal_streak_days,
         )
     finally:
         store.close()

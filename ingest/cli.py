@@ -125,6 +125,38 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    """Write the dashboard (incl. Wrapped) to a self-contained local HTML file."""
+    import time
+
+    from app.view import render_view, view_from_store
+
+    from ingest.config import load_config
+    from ingest.refresh import refresh
+    from ingest.store import Store
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        if not store.is_populated:
+            refresh(config, store, now=int(time.time()))
+        view = view_from_store(
+            store,
+            user="demo" if config.demo else "you",
+            aperture_strength=config.aperture_strength,
+            goal_books=config.goal_books,
+            goal_pages=config.goal_pages,
+            goal_streak_days=config.goal_streak_days,
+        )
+    finally:
+        store.close()
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_view(view), encoding="utf-8")
+    print(f"exported dashboard to {out} (local only — nothing was published)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -151,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     p_res = sub.add_parser("restore", help="restore the app-state store from a backup")
     p_res.add_argument("backup", help="path to a backup .sqlite file")
     p_res.set_defaults(func=_cmd_restore)
+
+    p_exp = sub.add_parser("export", help="export the dashboard to a local HTML file")
+    p_exp.add_argument("--out", default="stacks-dashboard.html")
+    p_exp.set_defaults(func=_cmd_export)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

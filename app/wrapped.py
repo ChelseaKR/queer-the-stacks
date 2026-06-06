@@ -47,10 +47,22 @@ class Wrapped:
     days_read: int
     theme_breakdown: tuple[tuple[str, int], ...]
     standout_reads: tuple[StandoutRead, ...]
+    monthly: tuple[MonthStat, ...] = ()  # 12 entries, Jan..Dec
+    pace_pages_per_day: float = 0.0  # mean pages on days you actually read
 
     @property
     def read_time_hours(self) -> float:
         return round(self.read_time_seconds / 3600, 1)
+
+
+@dataclass(frozen=True)
+class MonthStat:
+    """One month of a Wrapped year."""
+
+    month: int  # 1..12
+    pages: int
+    hours: float
+    days_read: int
 
 
 def _in_year(ts: int, lo: int, hi: int) -> bool:
@@ -80,6 +92,9 @@ def compute_wrapped(
     pages = sum(d.pages for d in days)
     seconds = sum(d.seconds for d in days)
 
+    monthly = _monthly(days)
+    pace = round(pages / len(days), 1) if days else 0.0
+
     from collections import Counter
 
     theme_counter: Counter[str] = Counter()
@@ -107,4 +122,24 @@ def compute_wrapped(
         days_read=len({d.day_ordinal for d in days}),
         theme_breakdown=tuple(theme_counter.most_common()),
         standout_reads=tuple(standouts),
+        monthly=monthly,
+        pace_pages_per_day=pace,
+    )
+
+
+def _monthly(days: list[DailyActivity]) -> tuple[MonthStat, ...]:
+    """Aggregate a year's active days into 12 month buckets (only non-empty ones)."""
+    import datetime
+
+    epoch = datetime.date(1970, 1, 1).toordinal()
+    by_month: dict[int, list[int]] = {}
+    for d in days:
+        month = datetime.date.fromordinal(epoch + d.day_ordinal).month
+        bucket = by_month.setdefault(month, [0, 0, 0])  # pages, seconds, days
+        bucket[0] += d.pages
+        bucket[1] += d.seconds
+        bucket[2] += 1
+    return tuple(
+        MonthStat(month=m, pages=v[0], hours=round(v[1] / 3600, 1), days_read=v[2])
+        for m, v in sorted(by_month.items())
     )
