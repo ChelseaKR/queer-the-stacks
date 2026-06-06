@@ -68,6 +68,20 @@ def build_view(
     )
 
 
+def view_from_store(store: object, *, user: str = "you") -> DashboardView:
+    """Build the dashboard view from persisted derived state in the store.
+
+    Recommendations are drawn from the built-in curated seed catalog (real books
+    on cited community lists); live catalog adapters arrive in phase N2.
+    """
+    from ingest.demo import demo_candidates
+    from recommender.lists import DEMO_LISTS
+
+    states = store.load_states()  # type: ignore[attr-defined]
+    activity = store.load_daily_activity()  # type: ignore[attr-defined]
+    return build_view(states, activity, demo_candidates(), lists=DEMO_LISTS, user=user)
+
+
 def demo_view(workdir: Path) -> DashboardView:
     """Walk the full offline demo pipeline and return a ready-to-render view."""
     from ingest.calibre import load_library

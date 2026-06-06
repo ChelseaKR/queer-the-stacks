@@ -20,6 +20,17 @@ Your reading lives across Calibre (Mac), a Kobo running KOReader, Calibre-Web on
 - **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
 - **Hard guardrails:** **open Calibre's `metadata.db` and KOReader's `statistics.sqlite` strictly read-only** (never write to or risk corrupting the real libraries — copy/snapshot before reading); **reading data is sensitive and never leaves the self-hosted instance** (no third-party analytics, no telemetry, behind auth on the seedbox); **do not scrape Goodreads** (Amazon ToS + gatekeeping) — source recommendations from OpenLibrary/Hardcover/Bookwyrm/curated lists with provenance; books and authors are described via *sourced* theme/genre tags, never reductive auto-assigned identity labels; every recommendation shows why + source.
 - **Commands:** `make dev` · `make verify` · `make a11y` · `make eval`.
+- **Run it on your library:** point it at your real, read-only sources and ingest into the local app-state store —
+  ```sh
+  export QSR_CALIBRE_DB=/path/to/Calibre/metadata.db
+  export QSR_KOREADER_DB=/path/to/koreader/statistics.sqlite
+  # optional cross-device progress (key from the env, never a file):
+  export QSR_KOSYNC_HOST=https://sync.koreader.rocks QSR_KOSYNC_USER=you QSR_KOSYNC_KEY=…
+  qsr doctor     # validate paths + confirm read-only access (mutates nothing)
+  qsr refresh    # snapshot-first ingest into data/app-state.sqlite
+  uvicorn app.server:app   # serve the dashboard behind auth (set QSR_AUTH_TOKEN)
+  ```
+  Config can also live in `qsr.toml` (`[calibre] path=…`); env vars win. See [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
 - **Definition of done:** a single self-hosted dashboard shows your real cross-device reading state and stats from Calibre + KOReader, plus explainable recommendations from ethical sources — read-only against your libraries, private to your seedbox, all `/STANDARDS` gates green.
 
 ## Standards
