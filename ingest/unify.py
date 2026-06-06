@@ -111,7 +111,12 @@ def _progress_for(
 ) -> tuple[DeviceProgress, ...]:
     if stat is None or source is None or not stat.key:
         return ()
-    dp = source.progress_for(stat.key)
+    # Graceful degradation (reliability): if the kosync server is down or errors,
+    # fall back to KOReader stats rather than failing the whole dashboard.
+    try:
+        dp = source.progress_for(stat.key)
+    except Exception:  # noqa: BLE001 - any transport failure degrades to stats-only
+        return ()
     return (dp,) if dp is not None else ()
 
 

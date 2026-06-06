@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "queer-specfic-reader"
+name = "queer-the-stacks"
 version = "0.1.0"
 description = "A self-hosted, read-only reading dashboard + ethical recommender over your Calibre + KOReader stack."
 readme = "README.md"
@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-qsr = "ingest.cli:main"
+stacks = "ingest.cli:main"
 
 [tool.setuptools]
 packages = ["ingest", "recommender", "app"]
@@ -74,7 +74,7 @@ files = ["ingest", "recommender", "app"]
 
 [[tool.mypy.overrides]]
 # Third-party libs without stubs shipped here — don't fail strict on them.
-module = ["fastapi.*", "uvicorn.*", "starlette.*"]
+module = ["fastapi.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

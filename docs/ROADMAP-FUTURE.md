@@ -1,7 +1,14 @@
-# Queer & Spec-Fic Reader — Improvement & Expansion Plan
+# Queer the Stacks — Improvement & Expansion Plan
 
 > Forward-looking companion to `ROADMAP.md` (which covers the shipped M0–M6).
-> **Last verified: 2026-06-05 · Recheck cadence: per phase kickoff.**
+> **Last verified: 2026-06-06 · Recheck cadence: per phase kickoff.**
+>
+> **Status (2026-06-06): N1–N6 shipped.** All phases below are implemented with
+> `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
+> `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
+> follow-ups remain open and are noted inline: live-network contract cassettes, a
+> real (still-local) embedding model, Lighthouse/k6 in CI, and sidecar
+> highlight-*text* import.
 
 **Guiding constraint.** Every item below must hold the four hard guardrails or it
 does not ship:
@@ -23,9 +30,9 @@ The shipped build is demo-driven. Close the gap between "demo works" and "runs o
 your real library" before adding features.
 
 - **Real-library config + first-run wizard** — paths for Calibre/KOReader, kosync
-  host/user/key, storage dir; a `qsr doctor` that validates paths, confirms
+  host/user/key, storage dir; a `stacks doctor` that validates paths, confirms
   read-only access, and reports detected schema versions. *(Phase N1)*
-- **Persisted derived state** — a `data/` SQLite app-state store with a `qsr
+- **Persisted derived state** — a `data/` SQLite app-state store with a `stacks
   refresh` job and an "ingest only if the source mtime changed" guard; surface a
   "data as of …" freshness stamp. *(Phase N1)*
 - **Live-path contract tests** — the live `KosyncClient` / `OpenLibraryClient` are
@@ -110,7 +117,7 @@ your real library" before adding features.
 
 | Phase | Theme | Rationale |
 |-------|-------|-----------|
-| **N1** | Real-library config + persisted state + `qsr doctor` | Turns the demo into a tool you actually run |
+| **N1** | Real-library config + persisted state + `stacks doctor` | Turns the demo into a tool you actually run |
 | **N2** | Hardened live catalog adapters + curated-list pipeline | Real recs, real provenance |
 | **N3** | Hybrid + (optional, local) embedding recommender + richer eval | The differentiated core |
 | **N4** | Annotations, series/TBR, search/browse | Daily-driver depth |

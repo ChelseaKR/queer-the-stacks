@@ -28,8 +28,10 @@ class ReadingStats:
     current_streak_days: int
     longest_streak_days: int
     active_days: int
+    total_highlights: int = 0
     theme_mix: tuple[tuple[str, int], ...] = ()  # (theme label, count), desc
     top_authors: tuple[tuple[str, int], ...] = ()  # (author, finished count), desc
+    most_annotated: tuple[tuple[str, int], ...] = ()  # (title, highlight count), desc
 
     @property
     def read_time_hours(self) -> float:
@@ -88,6 +90,11 @@ def compute_stats(
 
     current, longest = _streaks(daily_activity, today_ordinal)
 
+    total_highlights = sum(s.stat.highlights for s in states if s.stat)
+    annotated = Counter(
+        {s.title: s.stat.highlights for s in states if s.stat and s.stat.highlights > 0}
+    )
+
     return ReadingStats(
         books_finished=len(finished),
         books_reading=len(reading),
@@ -96,6 +103,8 @@ def compute_stats(
         current_streak_days=current,
         longest_streak_days=longest,
         active_days=len({d.day_ordinal for d in daily_activity}),
+        total_highlights=total_highlights,
         theme_mix=tuple(theme_counter.most_common()),
         top_authors=tuple(author_counter.most_common(5)),
+        most_annotated=tuple(annotated.most_common(5)),
     )

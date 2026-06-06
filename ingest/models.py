@@ -155,6 +155,7 @@ class ReadingStat:
     read_time_seconds: int
     last_read_ts: int  # unix seconds; 0 if never opened
     sessions: int
+    highlights: int = 0  # count of KOReader highlights for this book
 
     @property
     def percent_complete(self) -> float:

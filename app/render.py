@@ -22,6 +22,8 @@ from html import escape
 
 from ingest.models import ReadingState, Recommendation
 
+from app.goals import Goal
+from app.shelf import SeriesNext
 from app.stats import ReadingStats
 from app.wrapped import Wrapped
 
@@ -62,6 +64,7 @@ def _stats_table(stats: ReadingStats) -> str:
             ("Current streak (days)", str(stats.current_streak_days)),
             ("Longest streak (days)", str(stats.longest_streak_days)),
             ("Active reading days", str(stats.active_days)),
+            ("Highlights", str(stats.total_highlights)),
         )
     )
     return (
@@ -177,6 +180,96 @@ th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
 """
 
 
+def _series_table(series_next: Sequence[SeriesNext]) -> str:
+    if not series_next:
+        return "<p>No series to continue right now.</p>"
+    rows = "".join(
+        f'<tr><th scope="row">{escape(s.title)}</th>'
+        f"<td>{escape(s.series)}</td>"
+        f"<td>{escape(', '.join(s.authors) or 'unknown')}</td></tr>"
+        for s in series_next
+    )
+    return (
+        "<table><caption>Unread books in series you've started</caption>"
+        '<thead><tr><th scope="col">Title</th><th scope="col">Series</th>'
+        f'<th scope="col">Author</th></tr></thead><tbody>{rows}</tbody></table>'
+    )
+
+
+def _monthly_table(wrapped: Wrapped) -> str:
+    if not wrapped.monthly:
+        return ""
+    names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    rows = "".join(
+        f'<tr><th scope="row">{names[m.month]}</th>'
+        f"<td>{m.pages}</td><td>{m.hours}</td><td>{m.days_read}</td></tr>"
+        for m in wrapped.monthly
+    )
+    return (
+        f"<table><caption>Monthly reading in {wrapped.year} "
+        f"(pace: {wrapped.pace_pages_per_day} pages per reading day)</caption>"
+        '<thead><tr><th scope="col">Month</th><th scope="col">Pages</th>'
+        '<th scope="col">Hours</th><th scope="col">Days</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
+def _goals_section(goals: Sequence[Goal]) -> str:
+    if not goals:
+        return ""
+    rows = "".join(
+        f'<tr><th scope="row">{escape(g.name)}</th>'
+        f"<td>{g.current} / {g.target}</td>"
+        f"<td>{g.pct:.0%}{' ✓ met' if g.met else ''}</td></tr>"
+        for g in goals
+    )
+    return (
+        "<h2>Goals</h2>"
+        "<table><caption>Your reading goals (set locally, shared with no one)</caption>"
+        '<thead><tr><th scope="col">Goal</th><th scope="col">Progress</th>'
+        f'<th scope="col">%</th></tr></thead><tbody>{rows}</tbody></table>'
+    )
+
+
+def _library_table(library: Sequence[ReadingState]) -> str:
+    if not library:
+        return "<p>Your library is empty.</p>"
+    rows = "".join(
+        f'<tr><th scope="row">{escape(s.title)}</th>'
+        f"<td>{escape(', '.join(s.authors) or 'unknown')}</td>"
+        f"<td>{escape(str(s.status))}</td>"
+        f"<td>{escape(', '.join(t.label for t in s.theme_tags) or '—')}</td></tr>"
+        for s in library
+    )
+    return (
+        '<table id="lib-table"><caption>Your library — browse by reading the rows, or '
+        "filter via the box above (or the /browse route)</caption><thead><tr>"
+        '<th scope="col">Title</th><th scope="col">Author</th>'
+        '<th scope="col">Status</th><th scope="col">Themes (sourced)</th>'
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
+# Progressive enhancement: filters the library table client-side. The page is
+# fully usable without it (every row is server-rendered; /browse filters too).
+# Deliberately contains no "<" so the static a11y parser reads it cleanly.
+_FILTER_JS = (
+    "<script>"
+    "(function(){"
+    "var i=document.getElementById('lib-filter');"
+    "var t=document.getElementById('lib-table');"
+    "if(!i||!t||!t.tBodies.length){return;}"
+    "i.addEventListener('input',function(){"
+    "var q=i.value.toLowerCase();var rows=t.tBodies[0].rows;"
+    "for(var r=0;r!==rows.length;r++){"
+    "var hay=rows[r].textContent.toLowerCase();"
+    "rows[r].hidden=(q!==''&&hay.indexOf(q)===-1);"
+    "}});"
+    "})();"
+    "</script>"
+)
+
+
 def render_dashboard(
     currently_reading: Sequence[ReadingState],
     finished: Sequence[ReadingState],
@@ -184,6 +277,10 @@ def render_dashboard(
     wrapped: Wrapped,
     recommendations: Sequence[Recommendation],
     *,
+    series_next: Sequence[SeriesNext] = (),
+    to_read: Sequence[ReadingState] = (),
+    library: Sequence[ReadingState] = (),
+    goals: Sequence[Goal] = (),
     user: str = "demo",
 ) -> str:
     """Render the complete, accessible dashboard document."""
@@ -196,14 +293,17 @@ def render_dashboard(
     rec_cards = "".join(_rec_card(r) for r in recommendations) or (
         "<p>No recommendations yet — read a few books to seed your taste.</p>"
     )
+    tbr_items = "".join(_reading_item(s) for s in to_read[:10]) or (
+        "<li>Nothing on your to-read shelf.</li>"
+    )
     return (
         "<!doctype html>"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        "<title>Queer &amp; Spec-Fic Reader — your reading dashboard</title>"
+        "<title>Queer the Stacks — your reading dashboard</title>"
         f"<style>{_STYLE}</style></head><body>"
         '<a class="skip" href="#main">Skip to your reading dashboard</a>'
-        "<header><h1>Queer &amp; Spec-Fic Reader</h1>"
+        "<header><h1>Queer the Stacks</h1>"
         f"<p>Your private reading dashboard, {escape(user)} — unified read-only from "
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
         "catalogs. Reading data never leaves this instance.</p></header>"
@@ -217,11 +317,24 @@ def render_dashboard(
         f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
         f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"
         f"{_wrapped_table(wrapped)}"
+        f"{_monthly_table(wrapped)}"
+        f"{_goals_section(goals)}"
+        "<h2>Up next in your series</h2>"
+        f"{_series_table(series_next)}"
+        "<h2>To-read shelf</h2>"
+        f'<ul class="books">{tbr_items}</ul>'
         "<h2>Recommended for you</h2>"
         "<p>Every pick shows why it surfaced and the source it came from.</p>"
         f"{_rec_table(recommendations)}"
         f"{rec_cards}"
         "<h2>Recently finished</h2>"
         f'<ul class="books">{finished_items}</ul>'
+        "<h2>Browse your library</h2>"
+        '<p><label for="lib-filter">Filter the table below '
+        "(works without JavaScript via the /browse route):</label> "
+        '<input id="lib-filter" type="text" autocomplete="off" '
+        'placeholder="type a title, author, or theme"></p>'
+        f"{_library_table(library)}"
+        f"{_FILTER_JS}"
         "</main></body></html>"
     )

@@ -1,1 +1,1 @@
-"""Test suite for queer-specfic-reader."""
+"""Test suite for queer-the-stacks."""

@@ -31,3 +31,22 @@ make that impossible and the tests that enforce them.
 
 **Metric:** writes to Calibre/KOReader source DBs = **0** — enforced by the hash
 equality assertion above. Status: ✅ green.
+
+## Defence in depth (deployment)
+
+The container mounts the real libraries **read-only** (`:ro` in
+`docker-compose.yml`), so even a hypothetical write attempt is refused by the
+kernel — belt-and-braces with the in-code snapshot-first read-only access.
+
+## Reliability (Quality §5)
+
+- **Restart recovery:** derived state persists in the app-state store; the app
+  re-reads it after a restart without re-touching the libraries
+  (`tests/test_reliability.py::test_restart_recovery`).
+- **Graceful degradation:** if the KOReader sync server is unreachable, unify
+  falls back to KOReader stats rather than failing
+  (`tests/test_reliability.py::test_kosync_down_degrades_to_stats`).
+- **Schema drift:** older/variant Calibre + KOReader schemas still ingest
+  (`tests/test_schema_drift.py`).
+- **Backups:** `stacks backup` / `stacks restore` for the app-state store
+  (`tests/test_backup.py`).

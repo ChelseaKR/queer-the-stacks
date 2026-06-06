@@ -15,9 +15,9 @@ def _real_config(tmp_path: Path) -> Config:
     metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
     return load_config(
         env={
-            "QSR_CALIBRE_DB": str(metadata_db),
-            "QSR_KOREADER_DB": str(statistics_db),
-            "QSR_DATA_DIR": str(tmp_path / "data"),
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
         },
         config_path=tmp_path / "absent.toml",
     )
@@ -25,7 +25,7 @@ def _real_config(tmp_path: Path) -> Config:
 
 def test_demo_refresh_populates_store(tmp_path: Path) -> None:
     cfg = load_config(
-        env={"QSR_DEMO": "1", "QSR_DATA_DIR": str(tmp_path / "data")},
+        env={"STACKS_DEMO": "1", "STACKS_DATA_DIR": str(tmp_path / "data")},
         config_path=tmp_path / "absent.toml",
     )
     with Store(cfg.store_path) as store:
@@ -64,7 +64,7 @@ def test_mtime_guard_skips_unchanged(tmp_path: Path) -> None:
 
 def test_source_mtimes_only_existing(tmp_path: Path) -> None:
     cfg = load_config(
-        env={"QSR_CALIBRE_DB": str(tmp_path / "missing.db")},
+        env={"STACKS_CALIBRE_DB": str(tmp_path / "missing.db")},
         config_path=tmp_path / "absent.toml",
     )
     assert source_mtimes(cfg) == {}  # file does not exist
@@ -83,7 +83,10 @@ def test_doctor_real_sources_ok(tmp_path: Path) -> None:
 
 def test_doctor_flags_missing_file(tmp_path: Path) -> None:
     cfg = load_config(
-        env={"QSR_CALIBRE_DB": str(tmp_path / "nope.db"), "QSR_DATA_DIR": str(tmp_path / "d")},
+        env={
+            "STACKS_CALIBRE_DB": str(tmp_path / "nope.db"),
+            "STACKS_DATA_DIR": str(tmp_path / "d"),
+        },
         config_path=tmp_path / "absent.toml",
     )
     checks = doctor(cfg)
@@ -92,7 +95,7 @@ def test_doctor_flags_missing_file(tmp_path: Path) -> None:
 
 
 def test_doctor_demo_mode(tmp_path: Path) -> None:
-    cfg = load_config(env={"QSR_DEMO": "1"}, config_path=tmp_path / "absent.toml")
+    cfg = load_config(env={"STACKS_DEMO": "1"}, config_path=tmp_path / "absent.toml")
     checks = doctor(cfg)
     mode = next(c for c in checks if c.name == "mode")
     assert "demo" in mode.detail
@@ -116,7 +119,7 @@ def test_view_from_store_renders(tmp_path: Path) -> None:
     from app.view import view_from_store
 
     cfg = load_config(
-        env={"QSR_DEMO": "1", "QSR_DATA_DIR": str(tmp_path / "data")},
+        env={"STACKS_DEMO": "1", "STACKS_DATA_DIR": str(tmp_path / "data")},
         config_path=tmp_path / "absent.toml",
     )
     with Store(cfg.store_path) as store:

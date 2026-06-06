@@ -3,8 +3,8 @@
 Resolution order (later overrides earlier):
 
 1. built-in defaults (demo off, ``data/`` for app state + snapshots),
-2. a TOML config file (``qsr.toml`` by default, or ``$QSR_CONFIG``),
-3. ``QSR_*`` environment variables.
+2. a TOML config file (``stacks.toml`` by default, or ``$STACKS_CONFIG``),
+3. ``STACKS_*`` environment variables.
 
 Secrets (the kosync key) come from the environment only, never a committed file.
 Nothing here opens a database or the network — it only resolves paths and flags,
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_CONFIG_FILE = "qsr.toml"
+DEFAULT_CONFIG_FILE = "stacks.toml"
 DEFAULT_DATA_DIR = Path("data")
 
 
@@ -35,6 +35,12 @@ class Config:
     kosync_user: Optional[str]
     kosync_key: Optional[str]  # md5 key, from the environment only
     demo: bool
+    aperture_strength: float = 0.0  # boost-only discovery-widening lens (0 = off)
+    embeddings_enabled: bool = False  # optional, strictly-local semantic signal
+    dnf_signals: bool = False  # opt-in soft down-weighting of stalled themes
+    goal_books: int = 0  # yearly book goal (0 = unset)
+    goal_pages: int = 0  # yearly page goal (0 = unset)
+    goal_streak_days: int = 0  # streak goal in days (0 = unset)
 
     @property
     def store_path(self) -> Path:
@@ -76,10 +82,10 @@ def load_config(
     env: Optional[Mapping[str, str]] = None,
     config_path: Optional[Path] = None,
 ) -> Config:
-    """Resolve configuration from a TOML file overlaid with ``QSR_*`` env vars."""
+    """Resolve configuration from a TOML file overlaid with ``STACKS_*`` env vars."""
     resolved_env: Mapping[str, str] = os.environ if env is None else env
 
-    path = config_path or Path(resolved_env.get("QSR_CONFIG", DEFAULT_CONFIG_FILE))
+    path = config_path or Path(resolved_env.get("STACKS_CONFIG", DEFAULT_CONFIG_FILE))
     toml = _read_toml(path)
     calibre = _section(toml, "calibre")
     koreader = _section(toml, "koreader")
@@ -92,14 +98,36 @@ def load_config(
         raw = section.get(key)
         return str(raw) if isinstance(raw, (str, int)) else None
 
-    data_dir = _opt_path(pick("QSR_DATA_DIR", storage, "data_dir")) or DEFAULT_DATA_DIR
+    data_dir = _opt_path(pick("STACKS_DATA_DIR", storage, "data_dir")) or DEFAULT_DATA_DIR
+    rec = _section(toml, "recommender")
+
+    aperture_raw = pick("STACKS_APERTURE", rec, "aperture_strength")
+    try:
+        aperture = max(0.0, min(1.0, float(aperture_raw))) if aperture_raw else 0.0
+    except ValueError:
+        aperture = 0.0
+
+    goals = _section(toml, "goals")
+
+    def pick_int(env_key: str, key: str) -> int:
+        raw = pick(env_key, goals, key)
+        try:
+            return max(0, int(raw)) if raw else 0
+        except ValueError:
+            return 0
 
     return Config(
-        calibre_db=_opt_path(pick("QSR_CALIBRE_DB", calibre, "path")),
-        koreader_db=_opt_path(pick("QSR_KOREADER_DB", koreader, "path")),
+        calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
+        koreader_db=_opt_path(pick("STACKS_KOREADER_DB", koreader, "path")),
         data_dir=data_dir,
-        kosync_host=pick("QSR_KOSYNC_HOST", kosync, "host"),
-        kosync_user=pick("QSR_KOSYNC_USER", kosync, "user"),
-        kosync_key=resolved_env.get("QSR_KOSYNC_KEY") or None,  # secret: env only
-        demo=resolved_env.get("QSR_DEMO") == "1",
+        kosync_host=pick("STACKS_KOSYNC_HOST", kosync, "host"),
+        kosync_user=pick("STACKS_KOSYNC_USER", kosync, "user"),
+        kosync_key=resolved_env.get("STACKS_KOSYNC_KEY") or None,  # secret: env only
+        demo=resolved_env.get("STACKS_DEMO") == "1",
+        aperture_strength=aperture,
+        embeddings_enabled=resolved_env.get("STACKS_EMBEDDINGS") == "1",
+        dnf_signals=resolved_env.get("STACKS_DNF_SIGNALS") == "1",
+        goal_books=pick_int("STACKS_GOAL_BOOKS", "books"),
+        goal_pages=pick_int("STACKS_GOAL_PAGES", "pages"),
+        goal_streak_days=pick_int("STACKS_GOAL_STREAK", "streak_days"),
     )

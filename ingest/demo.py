@@ -173,6 +173,22 @@ _OWNED: tuple[_OwnedBook, ...] = (
         "Kobo",
         0.47,
     ),
+    # Owned but unread — the next book in a series you've started (Earthseed).
+    _OwnedBook(
+        "Parable of the Talents",
+        "Octavia E. Butler",
+        "Butler, Octavia E.",
+        ("speculative", "science fiction", "dystopia"),
+        "Earthseed",
+        365,
+        0,
+        0,
+        0,
+        0,
+        "md5-butler-talents",
+        "Calibre",
+        0.0,
+    ),
 )
 
 
@@ -266,7 +282,7 @@ def build_koreader_db(path: Path) -> Path:
                     ob.author,
                     0,
                     ob.last_open,
-                    0,
+                    ob.sessions * 2,  # demo highlight count
                     ob.total_pages,
                     ob.series or "",
                     "en",
@@ -276,7 +292,10 @@ def build_koreader_db(path: Path) -> Path:
                 ),
             )
             # Synthesize page views forming `sessions` clusters, so session
-            # reconstruction in ingest.koreader has real data to group.
+            # reconstruction in ingest.koreader has real data to group. Unread
+            # books (0 pages / 0 sessions) get no page rows.
+            if ob.pages_read == 0 or ob.sessions == 0:
+                continue
             per = max(1, ob.pages_read // ob.sessions)
             page = 1
             base = ob.last_open - ob.read_time_seconds
