@@ -16,6 +16,7 @@ from recommender.eval import PopCandidate
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 
+from app.shelf import SeriesNext, series_continuations, to_read
 from app.stats import ReadingStats, compute_stats
 from app.wrapped import Wrapped, compute_wrapped
 
@@ -29,6 +30,9 @@ class DashboardView:
     stats: ReadingStats
     wrapped: Wrapped
     recommendations: tuple[Recommendation, ...]
+    series_next: tuple[SeriesNext, ...] = ()
+    to_read: tuple[ReadingState, ...] = ()
+    library: tuple[ReadingState, ...] = ()
     user: str = "demo"
 
 
@@ -69,13 +73,34 @@ def build_view(
         use_embeddings=use_embeddings,
         dnf_signals=dnf_signals,
     )
+    library = sorted(states, key=lambda s: (s.title.lower(), s.authors))
     return DashboardView(
         currently_reading=tuple(currently_reading(states)),
         finished=tuple(finished(states)),
         stats=stats,
         wrapped=wrapped,
         recommendations=tuple(recs),
+        series_next=tuple(series_continuations(states)),
+        to_read=tuple(to_read(states)),
+        library=tuple(library),
         user=user,
+    )
+
+
+def render_view(view: DashboardView) -> str:
+    """Render a :class:`DashboardView` to HTML (one place, used everywhere)."""
+    from app.render import render_dashboard
+
+    return render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        series_next=view.series_next,
+        to_read=view.to_read,
+        library=view.library,
+        user=view.user,
     )
 
 

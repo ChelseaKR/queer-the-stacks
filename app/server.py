@@ -23,8 +23,7 @@ from ingest.refresh import refresh
 from ingest.store import Store
 
 from app.auth import check_credentials
-from app.render import render_dashboard
-from app.view import DashboardView, view_from_store
+from app.view import DashboardView, render_view, view_from_store
 
 
 def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
@@ -67,16 +66,30 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
     def dashboard() -> HTMLResponse:
+        return HTMLResponse(content=render_view(_load_view()))
+
+    @app.get("/browse", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+    def browse(
+        theme: Optional[str] = None,
+        author: Optional[str] = None,
+        series: Optional[str] = None,
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+    ) -> HTMLResponse:
+        import dataclasses
+
+        from app.browse import filter_states
+
         view = _load_view()
-        html = render_dashboard(
-            view.currently_reading,
-            view.finished,
-            view.stats,
-            view.wrapped,
-            view.recommendations,
-            user=view.user,
+        filtered = filter_states(
+            list(view.library),
+            theme=theme,
+            author=author,
+            series=series,
+            status=status,
+            q=q,
         )
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
 
     return app
 

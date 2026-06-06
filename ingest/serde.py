@@ -84,6 +84,7 @@ def _stat_to_dict(s: ReadingStat) -> dict[str, Any]:
         "read_time_seconds": s.read_time_seconds,
         "last_read_ts": s.last_read_ts,
         "sessions": s.sessions,
+        "highlights": s.highlights,
     }
 
 
@@ -97,6 +98,7 @@ def _stat_from_dict(d: dict[str, Any]) -> ReadingStat:
         read_time_seconds=d["read_time_seconds"],
         last_read_ts=d["last_read_ts"],
         sessions=d["sessions"],
+        highlights=d.get("highlights", 0),
     )
 
 

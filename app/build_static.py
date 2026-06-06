@@ -10,8 +10,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from app.render import render_dashboard
-from app.view import demo_view
+from app.view import demo_view, render_view
 
 DEFAULT_OUT = Path("docs/audits/dashboard.html")
 
@@ -19,14 +18,7 @@ DEFAULT_OUT = Path("docs/audits/dashboard.html")
 def build(out: Path = DEFAULT_OUT) -> Path:
     with tempfile.TemporaryDirectory(prefix="stacks-demo-") as tmp:
         view = demo_view(Path(tmp))
-    html = render_dashboard(
-        view.currently_reading,
-        view.finished,
-        view.stats,
-        view.wrapped,
-        view.recommendations,
-        user=view.user,
-    )
+    html = render_view(view)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     return out

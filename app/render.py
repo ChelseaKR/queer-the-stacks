@@ -22,6 +22,7 @@ from html import escape
 
 from ingest.models import ReadingState, Recommendation
 
+from app.shelf import SeriesNext
 from app.stats import ReadingStats
 from app.wrapped import Wrapped
 
@@ -62,6 +63,7 @@ def _stats_table(stats: ReadingStats) -> str:
             ("Current streak (days)", str(stats.current_streak_days)),
             ("Longest streak (days)", str(stats.longest_streak_days)),
             ("Active reading days", str(stats.active_days)),
+            ("Highlights", str(stats.total_highlights)),
         )
     )
     return (
@@ -177,6 +179,41 @@ th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
 """
 
 
+def _series_table(series_next: Sequence[SeriesNext]) -> str:
+    if not series_next:
+        return "<p>No series to continue right now.</p>"
+    rows = "".join(
+        f'<tr><th scope="row">{escape(s.title)}</th>'
+        f"<td>{escape(s.series)}</td>"
+        f"<td>{escape(', '.join(s.authors) or 'unknown')}</td></tr>"
+        for s in series_next
+    )
+    return (
+        "<table><caption>Unread books in series you've started</caption>"
+        '<thead><tr><th scope="col">Title</th><th scope="col">Series</th>'
+        f'<th scope="col">Author</th></tr></thead><tbody>{rows}</tbody></table>'
+    )
+
+
+def _library_table(library: Sequence[ReadingState]) -> str:
+    if not library:
+        return "<p>Your library is empty.</p>"
+    rows = "".join(
+        f'<tr><th scope="row">{escape(s.title)}</th>'
+        f"<td>{escape(', '.join(s.authors) or 'unknown')}</td>"
+        f"<td>{escape(str(s.status))}</td>"
+        f"<td>{escape(', '.join(t.label for t in s.theme_tags) or '—')}</td></tr>"
+        for s in library
+    )
+    return (
+        "<table><caption>Your library — browse by reading the rows, or filter via "
+        "the /browse route</caption><thead><tr>"
+        '<th scope="col">Title</th><th scope="col">Author</th>'
+        '<th scope="col">Status</th><th scope="col">Themes (sourced)</th>'
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
 def render_dashboard(
     currently_reading: Sequence[ReadingState],
     finished: Sequence[ReadingState],
@@ -184,6 +221,9 @@ def render_dashboard(
     wrapped: Wrapped,
     recommendations: Sequence[Recommendation],
     *,
+    series_next: Sequence[SeriesNext] = (),
+    to_read: Sequence[ReadingState] = (),
+    library: Sequence[ReadingState] = (),
     user: str = "demo",
 ) -> str:
     """Render the complete, accessible dashboard document."""
@@ -195,6 +235,9 @@ def render_dashboard(
     )
     rec_cards = "".join(_rec_card(r) for r in recommendations) or (
         "<p>No recommendations yet — read a few books to seed your taste.</p>"
+    )
+    tbr_items = "".join(_reading_item(s) for s in to_read[:10]) or (
+        "<li>Nothing on your to-read shelf.</li>"
     )
     return (
         "<!doctype html>"
@@ -217,11 +260,17 @@ def render_dashboard(
         f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
         f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"
         f"{_wrapped_table(wrapped)}"
+        "<h2>Up next in your series</h2>"
+        f"{_series_table(series_next)}"
+        "<h2>To-read shelf</h2>"
+        f'<ul class="books">{tbr_items}</ul>'
         "<h2>Recommended for you</h2>"
         "<p>Every pick shows why it surfaced and the source it came from.</p>"
         f"{_rec_table(recommendations)}"
         f"{rec_cards}"
         "<h2>Recently finished</h2>"
         f'<ul class="books">{finished_items}</ul>'
+        "<h2>Browse your library</h2>"
+        f"{_library_table(library)}"
         "</main></body></html>"
     )

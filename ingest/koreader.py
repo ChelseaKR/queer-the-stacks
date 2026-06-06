@@ -74,6 +74,9 @@ def read_stats(conn: sqlite3.Connection) -> list[ReadingStat]:
             else 0
         )
         last_open = int(r["last_open"]) if "last_open" in cols and r["last_open"] is not None else 0
+        highlights = (
+            int(r["highlights"]) if "highlights" in cols and r["highlights"] is not None else 0
+        )
         stats.append(
             ReadingStat(
                 key=md5 or _title_key(title, authors),
@@ -84,6 +87,7 @@ def read_stats(conn: sqlite3.Connection) -> list[ReadingStat]:
                 read_time_seconds=read_time,
                 last_read_ts=last_open,
                 sessions=_count_sessions(conn, id_book),
+                highlights=highlights,
             )
         )
     return stats
