@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Reading data is SENSITIVE and local-first — snapshots of your real libraries
+# and any derived app state are never committed (privacy: it can out a reader).
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+snapshots/
+
+# Secrets — kosync keys / API tokens live in the environment / .env, never source
+.env
+*.secret
+
+# Generated a11y raw dumps are not committed; the curated audit md/html are.
+docs/audits/pa11y-raw.json
+node_modules/

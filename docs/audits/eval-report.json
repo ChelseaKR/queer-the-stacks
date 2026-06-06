@@ -1,0 +1,23 @@
+{
+  "k": 5,
+  "n_positives": 5,
+  "models": {
+    "content": {
+      "model": "content",
+      "k": 5,
+      "precision_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "map_at_k": 1.0,
+      "n_positives": 5
+    },
+    "popularity": {
+      "model": "popularity",
+      "k": 5,
+      "precision_at_k": 0.4,
+      "recall_at_k": 0.4,
+      "map_at_k": 0.13,
+      "n_positives": 5
+    }
+  },
+  "content_beats_popularity": true
+}

@@ -1,0 +1,74 @@
+name: ci
+
+# Mirrors QUALITY-AND-METRICS-STANDARD §"enforcement pipeline". Every stage is
+# blocking; a merge to main requires this workflow green (branch protection, no
+# admin bypass). `make verify` runs the same stages locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Set up Node (for the pa11y/axe a11y runner)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install project (dev + app extras)
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev,app]"
+          npm install -g pa11y
+
+      # 1. format + lint (ruff, incl. bandit SAST subset)
+      - name: Lint
+        run: make lint PYTHON=python
+
+      # 2. strict type-check
+      - name: Type-check
+        run: make typecheck PYTHON=python
+
+      # 3. unit + integration tests + coverage gate (>=85%)
+      - name: Tests
+        run: make test PYTHON=python
+
+      # 4a. dependency vulnerability scan (accepted advisories tracked in
+      #     docs/audits/residual-risk.md; the Makefile carries the ignore list)
+      - name: Dependency audit
+        run: make security PYTHON=python
+
+      # 4b. secret scan (dedicated, merge-blocking)
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 5. accessibility — zero axe violations on the rendered dashboard
+      - name: Accessibility
+        run: make a11y PYTHON=python
+
+      # 7. responsible-tech: offline eval must beat the popularity baseline
+      - name: Eval
+        run: make eval PYTHON=python
+
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-artifacts
+          path: docs/audits/
