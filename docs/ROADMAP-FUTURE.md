@@ -1,7 +1,14 @@
 # Queer the Stacks — Improvement & Expansion Plan
 
 > Forward-looking companion to `ROADMAP.md` (which covers the shipped M0–M6).
-> **Last verified: 2026-06-05 · Recheck cadence: per phase kickoff.**
+> **Last verified: 2026-06-06 · Recheck cadence: per phase kickoff.**
+>
+> **Status (2026-06-06): N1–N6 shipped.** All phases below are implemented with
+> `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
+> `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
+> follow-ups remain open and are noted inline: live-network contract cassettes, a
+> real (still-local) embedding model, Lighthouse/k6 in CI, and sidecar
+> highlight-*text* import.
 
 **Guiding constraint.** Every item below must hold the four hard guardrails or it
 does not ship:
