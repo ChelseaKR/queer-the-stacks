@@ -35,10 +35,12 @@ def _demo_states_and_candidates() -> tuple[
 
 def _cmd_eval(args: argparse.Namespace) -> int:
     from recommender.eval import evaluate, to_report
+    from recommender.hybrid import recommend_hybrid
 
     states, candidates, lists = _demo_states_and_candidates()
     results = evaluate(states, list(candidates), lists=lists, k=args.k)
-    report = to_report(results)
+    top = recommend_hybrid(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
+    report = to_report(results, top_books=[r.book for r in top], k=args.k)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")

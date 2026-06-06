@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from ingest.models import Author, Book, Source, SourceKind, ThemeTag
 from recommender.eval import (
     average_precision_at_k,
     evaluate,
+    intra_list_diversity,
+    ndcg_at_k,
     popularity_ranking,
     precision_recall_at_k,
     to_report,
@@ -48,3 +51,42 @@ def test_report_is_deterministic(states: list, candidates: tuple, lists: tuple) 
     a = to_report(evaluate(states, list(candidates), lists=lists, k=5))
     b = to_report(evaluate(states, list(candidates), lists=lists, k=5))
     assert a == b
+
+
+def test_hybrid_is_evaluated(states: list, candidates: tuple, lists: tuple) -> None:
+    results = evaluate(states, list(candidates), lists=lists, k=5)
+    assert "hybrid" in results
+    assert results["hybrid"].ndcg_at_k > results["popularity"].ndcg_at_k
+
+
+def test_ndcg_rewards_higher_ranks() -> None:
+    pos = {"a", "b"}
+    top = ndcg_at_k(["a", "b", "x"], pos, 3)
+    bottom = ndcg_at_k(["x", "a", "b"], pos, 3)
+    assert top == 1.0
+    assert bottom < top
+    assert ndcg_at_k(["x"], set(), 3) == 0.0
+
+
+def _book(bid: str, *themes: str) -> Book:
+    src = Source(SourceKind.OPENLIBRARY_SUBJECT, "https://openlibrary.org/x", "2026-06-05")
+    return Book(
+        book_id=bid,
+        title=bid,
+        authors=(Author("A"),),
+        theme_tags=tuple(ThemeTag(t, src) for t in themes),
+    )
+
+
+def test_intra_list_diversity() -> None:
+    same = [_book("1", "trans"), _book("2", "trans")]
+    varied = [_book("1", "trans"), _book("2", "space opera")]
+    assert intra_list_diversity(same, 5) < intra_list_diversity(varied, 5)
+    assert intra_list_diversity([], 5) == 0.0
+
+
+def test_report_includes_diversity(states: list, candidates: tuple, lists: tuple) -> None:
+    results = evaluate(states, list(candidates), lists=lists, k=5)
+    books = [c.book for c in candidates]
+    report = to_report(results, top_books=books, k=5)
+    assert "intra_list_diversity_at_k" in report

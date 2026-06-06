@@ -13,8 +13,8 @@ from pathlib import Path
 from ingest.models import DailyActivity, ReadingState, Recommendation
 from ingest.unify import currently_reading, finished
 from recommender.eval import PopCandidate
+from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
-from recommender.model import recommend
 
 from app.stats import ReadingStats, compute_stats
 from app.wrapped import Wrapped, compute_wrapped
@@ -51,13 +51,24 @@ def build_view(
     *,
     lists: tuple[CuratedList, ...] = (),
     user: str = "demo",
+    aperture_strength: float = 0.0,
+    use_embeddings: bool = False,
+    dnf_signals: bool = False,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure)."""
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
     stats = compute_stats(states, daily_activity, today_ordinal)
     wrapped = compute_wrapped(states, daily_activity, year)
     candidate_books = tuple(c.book for c in candidates)  # type: ignore[attr-defined]
-    recs = recommend(states, candidate_books, lists=lists, k=10)
+    recs = recommend_hybrid(
+        states,
+        candidate_books,
+        lists=lists,
+        k=10,
+        aperture_strength=aperture_strength,
+        use_embeddings=use_embeddings,
+        dnf_signals=dnf_signals,
+    )
     return DashboardView(
         currently_reading=tuple(currently_reading(states)),
         finished=tuple(finished(states)),
@@ -68,18 +79,35 @@ def build_view(
     )
 
 
-def view_from_store(store: object, *, user: str = "you") -> DashboardView:
+def view_from_store(
+    store: object,
+    *,
+    user: str = "you",
+    aperture_strength: float = 0.0,
+    use_embeddings: bool = False,
+    dnf_signals: bool = False,
+) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
-    Recommendations are drawn from the built-in curated seed catalog (real books
-    on cited community lists); live catalog adapters arrive in phase N2.
+    Recommendations draw on the built-in curated seed catalog (real books on cited
+    community lists) plus the hybrid signals; live catalog candidate pools land
+    when configured (phase N2 adapters).
     """
     from ingest.demo import demo_candidates
     from recommender.lists import DEMO_LISTS
 
     states = store.load_states()  # type: ignore[attr-defined]
     activity = store.load_daily_activity()  # type: ignore[attr-defined]
-    return build_view(states, activity, demo_candidates(), lists=DEMO_LISTS, user=user)
+    return build_view(
+        states,
+        activity,
+        demo_candidates(),
+        lists=DEMO_LISTS,
+        user=user,
+        aperture_strength=aperture_strength,
+        use_embeddings=use_embeddings,
+        dnf_signals=dnf_signals,
+    )
 
 
 def demo_view(workdir: Path) -> DashboardView:

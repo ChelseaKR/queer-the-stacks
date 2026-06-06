@@ -36,8 +36,18 @@ class TasteProfile:
         return math.sqrt(sum(w * w for w in self.theme_weights.values()))
 
 
-def build_taste_profile(states: list[ReadingState]) -> TasteProfile:
-    """Weight each sourced theme by how completely its books were read."""
+#: A reading book stalled below this completion is treated as a soft DNF.
+DNF_MAX_PCT = 0.2
+
+
+def build_taste_profile(states: list[ReadingState], *, dnf_signals: bool = False) -> TasteProfile:
+    """Weight each sourced theme by how completely its books were read.
+
+    With ``dnf_signals`` on (opt-in), a book stalled below :data:`DNF_MAX_PCT`
+    contributes a *gentle negative* weight to its themes — a soft "less of this,
+    please" — instead of a positive one. Off by default; finished books always
+    dominate, so this only nudges.
+    """
     weights: dict[str, float] = {}
     finished_authors: set[str] = set()
     owned: set[str] = set()
@@ -45,12 +55,15 @@ def build_taste_profile(states: list[ReadingState]) -> TasteProfile:
         owned.add(normalize_key(s.title, s.authors))
         if s.status is ReadingStatus.UNREAD:
             continue
-        # Finished books count fully; in-progress books count by progress.
-        weight = 1.0 if s.status is ReadingStatus.FINISHED else max(0.1, s.percent_complete)
+        if s.status is ReadingStatus.FINISHED:
+            weight = 1.0
+            finished_authors.update(s.authors)
+        elif dnf_signals and s.percent_complete < DNF_MAX_PCT:
+            weight = -0.5  # soft DNF: nudge away from these themes
+        else:
+            weight = max(0.1, s.percent_complete)
         for tag in s.theme_tags:
             weights[tag.normalized] = weights.get(tag.normalized, 0.0) + weight
-        if s.status is ReadingStatus.FINISHED:
-            finished_authors.update(s.authors)
     return TasteProfile(
         theme_weights=weights,
         finished_authors=frozenset(finished_authors),

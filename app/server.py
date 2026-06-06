@@ -47,7 +47,13 @@ def _load_view() -> DashboardView:
     try:
         if not store.is_populated:
             refresh(config, store, now=int(time.time()))
-        return view_from_store(store, user="demo" if config.demo else "you")
+        return view_from_store(
+            store,
+            user="demo" if config.demo else "you",
+            aperture_strength=config.aperture_strength,
+            use_embeddings=config.embeddings_enabled,
+            dnf_signals=config.dnf_signals,
+        )
     finally:
         store.close()
 

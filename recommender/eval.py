@@ -45,6 +45,7 @@ class EvalResult:
     precision_at_k: float
     recall_at_k: float
     map_at_k: float
+    ndcg_at_k: float
     n_positives: int
 
 
@@ -70,6 +71,36 @@ def average_precision_at_k(ranked: list[str], positives: set[str], k: int) -> fl
     return cumulative / min(len(positives), k)
 
 
+def ndcg_at_k(ranked: list[str], positives: set[str], k: int) -> float:
+    """Binary-relevance nDCG@k: rewards putting positives higher in the ranking."""
+    import math
+
+    if not positives:
+        return 0.0
+    dcg = sum(
+        1.0 / math.log2(i + 1) for i, bid in enumerate(ranked[:k], start=1) if bid in positives
+    )
+    ideal = sum(1.0 / math.log2(i + 1) for i in range(1, min(len(positives), k) + 1))
+    return dcg / ideal if ideal else 0.0
+
+
+def intra_list_diversity(books: list[Book], k: int) -> float:
+    """1 - mean pairwise Jaccard similarity of theme sets across the top-k.
+
+    Higher = a more thematically varied slate (the anti-monoculture metric).
+    """
+    top = books[:k]
+    tagsets = [b.tag_labels for b in top]
+    pairs = [(a, b) for i, a in enumerate(tagsets) for b in tagsets[i + 1 :]]
+    if not pairs:
+        return 0.0
+    sims = []
+    for a, b in pairs:
+        union = a | b
+        sims.append(len(a & b) / len(union) if union else 0.0)
+    return round(1.0 - sum(sims) / len(sims), 4)
+
+
 def _score(model: str, ranked: list[str], positives: set[str], k: int) -> EvalResult:
     precision, recall = precision_recall_at_k(ranked, positives, k)
     return EvalResult(
@@ -78,6 +109,7 @@ def _score(model: str, ranked: list[str], positives: set[str], k: int) -> EvalRe
         precision_at_k=round(precision, 4),
         recall_at_k=round(recall, 4),
         map_at_k=round(average_precision_at_k(ranked, positives, k), 4),
+        ndcg_at_k=round(ndcg_at_k(ranked, positives, k), 4),
         n_positives=len(positives),
     )
 
@@ -96,21 +128,28 @@ def evaluate(
     k: int = 5,
 ) -> dict[str, EvalResult]:
     """Run the content model and the popularity baseline on the same candidates."""
+    from recommender.hybrid import recommend_hybrid
+
     positives = {c.book.book_id for c in candidates if c.on_canon}
     books = tuple(c.book for c in candidates)
     content_ranked = ranked_ids(states, books, lists=lists)
+    hybrid_recs = recommend_hybrid(states, books, lists=lists, k=len(books), aperture_strength=0.0)
+    hybrid_ranked = [r.book.book_id for r in hybrid_recs]
     pop_ranked = popularity_ranking(candidates)
     return {
         "content": _score("content", content_ranked, positives, k),
+        "hybrid": _score("hybrid", hybrid_ranked, positives, k),
         "popularity": _score("popularity", pop_ranked, positives, k),
     }
 
 
-def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
+def to_report(
+    results: dict[str, EvalResult], *, top_books: list[Book] | None = None, k: int = 5
+) -> dict[str, object]:
     """A JSON-able report (the committed eval artifact)."""
     content = results["content"]
     popularity = results["popularity"]
-    return {
+    report: dict[str, object] = {
         "k": content.k,
         "n_positives": content.n_positives,
         "models": {name: asdict(res) for name, res in results.items()},
@@ -122,3 +161,6 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
             )
         ),
     }
+    if top_books is not None:
+        report["intra_list_diversity_at_k"] = intra_list_diversity(top_books, k)
+    return report

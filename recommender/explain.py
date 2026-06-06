@@ -8,8 +8,9 @@ list the book appears on — with the actual citations behind each.
 
 from __future__ import annotations
 
-from ingest.models import Book, Explanation, Signal, Source
+from ingest.models import Book, Explanation, Signal, Source, SourceKind
 
+from recommender.collaborative import CoAnchor
 from recommender.lists import CuratedList
 
 
@@ -26,6 +27,9 @@ def build_explanation(
     loved_author: str | None,
     lists_hit: tuple[CuratedList, ...],
     theme_score: float,
+    *,
+    collab_anchors: tuple[CoAnchor, ...] = (),
+    aperture_themes: tuple[str, ...] = (),
 ) -> Explanation:
     """Assemble signals + the citations behind them into an :class:`Explanation`."""
     signals: list[Signal] = []
@@ -47,6 +51,30 @@ def build_explanation(
     if loved_author is not None:
         signals.append(
             Signal(kind="author", detail=f"by {loved_author}, whom you've finished", weight=1.0)
+        )
+
+    for anchor in collab_anchors:
+        signals.append(
+            Signal(
+                kind="collaborative",
+                detail=f"listed alongside {anchor.author}, whom you've finished, "
+                f"on “{anchor.list_name}”",
+                weight=0.6,
+            )
+        )
+        sources.append(
+            Source(
+                kind=SourceKind.CURATED_LIST,
+                citation=anchor.list_citation,
+                retrieved_at="2026-06-05",
+                detail=anchor.list_name,
+            )
+        )
+
+    if aperture_themes:
+        shown = ", ".join(aperture_themes[:4])
+        signals.append(
+            Signal(kind="aperture", detail=f"broadens your themes: {shown}", weight=0.05)
         )
 
     for lst in lists_hit:

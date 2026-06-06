@@ -35,6 +35,9 @@ class Config:
     kosync_user: Optional[str]
     kosync_key: Optional[str]  # md5 key, from the environment only
     demo: bool
+    aperture_strength: float = 0.0  # boost-only discovery-widening lens (0 = off)
+    embeddings_enabled: bool = False  # optional, strictly-local semantic signal
+    dnf_signals: bool = False  # opt-in soft down-weighting of stalled themes
 
     @property
     def store_path(self) -> Path:
@@ -93,6 +96,13 @@ def load_config(
         return str(raw) if isinstance(raw, (str, int)) else None
 
     data_dir = _opt_path(pick("STACKS_DATA_DIR", storage, "data_dir")) or DEFAULT_DATA_DIR
+    rec = _section(toml, "recommender")
+
+    aperture_raw = pick("STACKS_APERTURE", rec, "aperture_strength")
+    try:
+        aperture = max(0.0, min(1.0, float(aperture_raw))) if aperture_raw else 0.0
+    except ValueError:
+        aperture = 0.0
 
     return Config(
         calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
@@ -102,4 +112,7 @@ def load_config(
         kosync_user=pick("STACKS_KOSYNC_USER", kosync, "user"),
         kosync_key=resolved_env.get("STACKS_KOSYNC_KEY") or None,  # secret: env only
         demo=resolved_env.get("STACKS_DEMO") == "1",
+        aperture_strength=aperture,
+        embeddings_enabled=resolved_env.get("STACKS_EMBEDDINGS") == "1",
+        dnf_signals=resolved_env.get("STACKS_DNF_SIGNALS") == "1",
     )

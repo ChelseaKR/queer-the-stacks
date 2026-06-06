@@ -8,6 +8,16 @@
       "precision_at_k": 1.0,
       "recall_at_k": 1.0,
       "map_at_k": 1.0,
+      "ndcg_at_k": 1.0,
+      "n_positives": 5
+    },
+    "hybrid": {
+      "model": "hybrid",
+      "k": 5,
+      "precision_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "map_at_k": 1.0,
+      "ndcg_at_k": 1.0,
       "n_positives": 5
     },
     "popularity": {
@@ -16,8 +26,10 @@
       "precision_at_k": 0.4,
       "recall_at_k": 0.4,
       "map_at_k": 0.13,
+      "ndcg_at_k": 0.2773,
       "n_positives": 5
     }
   },
-  "content_beats_popularity": true
+  "content_beats_popularity": true,
+  "intra_list_diversity_at_k": 0.68
 }
