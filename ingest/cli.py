@@ -102,6 +102,29 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_backup(args: argparse.Namespace) -> int:
+    import time
+
+    from ingest.backup import backup_store
+    from ingest.config import load_config
+
+    config = load_config()
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    dest = backup_store(config.store_path, config.data_dir / "backups", stamp)
+    print(f"backed up to {dest}")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    from ingest.backup import restore_store
+    from ingest.config import load_config
+
+    config = load_config()
+    restore_store(Path(args.backup), config.store_path)
+    print(f"restored {config.store_path} from {args.backup}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -121,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
     p_ref = sub.add_parser("refresh", help="ingest sources into the app-state store")
     p_ref.add_argument("--force", action="store_true", help="re-ingest even if unchanged")
     p_ref.set_defaults(func=_cmd_refresh)
+
+    p_bak = sub.add_parser("backup", help="back up the app-state store (timestamped)")
+    p_bak.set_defaults(func=_cmd_backup)
+
+    p_res = sub.add_parser("restore", help="restore the app-state store from a backup")
+    p_res.add_argument("backup", help="path to a backup .sqlite file")
+    p_res.set_defaults(func=_cmd_restore)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

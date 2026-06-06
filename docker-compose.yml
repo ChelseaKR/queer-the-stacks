@@ -1,0 +1,27 @@
+# Queer the Stacks — self-hosted deployment beside Calibre-Web.
+#
+# The real libraries are mounted READ-ONLY (:ro) — the container can never write
+# to them, belt-and-braces with the snapshot-first read-only access in code.
+# Put a strong token in a local .env (STACKS_AUTH_TOKEN=...); never commit it.
+services:
+  stacks:
+    build: .
+    image: queer-the-stacks:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8765" # bind to localhost; front with the seedbox proxy
+    environment:
+      STACKS_AUTH_TOKEN: ${STACKS_AUTH_TOKEN:?set STACKS_AUTH_TOKEN in your .env}
+      STACKS_CALIBRE_DB: /libraries/calibre/metadata.db
+      STACKS_KOREADER_DB: /libraries/koreader/statistics.sqlite
+      STACKS_KOSYNC_HOST: ${STACKS_KOSYNC_HOST:-}
+      STACKS_KOSYNC_USER: ${STACKS_KOSYNC_USER:-}
+      STACKS_KOSYNC_KEY: ${STACKS_KOSYNC_KEY:-}
+      STACKS_APERTURE: ${STACKS_APERTURE:-0.0}
+    volumes:
+      - ${CALIBRE_DIR:?set CALIBRE_DIR}:/libraries/calibre:ro
+      - ${KOREADER_DIR:?set KOREADER_DIR}:/libraries/koreader:ro
+      - stacks-data:/data
+
+volumes:
+  stacks-data:

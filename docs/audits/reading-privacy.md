@@ -42,6 +42,7 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
 | No analytics/telemetry SDK in core | `tests/test_no_egress.py::test_core_imports_no_telemetry_sdk` |
 | Network confined to kosync + catalog clients | `tests/test_no_egress.py::test_network_access_is_confined_to_clients` |
 | Catalog client never POSTs reading data | `tests/test_no_egress.py::test_reading_history_is_never_sent_to_a_catalog` |
+| Core is log-free (no reading content can leak to logs) | `tests/test_log_safety.py::test_core_is_log_free` |
 | Dashboard returns 401 without a valid token | `tests/test_auth.py::test_server_rejects_unauthenticated_requests` |
 | App fails closed if no token configured (non-demo) | `tests/test_auth.py::test_real_mode_requires_env_token` |
 

@@ -9,7 +9,7 @@ PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval perf audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -60,6 +60,9 @@ a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
 
 eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 	$(PYTHON) -m ingest.cli eval --k 5 --out docs/audits/eval-report.json
+
+perf: ## Stage 6 — render/pipeline performance budget (also run within `make test`)
+	$(PYTHON) -m pytest tests/test_perf.py -q -o addopts=""
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
