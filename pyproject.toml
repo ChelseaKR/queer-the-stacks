@@ -74,7 +74,7 @@ files = ["ingest", "recommender", "app"]
 
 [[tool.mypy.overrides]]
 # Third-party libs without stubs shipped here — don't fail strict on them.
-module = ["fastapi.*", "uvicorn.*", "starlette.*"]
+module = ["fastapi.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
