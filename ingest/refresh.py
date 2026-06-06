@@ -1,4 +1,4 @@
-"""Ingest orchestration (``qsr refresh``) and diagnostics (``qsr doctor``).
+"""Ingest orchestration (``stacks refresh``) and diagnostics (``stacks doctor``).
 
 `refresh` walks the read-only ingest path for the configured sources (or the demo
 world), unifies the result, and writes it to the persisted :class:`~ingest.store.Store`.
@@ -170,5 +170,5 @@ def doctor(config: Config, store: Optional[Store] = None) -> list[Check]:
                 Check("app-state store", True, f"populated; refreshed_at={store.refreshed_at()}")
             )
         else:
-            checks.append(Check("app-state store", True, "empty — run `qsr refresh`"))
+            checks.append(Check("app-state store", True, "empty — run `stacks refresh`"))
     return checks

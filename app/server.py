@@ -53,7 +53,7 @@ def _load_view() -> DashboardView:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Queer & Spec-Fic Reader", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

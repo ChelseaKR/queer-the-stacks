@@ -47,16 +47,12 @@ jobs:
       - name: Tests
         run: make test PYTHON=python
 
-      # 4a. dependency vulnerability scan (accepted advisories tracked in
-      #     docs/audits/residual-risk.md; the Makefile carries the ignore list)
-      - name: Dependency audit
+      # 4. dependency vulnerability scan + secret scan (both merge-blocking).
+      #    `make security` runs pip-audit and scripts/secret-scan.sh (gitleaks
+      #    when present, else a high-signal grep fallback) — no GitHub API calls,
+      #    so it works on a private repo without extra token permissions.
+      - name: Security (deps + secrets)
         run: make security PYTHON=python
-
-      # 4b. secret scan (dedicated, merge-blocking)
-      - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 5. accessibility — zero axe violations on the rendered dashboard
       - name: Accessibility

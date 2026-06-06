@@ -1,4 +1,4 @@
-# Queer & Spec-Fic Reader
+# Queer the Stacks
 
 **A reading dashboard and recommender built on top of your actual ebook stack** — Calibre's library plus KOReader's reading stats and cross-device progress — that gives you one place to see what you're reading everywhere, your reading stats and streaks, a self-hosted "Reading Wrapped," and recommendations tuned to your canon (Plett, Peters, Thom, Butler, Atwood) sourced from ethical, non-gatekept catalogs. Self-hosted on your Whatbox seedbox next to Calibre-Web, single-user, private by design.
 
@@ -22,15 +22,15 @@ Your reading lives across Calibre (Mac), a Kobo running KOReader, Calibre-Web on
 - **Commands:** `make dev` · `make verify` · `make a11y` · `make eval`.
 - **Run it on your library:** point it at your real, read-only sources and ingest into the local app-state store —
   ```sh
-  export QSR_CALIBRE_DB=/path/to/Calibre/metadata.db
-  export QSR_KOREADER_DB=/path/to/koreader/statistics.sqlite
+  export STACKS_CALIBRE_DB=/path/to/Calibre/metadata.db
+  export STACKS_KOREADER_DB=/path/to/koreader/statistics.sqlite
   # optional cross-device progress (key from the env, never a file):
-  export QSR_KOSYNC_HOST=https://sync.koreader.rocks QSR_KOSYNC_USER=you QSR_KOSYNC_KEY=…
-  qsr doctor     # validate paths + confirm read-only access (mutates nothing)
-  qsr refresh    # snapshot-first ingest into data/app-state.sqlite
-  uvicorn app.server:app   # serve the dashboard behind auth (set QSR_AUTH_TOKEN)
+  export STACKS_KOSYNC_HOST=https://sync.koreader.rocks STACKS_KOSYNC_USER=you STACKS_KOSYNC_KEY=…
+  stacks doctor     # validate paths + confirm read-only access (mutates nothing)
+  stacks refresh    # snapshot-first ingest into data/app-state.sqlite
+  uvicorn app.server:app   # serve the dashboard behind auth (set STACKS_AUTH_TOKEN)
   ```
-  Config can also live in `qsr.toml` (`[calibre] path=…`); env vars win. See [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
+  Config can also live in `stacks.toml` (`[calibre] path=…`); env vars win. See [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
 - **Definition of done:** a single self-hosted dashboard shows your real cross-device reading state and stats from Calibre + KOReader, plus explainable recommendations from ethical sources — read-only against your libraries, private to your seedbox, all `/STANDARDS` gates green.
 
 ## Standards

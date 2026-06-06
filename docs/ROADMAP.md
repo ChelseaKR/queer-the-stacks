@@ -1,4 +1,4 @@
-# Queer & Spec-Fic Reader — Implementation Roadmap
+# Queer the Stacks — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
 > **Last verified: 2026-05-31 · Recheck cadence: per Calibre/KOReader schema + OpenLibrary/Hardcover/Bookwyrm API change.**
@@ -39,7 +39,7 @@ A self-hosted reading dashboard + recommender over your real ebook ecosystem: Ca
 ### ADRs recorded during the M0–M6 build (2026-06-05)
 - **ADR-1 — Pure HTML renderer audited statically, served live by FastAPI.** `app/render.py` is the single source of truth for dashboard *content*; `make a11y` renders it to a static artifact and gates it (pa11y/axe, or the built-in `app/a11y_check.py` fallback) so the mechanical WCAG checks run in CI without a live browser, and `app/server.py` serves the same HTML. *Rejected: testing a11y against a running server (flakier, needs a browser in CI).*
 - **ADR-2 — Join Calibre ↔ KOReader by a normalized `title|first-author` key, with KOReader md5 as the progress key.** Robust to punctuation/case/spacing drift across the two stores; books read in KOReader but absent from Calibre are still surfaced so history is complete. *Rejected: ISBN-only joins (KOReader stats rarely carry ISBNs).*
-- **ADR-3 — Auth fails closed; demo mode still requires a token.** Non-demo startup raises if `QSR_AUTH_TOKEN` is unset (no accidental open instance); demo mode uses a fixed token so there is never an unauthenticated path. *Rejected: an "open in demo" bypass — a reading history is sensitive even in demos.*
+- **ADR-3 — Auth fails closed; demo mode still requires a token.** Non-demo startup raises if `STACKS_AUTH_TOKEN` is unset (no accidental open instance); demo mode uses a fixed token so there is never an unauthenticated path. *Rejected: an "open in demo" bypass — a reading history is sensitive even in demos.*
 - **ADR-4 — Python 3.14 floor; dependency audit clean.** The project targets **Python 3.14** (build + deployment interpreter 3.14.5). This lets every dependency install at a fixed release, so `pip-audit` reports **0 known vulnerabilities** and `make security` runs with no accepted advisories. (Superseded the interim 3.9 floor, under which fixes for `requests`/`urllib3`/`starlette` were not installable and had to be accepted as documented residual risk.) *Rejected: silently pinning vulnerable versions, or dropping the dep audit gate.*
 
 ## 7. Quality attributes & metrics

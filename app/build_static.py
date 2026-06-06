@@ -17,7 +17,7 @@ DEFAULT_OUT = Path("docs/audits/dashboard.html")
 
 
 def build(out: Path = DEFAULT_OUT) -> Path:
-    with tempfile.TemporaryDirectory(prefix="qsr-demo-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="stacks-demo-") as tmp:
         view = demo_view(Path(tmp))
     html = render_dashboard(
         view.currently_reading,

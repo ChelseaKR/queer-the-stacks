@@ -9,7 +9,7 @@ from app.auth import AuthNotConfigured, check_credentials, expected_token
 
 
 def test_demo_mode_uses_demo_token() -> None:
-    env = {"QSR_DEMO": "1"}
+    env = {"STACKS_DEMO": "1"}
     assert expected_token(env) == "demo-token"
     assert check_credentials("demo-token", env) is True
     assert check_credentials("wrong", env) is False
@@ -22,7 +22,7 @@ def test_real_mode_requires_env_token() -> None:
 
 
 def test_real_mode_token_from_env() -> None:
-    env = {"QSR_AUTH_TOKEN": "s3cr3t-token-value"}
+    env = {"STACKS_AUTH_TOKEN": "s3cr3t-token-value"}
     assert check_credentials("s3cr3t-token-value", env) is True
     assert check_credentials("nope", env) is False
 
@@ -36,8 +36,8 @@ def test_server_rejects_unauthenticated_requests(
     from fastapi.testclient import TestClient
 
     # Demo mode + a throwaway data dir so the server never touches the repo's data/.
-    monkeypatch.setenv("QSR_DEMO", "1")
-    monkeypatch.setenv("QSR_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("STACKS_DEMO", "1")
+    monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
     from app.server import create_app
 
     client = TestClient(create_app())
@@ -49,5 +49,5 @@ def test_server_rejects_unauthenticated_requests(
 
     ok = client.get("/", headers={"Authorization": "Bearer demo-token"})
     assert ok.status_code == 200
-    assert "Queer &amp; Spec-Fic Reader" in ok.text
+    assert "Queer the Stacks" in ok.text
     assert fastapi  # used

@@ -3,8 +3,8 @@
 Resolution order (later overrides earlier):
 
 1. built-in defaults (demo off, ``data/`` for app state + snapshots),
-2. a TOML config file (``qsr.toml`` by default, or ``$QSR_CONFIG``),
-3. ``QSR_*`` environment variables.
+2. a TOML config file (``stacks.toml`` by default, or ``$STACKS_CONFIG``),
+3. ``STACKS_*`` environment variables.
 
 Secrets (the kosync key) come from the environment only, never a committed file.
 Nothing here opens a database or the network — it only resolves paths and flags,
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_CONFIG_FILE = "qsr.toml"
+DEFAULT_CONFIG_FILE = "stacks.toml"
 DEFAULT_DATA_DIR = Path("data")
 
 
@@ -76,10 +76,10 @@ def load_config(
     env: Optional[Mapping[str, str]] = None,
     config_path: Optional[Path] = None,
 ) -> Config:
-    """Resolve configuration from a TOML file overlaid with ``QSR_*`` env vars."""
+    """Resolve configuration from a TOML file overlaid with ``STACKS_*`` env vars."""
     resolved_env: Mapping[str, str] = os.environ if env is None else env
 
-    path = config_path or Path(resolved_env.get("QSR_CONFIG", DEFAULT_CONFIG_FILE))
+    path = config_path or Path(resolved_env.get("STACKS_CONFIG", DEFAULT_CONFIG_FILE))
     toml = _read_toml(path)
     calibre = _section(toml, "calibre")
     koreader = _section(toml, "koreader")
@@ -92,14 +92,14 @@ def load_config(
         raw = section.get(key)
         return str(raw) if isinstance(raw, (str, int)) else None
 
-    data_dir = _opt_path(pick("QSR_DATA_DIR", storage, "data_dir")) or DEFAULT_DATA_DIR
+    data_dir = _opt_path(pick("STACKS_DATA_DIR", storage, "data_dir")) or DEFAULT_DATA_DIR
 
     return Config(
-        calibre_db=_opt_path(pick("QSR_CALIBRE_DB", calibre, "path")),
-        koreader_db=_opt_path(pick("QSR_KOREADER_DB", koreader, "path")),
+        calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
+        koreader_db=_opt_path(pick("STACKS_KOREADER_DB", koreader, "path")),
         data_dir=data_dir,
-        kosync_host=pick("QSR_KOSYNC_HOST", kosync, "host"),
-        kosync_user=pick("QSR_KOSYNC_USER", kosync, "user"),
-        kosync_key=resolved_env.get("QSR_KOSYNC_KEY") or None,  # secret: env only
-        demo=resolved_env.get("QSR_DEMO") == "1",
+        kosync_host=pick("STACKS_KOSYNC_HOST", kosync, "host"),
+        kosync_user=pick("STACKS_KOSYNC_USER", kosync, "user"),
+        kosync_key=resolved_env.get("STACKS_KOSYNC_KEY") or None,  # secret: env only
+        demo=resolved_env.get("STACKS_DEMO") == "1",
     )

@@ -1,4 +1,4 @@
-"""Command-line entry point: ``qsr eval`` and ``qsr recommend`` (demo mode).
+"""Command-line entry point: ``stacks eval`` and ``stacks recommend`` (demo mode).
 
 Thin argparse glue over the library; excluded from coverage. Demo mode runs the
 full offline pipeline with no real library and no network. Real mode would point
@@ -28,7 +28,7 @@ def _demo_states_and_candidates() -> tuple[
 
     from ingest.demo import demo_candidates, demo_reading_states
 
-    with tempfile.TemporaryDirectory(prefix="qsr-demo-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="stacks-demo-") as tmp:
         states = demo_reading_states(Path(tmp))
     return states, demo_candidates(), DEMO_LISTS
 
@@ -101,7 +101,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="qsr", description=__doc__)
+    parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_eval = sub.add_parser("eval", help="offline eval vs the popularity baseline")

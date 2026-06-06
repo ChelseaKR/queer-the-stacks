@@ -5,9 +5,9 @@ auth. This module holds the pure credential check so it can be unit-tested
 independently of the web wiring; the FastAPI dependency in :mod:`app.server`
 calls :func:`check_credentials` on every request.
 
-The expected token comes from the environment (``QSR_AUTH_TOKEN``), never source.
+The expected token comes from the environment (``STACKS_AUTH_TOKEN``), never source.
 Comparison is constant-time (``hmac.compare_digest``) to avoid timing leaks. In
-demo mode (``QSR_DEMO=1``) a fixed demo token is used so the app still requires
+demo mode (``STACKS_DEMO=1``) a fixed demo token is used so the app still requires
 auth — there is no unauthenticated path.
 """
 
@@ -18,9 +18,9 @@ import os
 from collections.abc import Mapping
 from typing import Optional
 
-DEMO_TOKEN = "demo-token"  # noqa: S105 - not a secret; only used when QSR_DEMO=1
-AUTH_ENV = "QSR_AUTH_TOKEN"
-DEMO_ENV = "QSR_DEMO"
+DEMO_TOKEN = "demo-token"  # noqa: S105 - not a secret; only used when STACKS_DEMO=1
+AUTH_ENV = "STACKS_AUTH_TOKEN"
+DEMO_ENV = "STACKS_DEMO"
 
 
 class AuthNotConfigured(Exception):
@@ -31,7 +31,7 @@ def expected_token(env: Optional[Mapping[str, str]] = None) -> str:
     """Resolve the required token from the environment.
 
     Demo mode yields a fixed token (auth is still enforced); otherwise
-    ``QSR_AUTH_TOKEN`` must be set, or startup fails closed.
+    ``STACKS_AUTH_TOKEN`` must be set, or startup fails closed.
     """
     resolved: Mapping[str, str] = os.environ if env is None else env
     if resolved.get(DEMO_ENV) == "1":

@@ -1,4 +1,4 @@
-# Queer & Spec-Fic Reader — single source of truth for the local + CI gates.
+# Queer the Stacks — single source of truth for the local + CI gates.
 # `make verify` runs the same checkable gates CI enforces (QUALITY-AND-METRICS
 # STANDARD §"enforcement pipeline"), in order.
 
@@ -23,7 +23,7 @@ $(PYTHON): ## Bootstrap the virtualenv (Python 3.14) + dev/app deps
 install: $(PYTHON) ## Install the project (editable) with dev + app extras
 
 dev: install ## Run the self-hosted dashboard (demo mode; no real library needed)
-	QSR_DEMO=1 $(PYTHON) -m uvicorn app.server:app --host 127.0.0.1 --port 8765
+	STACKS_DEMO=1 $(PYTHON) -m uvicorn app.server:app --host 127.0.0.1 --port 8765
 
 # --- The verify pipeline (each stage is merge-blocking) ----------------------
 verify: lint typecheck test security a11y eval ## Run every checkable gate (CI parity)

@@ -200,10 +200,10 @@ def render_dashboard(
         "<!doctype html>"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        "<title>Queer &amp; Spec-Fic Reader — your reading dashboard</title>"
+        "<title>Queer the Stacks — your reading dashboard</title>"
         f"<style>{_STYLE}</style></head><body>"
         '<a class="skip" href="#main">Skip to your reading dashboard</a>'
-        "<header><h1>Queer &amp; Spec-Fic Reader</h1>"
+        "<header><h1>Queer the Stacks</h1>"
         f"<p>Your private reading dashboard, {escape(user)} — unified read-only from "
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
         "catalogs. Reading data never leaves this instance.</p></header>"
