@@ -61,6 +61,45 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    from ingest.config import load_config
+    from ingest.refresh import doctor
+    from ingest.store import Store
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        checks = doctor(config, store)
+    finally:
+        store.close()
+    failed = sum(1 for c in checks if not c.ok)
+    for c in checks:
+        print(f"  {'✓' if c.ok else '✗'} {c.name}: {c.detail}")
+    if failed:
+        print(f"\n{failed} check(s) failed.", file=sys.stderr)
+        return 1
+    print("\nall checks passed")
+    return 0
+
+
+def _cmd_refresh(args: argparse.Namespace) -> int:
+    import time
+
+    from ingest.config import load_config
+    from ingest.refresh import refresh
+    from ingest.store import Store
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        result = refresh(config, store, now=int(time.time()), force=args.force)
+    finally:
+        store.close()
+    verb = "refreshed" if result.refreshed else "skipped"
+    print(f"{verb}: {result.reason} — {result.n_states} books in state")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="qsr", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     p_rec = sub.add_parser("recommend", help="print demo recommendations")
     p_rec.add_argument("--k", type=int, default=10)
     p_rec.set_defaults(func=_cmd_recommend)
+
+    p_doc = sub.add_parser("doctor", help="validate config + read-only access")
+    p_doc.set_defaults(func=_cmd_doctor)
+
+    p_ref = sub.add_parser("refresh", help="ingest sources into the app-state store")
+    p_ref.add_argument("--force", action="store_true", help="re-ingest even if unchanged")
+    p_ref.set_defaults(func=_cmd_refresh)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

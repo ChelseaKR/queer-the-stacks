@@ -13,17 +13,18 @@ TestClient.
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+import time
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
+from ingest.config import load_config
+from ingest.refresh import refresh
+from ingest.store import Store
 
 from app.auth import check_credentials
 from app.render import render_dashboard
-from app.view import DashboardView, demo_view
+from app.view import DashboardView, view_from_store
 
 
 def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
@@ -40,13 +41,15 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
 
 
 def _load_view() -> DashboardView:
-    if os.environ.get("QSR_DEMO") == "1":
-        with tempfile.TemporaryDirectory(prefix="qsr-demo-") as tmp:
-            return demo_view(Path(tmp))
-    # Real mode would read configured Calibre/KOReader paths here; demo is the
-    # default offline experience for `make dev`.
-    with tempfile.TemporaryDirectory(prefix="qsr-demo-") as tmp:
-        return demo_view(Path(tmp))
+    """Load the dashboard from the persisted store, refreshing on first run."""
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        if not store.is_populated:
+            refresh(config, store, now=int(time.time()))
+        return view_from_store(store, user="demo" if config.demo else "you")
+    finally:
+        store.close()
 
 
 def create_app() -> FastAPI:

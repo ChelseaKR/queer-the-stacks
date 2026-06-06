@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from app.auth import AuthNotConfigured, check_credentials, expected_token
 
@@ -25,14 +27,17 @@ def test_real_mode_token_from_env() -> None:
     assert check_credentials("nope", env) is False
 
 
-def test_server_rejects_unauthenticated_requests() -> None:
+def test_server_rejects_unauthenticated_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The FastAPI app returns 401 with no/invalid token and 200 with a valid one."""
     fastapi = pytest.importorskip("fastapi")
-    import os
 
     from fastapi.testclient import TestClient
 
-    os.environ["QSR_DEMO"] = "1"
+    # Demo mode + a throwaway data dir so the server never touches the repo's data/.
+    monkeypatch.setenv("QSR_DEMO", "1")
+    monkeypatch.setenv("QSR_DATA_DIR", str(tmp_path))
     from app.server import create_app
 
     client = TestClient(create_app())
