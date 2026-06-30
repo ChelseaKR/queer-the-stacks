@@ -23,3 +23,6 @@ snapshots/
 # Generated a11y raw dumps are not committed; the curated audit md/html are.
 docs/audits/pa11y-raw.json
 node_modules/
+
+# runtime-fetched portfolio-standards (never commit)
+.standards/
