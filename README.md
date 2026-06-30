@@ -12,6 +12,9 @@ Your reading lives across Calibre (Mac), a Kobo running KOReader, Calibre-Web on
 ## What it does
 - **One reading view:** cross-device "currently reading," progress, and history, read from Calibre + KOReader.
 - **Stats & Wrapped:** pages, time, streaks, genre/theme mix, and a self-hosted year-in-review.
+- **Diverse-shelf analytics:** a "how diverse is my reading" view — coverage, representation lenses, and provenance — built *only* from sourced book descriptors, never inferred author identity, with accessible chart + table equivalents.
+- **Goals & streaks:** set local reading goals (books / pages / hours / streak) and track progress on the dashboard; computed on-device, shared with no one.
+- **Share cards:** generate Bookwyrm/Mastodon-ready cards ("my year in books", a finished book) — composed locally and posted only when *you* copy and share them (no auto-egress).
 - **Recommender:** tuned to your canon and tastes, sourced from OpenLibrary, Hardcover, and Bookwyrm plus curated community lists — not Goodreads.
 - **Every pick explained:** why + which source, with diverse/small-press surfacing rather than bestseller bias.
 - **Self-hosted & private:** runs on your seedbox; reading data never leaves it.

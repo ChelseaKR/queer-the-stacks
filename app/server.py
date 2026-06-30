@@ -17,7 +17,7 @@ import time
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
@@ -54,6 +54,7 @@ def _load_view() -> DashboardView:
             dnf_signals=config.dnf_signals,
             goal_books=config.goal_books,
             goal_pages=config.goal_pages,
+            goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
         )
     finally:
@@ -93,6 +94,29 @@ def create_app() -> FastAPI:
             q=q,
         )
         return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
+
+    @app.get("/share", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
+    def share() -> HTMLResponse:
+        """Locally-composed share cards. Nothing is posted; the user copies them."""
+        from app.share import build_share_cards, render_share_page
+
+        view = _load_view()
+        cards = build_share_cards(view)
+        return HTMLResponse(content=render_share_page(cards, user=view.user))
+
+    @app.get("/share/card.svg", dependencies=[Depends(require_auth)])
+    def share_card_svg(kind: str = "year") -> Response:
+        """Serve a single share card as a self-contained SVG image for download."""
+        from app.share import build_share_cards
+
+        view = _load_view()
+        cards = build_share_cards(view)
+        chosen = next((c for c in cards if c.kind == kind), cards[0] if cards else None)
+        if chosen is None:
+            raise HTTPException(status_code=404, detail="no share card available")
+        from app.share import render_share_svg
+
+        return Response(content=render_share_svg(chosen), media_type="image/svg+xml")
 
     return app
 

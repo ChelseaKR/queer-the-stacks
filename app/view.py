@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from ingest.models import DailyActivity, ReadingState, Recommendation
 from ingest.unify import currently_reading, finished
@@ -16,6 +17,7 @@ from recommender.eval import PopCandidate
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 
+from app.diversity import DiversityReport, compute_diversity
 from app.goals import Goal, compute_goals
 from app.shelf import SeriesNext, series_continuations, to_read
 from app.stats import ReadingStats, compute_stats
@@ -35,6 +37,7 @@ class DashboardView:
     to_read: tuple[ReadingState, ...] = ()
     library: tuple[ReadingState, ...] = ()
     goals: tuple[Goal, ...] = ()
+    diversity: Optional[DiversityReport] = None
     user: str = "demo"
 
 
@@ -62,6 +65,7 @@ def build_view(
     dnf_signals: bool = False,
     goal_books: int = 0,
     goal_pages: int = 0,
+    goal_hours: int = 0,
     goal_streak_days: int = 0,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure)."""
@@ -73,8 +77,10 @@ def build_view(
         wrapped,
         books_target=goal_books,
         pages_target=goal_pages,
+        hours_target=goal_hours,
         streak_target=goal_streak_days,
     )
+    diversity = compute_diversity(states)
     candidate_books = tuple(c.book for c in candidates)  # type: ignore[attr-defined]
     recs = recommend_hybrid(
         states,
@@ -96,6 +102,7 @@ def build_view(
         to_read=tuple(to_read(states)),
         library=tuple(library),
         goals=goals,
+        diversity=diversity,
         user=user,
     )
 
@@ -114,6 +121,7 @@ def render_view(view: DashboardView) -> str:
         to_read=view.to_read,
         library=view.library,
         goals=view.goals,
+        diversity=view.diversity,
         user=view.user,
     )
 
@@ -127,6 +135,7 @@ def view_from_store(
     dnf_signals: bool = False,
     goal_books: int = 0,
     goal_pages: int = 0,
+    goal_hours: int = 0,
     goal_streak_days: int = 0,
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
@@ -151,6 +160,7 @@ def view_from_store(
         dnf_signals=dnf_signals,
         goal_books=goal_books,
         goal_pages=goal_pages,
+        goal_hours=goal_hours,
         goal_streak_days=goal_streak_days,
     )
 

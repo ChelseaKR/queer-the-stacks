@@ -19,9 +19,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from html import escape
+from typing import Optional
 
 from ingest.models import ReadingState, Recommendation
 
+from app.diversity import DiversityReport
 from app.goals import Goal
 from app.shelf import SeriesNext
 from app.stats import ReadingStats
@@ -231,6 +233,72 @@ def _goals_section(goals: Sequence[Goal]) -> str:
     )
 
 
+def _diversity_section(report: Optional[DiversityReport]) -> str:
+    """The diverse-shelf analytics: honest coverage, lenses, and provenance.
+
+    Every figure is built only from *sourced book descriptors*; the section opens
+    by saying so, and surfaces undescribed books rather than hiding them. Each
+    chart ships as a real data ``<table>`` (no colour-only meaning).
+    """
+    if report is None or report.total_books == 0:
+        return ""
+
+    coverage_rows = "".join(
+        f'<tr><th scope="row">{escape(label)}</th><td>{value}</td></tr>'
+        for label, value in (
+            ("Books considered (reading + finished)", str(report.total_books)),
+            ("With a sourced descriptor", str(report.described_books)),
+            ("No sourced descriptor (unknown — not 'none')", str(report.undescribed_books)),
+            ("Descriptor coverage", _pct(report.coverage_pct)),
+        )
+    )
+    coverage = (
+        "<table><caption>Coverage — how much of the shelf carries a sourced "
+        'descriptor</caption><thead><tr><th scope="col">Measure</th>'
+        f'<th scope="col">Value</th></tr></thead><tbody>{coverage_rows}</tbody></table>'
+    )
+
+    if report.dimensions:
+        dim_rows = "".join(
+            f'<tr><th scope="row">{escape(d.name)}</th>'
+            f"<td>{d.books}</td><td>{_pct(d.pct)}</td>"
+            f"<td>{escape(', '.join(d.matched_labels))}</td></tr>"
+            for d in report.dimensions
+        )
+        dimensions = (
+            "<table><caption>Representation lenses, as a share of your described "
+            "books (a grouping of sourced descriptors — never an author's identity)"
+            '</caption><thead><tr><th scope="col">Lens</th>'
+            '<th scope="col">Books</th><th scope="col">% of described</th>'
+            '<th scope="col">Sourced descriptors seen</th></tr></thead>'
+            f"<tbody>{dim_rows}</tbody></table>"
+        )
+    else:
+        dimensions = "<p>No grouped representation lenses populated yet.</p>"
+
+    prov_rows = "".join(
+        f'<tr><th scope="row">{escape(kind)}</th><td>{count}</td></tr>'
+        for kind, count in report.source_provenance
+    )
+    provenance = (
+        "<table><caption>Where these descriptors came from (provenance of every "
+        'sourced tag)</caption><thead><tr><th scope="col">Source</th>'
+        f'<th scope="col">Descriptors</th></tr></thead><tbody>{prov_rows}</tbody></table>'
+        if prov_rows
+        else "<p>No descriptor provenance recorded yet.</p>"
+    )
+
+    return (
+        "<h2>Reading diversity</h2>"
+        "<p>Built <strong>only</strong> from sourced descriptors of the books "
+        "themselves — Calibre tags, OpenLibrary subjects, and curated lists. We "
+        "never infer an author's identity and never auto-label a person; a book "
+        "with no sourced descriptor is reported as unknown, not as &ldquo;not "
+        "diverse&rdquo;.</p>"
+        f"{coverage}{dimensions}{provenance}"
+    )
+
+
 def _library_table(library: Sequence[ReadingState]) -> str:
     if not library:
         return "<p>Your library is empty.</p>"
@@ -281,6 +349,7 @@ def render_dashboard(
     to_read: Sequence[ReadingState] = (),
     library: Sequence[ReadingState] = (),
     goals: Sequence[Goal] = (),
+    diversity: Optional[DiversityReport] = None,
     user: str = "demo",
 ) -> str:
     """Render the complete, accessible dashboard document."""
@@ -313,12 +382,15 @@ def render_dashboard(
         "<h2>Reading stats</h2>"
         f"{_stats_table(stats)}"
         f"{_theme_mix_table(stats)}"
+        f"{_diversity_section(diversity)}"
         f"<h2>Reading Wrapped {wrapped.year}</h2>"
         f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
         f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"
         f"{_wrapped_table(wrapped)}"
         f"{_monthly_table(wrapped)}"
         f"{_goals_section(goals)}"
+        '<p><a href="/share">Make a share card for Bookwyrm or Mastodon</a> — '
+        "composed locally; nothing is posted until you copy and share it yourself.</p>"
         "<h2>Up next in your series</h2>"
         f"{_series_table(series_next)}"
         "<h2>To-read shelf</h2>"
