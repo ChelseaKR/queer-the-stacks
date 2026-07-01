@@ -1,0 +1,43 @@
+# Container image CVE scan — builds the published image and scans it with Trivy
+# for known OS/library vulnerabilities (SECURITY-AND-SUPPLY-CHAIN-STANDARD,
+# backlog #11). Merge-blocking on fixable HIGH/CRITICAL findings; unfixed
+# advisories are ignored so the gate stays actionable. No registry push and no
+# network egress beyond Trivy's vulnerability-DB pull.
+name: container-scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: build + scan only need to read the checked-out tree.
+permissions:
+  contents: read
+
+concurrency:
+  group: container-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build -t queer-the-stacks:scan .
+
+      - name: Scan image for HIGH/CRITICAL CVEs (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: queer-the-stacks:scan
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
