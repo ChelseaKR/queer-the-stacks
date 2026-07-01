@@ -17,12 +17,13 @@ import time
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
 
 from app.auth import check_credentials
+from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
 from app.view import DashboardView, render_view, view_from_store
 
 
@@ -61,12 +62,47 @@ def _load_view() -> DashboardView:
         store.close()
 
 
+def readiness_probe() -> dict[str, str]:
+    """Probe the derived-state store dependency; raise if it is unavailable.
+
+    Fail-closed: any failure to resolve config or open/query the app-state store
+    means the service is NOT ready to serve traffic. On success returns a
+    component-status map. It never returns (or lets ``/readyz`` return) a path,
+    an exception message, or any reading content.
+    """
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        store.refreshed_at()  # exercises a real SELECT against the app-state DB
+    finally:
+        store.close()
+    return {"store": "ok"}
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
+    configure_logging()
+    app.add_middleware(RequestLoggingMiddleware)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/livez")
+    def livez() -> dict[str, str]:
+        """Liveness: process is up and not deadlocked. No dependency calls."""
+        return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> Response:
+        """Readiness: fail closed with 503 if the app-state store is unavailable."""
+        try:
+            checks = readiness_probe()
+        except Exception as exc:  # fail closed on ANY dependency error
+            # Log the failure type only — never the exception text or a path.
+            get_logger().warning("readyz_unavailable", extra={"error_type": type(exc).__name__})
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
+        return JSONResponse(status_code=200, content={"status": "ok", "checks": checks})
 
     @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
     def dashboard() -> HTMLResponse:

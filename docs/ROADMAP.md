@@ -89,3 +89,26 @@ docs/
 
 ## 12. Responsible-tech summary
 Top risks: (1) corrupting your real Calibre/KOReader libraries → strictly read-only + snapshot-first (tested); (2) outing a reader by leaking sensitive reading data → self-hosted, private, no egress (tested); (3) recommendations that mirror gatekept, surveillance-heavy catalogs → ethical sources + diverse surfacing; (4) pigeonholing authors via auto-assigned identity labels → sourced theme tags only. Full treatment in [`RESPONSIBLE-TECH-AUDITS.md`](./RESPONSIBLE-TECH-AUDITS.md).
+
+## Observability
+Generic gates live in [`/STANDARDS/OBSERVABILITY-STANDARD.md`](../../STANDARDS/OBSERVABILITY-STANDARD.md); this section records only this repo's *values* and its N/A-with-reason declarations.
+
+**Tier — C (local-only, single-user, no network surface).** The app is self-hosted beside Calibre-Web, binds to localhost, and never egresses (§/no-egress test). Per §0/§10 the OTel signals are **out-of-scope, N/A-with-reason**:
+- **OTel traces (§1) — N/A:** no cross-service surface; a single local process with no collector to export to.
+- **OTel metrics / RED·USE (§2) — N/A:** no metrics backend; single-user local service.
+- **SLOs / error budgets (§4) & burn-rate alerting (§5) — N/A:** not a shared/hosted service; no on-call.
+- **Core Web Vitals / Lighthouse (§8) — N/A:** server-rendered HTML audited statically by the a11y gate; no SPA RUM surface.
+- **Continuous profiling (§9) — N/A:** local single-user process.
+
+What this repo **does** ship on its self-hosted service surface (for the seedbox deployment's probe contract and local debuggability):
+
+| Metric | Target | Measured by | Gate | Owner |
+|--------|--------|-------------|------|-------|
+| No secrets/PII/reading-data in logs (§3, non-tiered) | zero — logs carry only method, path (no query string), status, latency, request id | `tests/test_observability.py` + `tests/test_log_safety.py` (core stays log-free) | merge-blocking | Chelsea |
+| Structured JSON logs (§3) | one valid JSON object per line; fields `ts, level, msg, request_id, method, path, status, latency_ms` | `tests/test_observability.py` (parse + field-set assertion) | merge-blocking | Chelsea |
+| Logs never egress (§3/§10) | stdout only; no network log handler; `propagate=False` | `tests/test_observability.py` + `tests/test_no_egress.py` | merge-blocking | Chelsea |
+| `/livez` (§6) | 200 `{"status":"ok"}`, no dependency calls, unauthenticated | `tests/test_observability.py` | merge-blocking | Chelsea |
+| `/readyz` (§6) | 200 when the app-state store is reachable; **fail-closed 503** otherwise, leaking no internal detail | `tests/test_observability.py` (ready + stubbed-down cases) | merge-blocking | Chelsea |
+| Probes excluded from access logs (§6) | `/livez`,`/readyz`,`/healthz` produce no request log line | `tests/test_observability.py` | merge-blocking | Chelsea |
+
+Logging is confined to `app/logging_config.py` + its wiring in `app/server.py`; the core (`ingest`/`recommender` + pure `app` modules) stays log-free so reading content has no path into the log stream.
