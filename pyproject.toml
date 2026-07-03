@@ -22,6 +22,9 @@ app = [
     # the resolver can never select a vulnerable build (installs are unpinned).
     # PYSEC-2026-249 (fix 1.3.0) + PYSEC-2026-248 (fix 1.3.1) → require >=1.3.1.
     "starlette>=1.3.1",
+    # Required by Starlette's Request.form() even for urlencoded bodies (the
+    # /login POST form) — Starlette asserts its presence at parse time.
+    "python-multipart>=0.0.9",
 ]
 dev = [
     "pytest>=8",
