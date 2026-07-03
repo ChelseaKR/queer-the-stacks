@@ -93,3 +93,49 @@ def test_render_handles_empty_view() -> None:
     )
     assert "Nothing in progress" in html
     assert "No recommendations yet" in html
+
+
+def test_render_data_status_never_refreshed() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+    )
+    assert "Data status" in html
+    assert "never refreshed" in html
+    assert "stacks refresh" in html
+    assert 'role="status"' not in html  # no stamp yet -> no staleness banner either
+
+
+def test_render_data_status_shows_stamp_and_no_banner_when_fresh() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        refreshed_at=1_700_000_000,
+        stale=False,
+    )
+    assert "Data status" in html
+    assert "2023-11-14T22:13:20Z" in html  # ISO-8601 UTC of the epoch stamp
+    assert 'role="status"' not in html
+
+
+def test_render_data_status_stale_banner_is_visible_text() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        refreshed_at=1_700_000_000,
+        stale=True,
+    )
+    assert 'role="status"' in html
+    assert "Stale" in html  # staleness named in text, not colour-only

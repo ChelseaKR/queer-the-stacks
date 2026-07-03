@@ -23,6 +23,30 @@ from typing import Optional
 DEFAULT_CONFIG_FILE = "stacks.toml"
 DEFAULT_DATA_DIR = Path("data")
 
+# Every ``STACKS_*`` environment variable this app actually reads. Exported so
+# ``ingest.refresh.doctor`` can flag typos (e.g. ``STACKS_CALIBER_DB``) without
+# hardcoding a second copy of this list that can drift out of sync.
+KNOWN_STACKS_ENV = frozenset(
+    {
+        "STACKS_CONFIG",
+        "STACKS_DATA_DIR",
+        "STACKS_DEMO",
+        "STACKS_CALIBRE_DB",
+        "STACKS_KOREADER_DB",
+        "STACKS_KOSYNC_HOST",
+        "STACKS_KOSYNC_USER",
+        "STACKS_KOSYNC_KEY",
+        "STACKS_APERTURE",
+        "STACKS_EMBEDDINGS",
+        "STACKS_DNF_SIGNALS",
+        "STACKS_GOAL_BOOKS",
+        "STACKS_GOAL_PAGES",
+        "STACKS_GOAL_HOURS",
+        "STACKS_GOAL_STREAK",
+        "STACKS_AUTH_TOKEN",
+    }
+)
+
 
 @dataclass(frozen=True)
 class Config:
