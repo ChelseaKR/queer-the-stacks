@@ -236,7 +236,7 @@ class ResponseCache:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     self._mem = {str(k): str(v) for k, v in loaded.items()}
-            except ValueError, OSError:  # pragma: no cover - corrupt cache is non-fatal
+            except (ValueError, OSError):  # pragma: no cover - corrupt cache is non-fatal
                 self._mem = {}
 
     def get(self, url: str) -> Optional[str]:
@@ -251,7 +251,7 @@ class ResponseCache:
             self.path.write_text(json.dumps(self._mem), encoding="utf-8")
 
 
-class OpenLibraryClient:  # pragma: no cover - live network path, integration-verified
+class OpenLibraryClient:
     """Live OpenLibrary client. Every request passes through :func:`assert_allowed`."""
 
     SUBJECTS_ROOT = "https://openlibrary.org/subjects"
@@ -282,7 +282,7 @@ class OpenLibraryClient:  # pragma: no cover - live network path, integration-ve
         return resp.text
 
 
-class BookwyrmClient:  # pragma: no cover - live network path, integration-verified
+class BookwyrmClient:
     """Live Bookwyrm list client behind the allowlist."""
 
     def __init__(self, timeout: int = 15) -> None:
