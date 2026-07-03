@@ -164,7 +164,10 @@ def _rec_table(recs: Sequence[Recommendation]) -> str:
 
 _STYLE = """
 :root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem; }
+body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
+  background: Canvas; color: CanvasText; }
+a { color: LinkText; }
+a:visited { color: VisitedText; }
 .card, li.reading { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0;
   list-style: none; }
 ul.books { padding: 0; }

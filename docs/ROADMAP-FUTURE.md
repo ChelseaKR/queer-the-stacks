@@ -7,8 +7,9 @@
 > `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
 > `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
 > follow-ups remain open and are noted inline: live-network contract cassettes, a
-> real (still-local) embedding model, Lighthouse/k6 in CI, and sidecar
-> highlight-*text* import.
+> real (still-local) embedding model, and sidecar highlight-*text* import.
+> **Update (2026-07-03):** Lighthouse-CI + Locust load smoke landed as
+> merge-blocking CI gates (see "Deferred merge-blocking gates" below).
 
 **Guiding constraint.** Every item below must hold the four hard guardrails or it
 does not ship:
@@ -43,10 +44,19 @@ your real library" before adding features.
 
 ## Deferred merge-blocking gates the standard names
 
-- **Performance (Quality §2)** — k6/Locust smoke (p95 < 500 ms dashboard route) +
-  Lighthouse-CI on the rendered HTML; make merge-blocking. *(N5)*
-- **Reliability (Quality §5)** — restart-recovery test (reads persisted state) and
-  a chaos test for "kosync down → degrade to KOReader-only". *(N5)*
+- ~~**Performance (Quality §2)** — k6/Locust smoke (p95 < 500 ms dashboard route) +
+  Lighthouse-CI on the rendered HTML; make merge-blocking.~~ **Done (2026-07-03).**
+  `tests/perf/locustfile.py` + `scripts/perf-smoke.sh` (`make perf-load`) boot the
+  demo app and fail the build if the aggregated p95 on `/` is >= 500ms;
+  `.lighthouserc.json` + `make lighthouse` run Lighthouse-CI against the built
+  `docs/audits/dashboard.html` with `categories:performance >= 0.9` and
+  `categories:accessibility >= 1.0` as error-level (merge-blocking) assertions.
+  Both are non-conditional steps in `.github/workflows/ci.yml`. *(N5)*
+- ~~**Reliability (Quality §5)** — restart-recovery test (reads persisted state) and
+  a chaos test for "kosync down → degrade to KOReader-only".~~ **Done.**
+  `tests/test_reliability.py` (`test_restart_recovery`,
+  `test_kosync_down_degrades_to_stats`), run merge-blocking as part of
+  `make test` / the CI `Tests` step. *(N5)*
 - **Manual a11y sign-off** — perform + commit the dated VoiceOver/NVDA walkthrough.
   *(N1–N6, before first release)*
 

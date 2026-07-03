@@ -34,6 +34,9 @@ dev = [
     # msgpack is a pip-audit→CacheControl transitive; floor raised above the
     # fixed release. GHSA-6v7p-g79w-8964 → require >=1.2.1.
     "msgpack>=1.2.1",
+    # Load-smoke gate (Quality §2, merge-blocking): tests/perf/locustfile.py,
+    # driven headlessly by scripts/perf-smoke.sh / `make perf-load`.
+    "locust>=2.29",
 ]
 
 [project.scripts]

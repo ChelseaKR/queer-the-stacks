@@ -9,13 +9,13 @@ PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval perf audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval perf perf-load lighthouse perf-gates audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-$(PYTHON): ## Bootstrap the virtualenv (Python 3.14) + dev/app deps
+$(PYTHON): ## Bootstrap the virtualenv (Python 3.14) + dev/app deps (incl. locust)
 	$(PYTHON3) -m venv .venv
 	$(PIP) install -q --upgrade pip
 	$(PIP) install -q -e ".[dev,app]"
@@ -67,6 +67,15 @@ eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 
 perf: ## Stage 6 — render/pipeline performance budget (also run within `make test`)
 	$(PYTHON) -m pytest tests/test_perf.py -q -o addopts=""
+
+perf-load: ## Stage 6b — merge-blocking load smoke: p95 < 500ms on the dashboard route
+	@./scripts/perf-smoke.sh
+
+lighthouse: ## Stage 6c — merge-blocking Lighthouse-CI on the built dashboard HTML
+	$(PYTHON) -m app.build_static
+	npx --yes @lhci/cli autorun --config=.lighthouserc.json
+
+perf-gates: perf-load lighthouse ## Run both merge-blocking perf gates (load smoke + Lighthouse-CI)
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null

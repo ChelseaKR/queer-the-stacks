@@ -34,6 +34,7 @@ jobs:
       - name: Install project (dev + app extras)
         run: |
           python -m pip install --upgrade pip setuptools wheel
+          # dev extra includes locust, used by the load-smoke gate below.
           python -m pip install -e ".[dev,app]"
           npm install -g pa11y
 
@@ -63,6 +64,19 @@ jobs:
       # 7. responsible-tech: offline eval must beat the popularity baseline
       - name: Eval
         run: make eval PYTHON=python
+
+      # 6b. performance load smoke (merge-blocking): p95 < 500ms on the
+      #     dashboard route. Boots the app in demo mode and drives it with a
+      #     short, constant-load Locust scenario (locust ships via the `dev`
+      #     extra installed above).
+      - name: Performance load smoke
+        run: make perf-load PYTHON=python
+
+      # 6c. Lighthouse-CI (merge-blocking) against the built dashboard HTML.
+      #     Chrome is preinstalled on ubuntu-latest runners; Node 20 is set up
+      #     above.
+      - name: Lighthouse CI
+        run: make lighthouse PYTHON=python
 
       - name: Upload audit artifacts
         if: always()
