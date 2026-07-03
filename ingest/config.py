@@ -61,6 +61,24 @@ class Config:
     def has_real_sources(self) -> bool:
         return self.calibre_db is not None or self.koreader_db is not None
 
+    def view_cache_fields(self) -> tuple[object, ...]:
+        """The subset of fields that affect a built ``DashboardView``.
+
+        Used by the server to key its in-memory view cache: source/storage
+        paths and secrets never change what gets rendered, only these knobs do
+        (see ``app.view.build_view``'s keyword arguments).
+        """
+        return (
+            self.demo,
+            self.aperture_strength,
+            self.embeddings_enabled,
+            self.dnf_signals,
+            self.goal_books,
+            self.goal_pages,
+            self.goal_hours,
+            self.goal_streak_days,
+        )
+
 
 def _read_toml(path: Path) -> dict[str, object]:
     if not path.is_file():

@@ -35,10 +35,16 @@ def test_server_rejects_unauthenticated_requests(
 
     from fastapi.testclient import TestClient
 
+    from tests.conftest import seed_store_from_env
+
     # Demo mode + a throwaway data dir so the server never touches the repo's data/.
     monkeypatch.setenv("STACKS_DEMO", "1")
     monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
     from app.server import create_app
+
+    # The server never ingests inside a request (FIX-14) — populate the store
+    # explicitly first, the same way `stacks refresh` would.
+    seed_store_from_env()
 
     client = TestClient(create_app())
 

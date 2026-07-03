@@ -56,3 +56,26 @@ def full_view(workdir: Path):
     from app.view import demo_view
 
     return demo_view(workdir)
+
+
+def seed_store_from_env() -> None:
+    """Populate the app-state store for the currently-configured ``STACKS_*`` env.
+
+    The server never ingests inside a request (FIX-14): routes 503 until the
+    store has been refreshed. Tests that exercise data routes through a
+    TestClient call this after ``monkeypatch``-ing ``STACKS_DEMO``/
+    ``STACKS_DATA_DIR`` and before making requests — the same effect as
+    running ``stacks refresh`` once against that data dir.
+    """
+    import time
+
+    from ingest.config import load_config
+    from ingest.refresh import refresh
+    from ingest.store import Store
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        refresh(config, store, now=int(time.time()))
+    finally:
+        store.close()
