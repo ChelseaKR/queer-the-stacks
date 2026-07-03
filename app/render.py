@@ -107,10 +107,18 @@ def _wrapped_table(wrapped: Wrapped) -> str:
     )
 
 
+#: Applied to every external (http/https) citation link: ``noopener`` +
+#: ``noreferrer`` stop the new-tab window-handle and Referer leaks respectively
+#: (belt-and-suspenders alongside the app-wide ``Referrer-Policy: no-referrer``
+#: header); ``external`` is a plain semantic hint, not a browser behavior.
+_EXTERNAL_REL = "noopener noreferrer external"
+
+
 def _sources_html(rec: Recommendation) -> str:
     items = "".join(
         f"<li>{escape(str(s.kind))}: "
-        f'<a href="{escape(_as_url(s.citation))}">{escape(s.citation)}</a> '
+        f'<a href="{escape(_as_url(s.citation))}"{_link_rel_attr(s.citation)}>'
+        f"{escape(s.citation)}</a> "
         f'<span class="retrieved">(retrieved {escape(s.retrieved_at)})</span></li>'
         for s in rec.explanation.sources
     )
@@ -122,6 +130,13 @@ def _as_url(citation: str) -> str:
     if citation.startswith(("http://", "https://")):
         return citation
     return f"#source-{citation.replace(':', '-').replace(' ', '-')}"
+
+
+def _link_rel_attr(citation: str) -> str:
+    """A ``rel`` attribute for a citation link — only external links get it."""
+    if citation.startswith(("http://", "https://")):
+        return f' rel="{_EXTERNAL_REL}"'
+    return ""
 
 
 def _signals_html(rec: Recommendation) -> str:
