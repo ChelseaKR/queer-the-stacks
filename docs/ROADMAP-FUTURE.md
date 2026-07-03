@@ -56,7 +56,12 @@ your real library" before adding features.
 
 1. **More read-only sources, same guardrails** — Readest progress, Kobo's native
    `KoboReader.sqlite`, Calibre-Web read-state, sideloaded EPUB/PDF. Each is a new
-   adapter behind the existing `unify` join.
+   adapter behind the existing `unify` join. **Kobo native (`ingest/kobo.py`)
+   done** — snapshot-first `KoboReader.sqlite` reader over the `content` table
+   (`ContentType = 6`, chapter-row dedup, schema-drift tolerant), merged through
+   the existing `unify` join with zero changes to `ingest/unify.py`; wired into
+   `ingest/config.py` (`[kobo]` / `STACKS_KOBO_DB`) and `ingest/refresh.py`.
+   Readest, Calibre-Web read-state, and sideloaded EPUB/PDF remain open.
 2. **Annotations & highlights** — surface a private, searchable "commonplace book"
    from KOReader highlights; never synced anywhere.
 3. **Series & TBR intelligence** — "next in a series you own," progress through a

@@ -11,6 +11,7 @@ def test_defaults_when_nothing_set(tmp_path: Path) -> None:
     cfg = load_config(env={}, config_path=tmp_path / "absent.toml")
     assert cfg.calibre_db is None
     assert cfg.koreader_db is None
+    assert cfg.kobo_db is None
     assert cfg.data_dir == DEFAULT_DATA_DIR
     assert cfg.demo is False
     assert cfg.kosync_configured is False
@@ -21,6 +22,7 @@ def test_env_overrides(tmp_path: Path) -> None:
     env = {
         "STACKS_CALIBRE_DB": "/lib/metadata.db",
         "STACKS_KOREADER_DB": "/lib/statistics.sqlite",
+        "STACKS_KOBO_DB": "/lib/KoboReader.sqlite",
         "STACKS_DATA_DIR": str(tmp_path / "state"),
         "STACKS_KOSYNC_HOST": "https://sync.example",
         "STACKS_KOSYNC_USER": "reader",
@@ -30,12 +32,23 @@ def test_env_overrides(tmp_path: Path) -> None:
     cfg = load_config(env=env, config_path=tmp_path / "absent.toml")
     assert cfg.calibre_db == Path("/lib/metadata.db")
     assert cfg.koreader_db == Path("/lib/statistics.sqlite")
+    assert cfg.kobo_db == Path("/lib/KoboReader.sqlite")
     assert cfg.data_dir == tmp_path / "state"
     assert cfg.demo is True
     assert cfg.kosync_configured is True
     assert cfg.has_real_sources is True
     assert cfg.store_path == tmp_path / "state" / "app-state.sqlite"
     assert cfg.snapshot_dir == tmp_path / "state" / "snapshots"
+
+
+def test_kobo_only_counts_as_a_real_source(tmp_path: Path) -> None:
+    cfg = load_config(
+        env={"STACKS_KOBO_DB": "/lib/KoboReader.sqlite"}, config_path=tmp_path / "absent.toml"
+    )
+    assert cfg.calibre_db is None
+    assert cfg.koreader_db is None
+    assert cfg.kobo_db == Path("/lib/KoboReader.sqlite")
+    assert cfg.has_real_sources is True
 
 
 def test_toml_file_is_read(tmp_path: Path) -> None:
@@ -46,6 +59,8 @@ def test_toml_file_is_read(tmp_path: Path) -> None:
         path = "/books/metadata.db"
         [koreader]
         path = "/books/statistics.sqlite"
+        [kobo]
+        path = "/books/KoboReader.sqlite"
         [kosync]
         host = "https://sync.example"
         user = "me"
@@ -57,6 +72,7 @@ def test_toml_file_is_read(tmp_path: Path) -> None:
     cfg = load_config(env={}, config_path=toml)
     assert cfg.calibre_db == Path("/books/metadata.db")
     assert cfg.koreader_db == Path("/books/statistics.sqlite")
+    assert cfg.kobo_db == Path("/books/KoboReader.sqlite")
     assert cfg.kosync_host == "https://sync.example"
     assert cfg.kosync_user == "me"
     assert cfg.data_dir == Path("/srv/stacks-data")

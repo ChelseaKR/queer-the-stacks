@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from ingest.config import Config, load_config
@@ -17,6 +18,45 @@ def _real_config(tmp_path: Path) -> Config:
         env={
             "STACKS_CALIBRE_DB": str(metadata_db),
             "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+
+
+def _make_kobo_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE content (
+            ContentID TEXT PRIMARY KEY, ContentType INTEGER, MimeType TEXT,
+            BookID TEXT, Title TEXT, Attribution TEXT, ___PercentRead INTEGER,
+            ReadStatus INTEGER, TimeSpentReading INTEGER, ___NumPages INTEGER,
+            DateLastRead TEXT
+        );
+        INSERT INTO content (
+            ContentID, ContentType, MimeType, BookID, Title, Attribution,
+            ___PercentRead, ReadStatus, TimeSpentReading, ___NumPages, DateLastRead
+        ) VALUES (
+            'file:///kobo-only.epub', 6, 'application/x-kobo-epub+zip', NULL,
+            'Kobo Only Book', 'Kobo Author', 30, 1, 900, 100, '2026-06-01T00:00:00.000'
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _real_config_with_kobo(tmp_path: Path) -> Config:
+    """A non-demo config with Calibre + KOReader + a Kobo native DB configured."""
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    kobo_db = tmp_path / "lib" / "KoboReader.sqlite"
+    _make_kobo_db(kobo_db)
+    return load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_KOBO_DB": str(kobo_db),
             "STACKS_DATA_DIR": str(tmp_path / "data"),
         },
         config_path=tmp_path / "absent.toml",
@@ -60,6 +100,38 @@ def test_mtime_guard_skips_unchanged(tmp_path: Path) -> None:
         forced = refresh(cfg, store, now=300, force=True)
         assert forced.refreshed is True
         assert store.refreshed_at() == 300
+
+
+def test_real_refresh_merges_kobo_stats_through_unify(tmp_path: Path) -> None:
+    """Kobo stats flow through the same `unify` join, surfacing an unmatched book."""
+    cfg = _real_config_with_kobo(tmp_path)
+    states, _ = ingest_states(cfg)
+    kobo_state = next(s for s in states if s.title == "Kobo Only Book")
+    assert kobo_state.book is None  # not in the Calibre catalog
+    assert kobo_state.stat is not None
+    assert kobo_state.stat.read_time_seconds == 900
+    # Existing Calibre + KOReader books are unaffected.
+    assert any(s.title == "Kindred" for s in states)
+
+
+def test_source_mtimes_includes_kobo(tmp_path: Path) -> None:
+    cfg = _real_config_with_kobo(tmp_path)
+    mtimes = source_mtimes(cfg)
+    assert "kobo" in mtimes
+
+
+def test_doctor_reports_kobo_when_configured(tmp_path: Path) -> None:
+    cfg = _real_config_with_kobo(tmp_path)
+    checks = doctor(cfg)
+    by_name = {c.name: c for c in checks}
+    assert by_name["Kobo file"].ok
+    assert by_name["Kobo read-only access"].ok
+
+
+def test_doctor_omits_kobo_when_unconfigured(tmp_path: Path) -> None:
+    cfg = _real_config(tmp_path)
+    checks = doctor(cfg)
+    assert not any(c.name.startswith("Kobo") for c in checks)
 
 
 def test_source_mtimes_only_existing(tmp_path: Path) -> None:
