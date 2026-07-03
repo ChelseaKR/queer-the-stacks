@@ -22,6 +22,11 @@ from typing import Optional
 
 DEFAULT_CONFIG_FILE = "stacks.toml"
 DEFAULT_DATA_DIR = Path("data")
+#: Personalized diversity-lens grouping, auto-loaded when present (see
+#: app/diversity.py::load_lens_config). Overridable via [lenses].path in
+#: stacks.toml or $STACKS_LENS_CONFIG; ships as a committed template with the
+#: current defaults so editing it "just works" with zero code changes.
+DEFAULT_LENS_CONFIG = Path("data/lenses.toml")
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,7 @@ class Config:
     goal_pages: int = 0  # yearly page goal (0 = unset)
     goal_hours: int = 0  # yearly reading-time goal in hours (0 = unset)
     goal_streak_days: int = 0  # streak goal in days (0 = unset)
+    lens_config: Optional[Path] = None  # diversity-lens TOML override, if any
 
     @property
     def store_path(self) -> Path:
@@ -117,6 +123,15 @@ def load_config(
         except ValueError:
             return 0
 
+    lenses = _section(toml, "lenses")
+    lens_config_raw = pick("STACKS_LENS_CONFIG", lenses, "path")
+    if lens_config_raw:
+        lens_config = Path(lens_config_raw)
+    elif DEFAULT_LENS_CONFIG.is_file():
+        lens_config = DEFAULT_LENS_CONFIG
+    else:
+        lens_config = None
+
     return Config(
         calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
         koreader_db=_opt_path(pick("STACKS_KOREADER_DB", koreader, "path")),
@@ -132,4 +147,5 @@ def load_config(
         goal_pages=pick_int("STACKS_GOAL_PAGES", "pages"),
         goal_hours=pick_int("STACKS_GOAL_HOURS", "hours"),
         goal_streak_days=pick_int("STACKS_GOAL_STREAK", "streak_days"),
+        lens_config=lens_config,
     )

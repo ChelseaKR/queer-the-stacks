@@ -176,6 +176,7 @@ a:focus, .skip:focus { outline: 3px solid; }
 .skip:focus { left: 1rem; top: 1rem; }
 table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
 th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
+.lens-warning { border: 2px dashed; border-radius: 8px; padding: 0.5rem 0.75rem; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
@@ -258,6 +259,16 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
         f'<th scope="col">Value</th></tr></thead><tbody>{coverage_rows}</tbody></table>'
     )
 
+    # Lens provenance: which grouping produced the numbers below, so a renamed
+    # lens in data/lenses.toml appears verbatim and a degraded config is never
+    # silent (extends the tag-provenance UI to the *grouping* itself).
+    lens_provenance = f"<p>Lens grouping: <strong>{escape(report.lens_source)}</strong>.</p>"
+    lens_warning = (
+        f'<p class="lens-warning" role="alert">Warning: {escape(report.lens_warning)}</p>'
+        if report.lens_warning
+        else ""
+    )
+
     if report.dimensions:
         dim_rows = "".join(
             f'<tr><th scope="row">{escape(d.name)}</th>'
@@ -266,6 +277,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
             for d in report.dimensions
         )
         dimensions = (
+            f"{lens_provenance}{lens_warning}"
             "<table><caption>Representation lenses, as a share of your described "
             "books (a grouping of sourced descriptors — never an author's identity)"
             '</caption><thead><tr><th scope="col">Lens</th>'
@@ -274,7 +286,9 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
             f"<tbody>{dim_rows}</tbody></table>"
         )
     else:
-        dimensions = "<p>No grouped representation lenses populated yet.</p>"
+        dimensions = (
+            f"{lens_provenance}{lens_warning}<p>No grouped representation lenses populated yet.</p>"
+        )
 
     prov_rows = "".join(
         f'<tr><th scope="row">{escape(kind)}</th><td>{count}</td></tr>'

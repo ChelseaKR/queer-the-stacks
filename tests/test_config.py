@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ingest.config import DEFAULT_DATA_DIR, load_config
 
 
@@ -79,3 +80,30 @@ def test_key_only_from_env_never_file(tmp_path: Path) -> None:
     assert cfg.kosync_key is None
     cfg2 = load_config(env={"STACKS_KOSYNC_KEY": "realkey"}, config_path=toml)
     assert cfg2.kosync_key == "realkey"
+
+
+def test_lens_config_defaults_to_none_without_committed_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no data/lenses.toml on disk, lens_config resolves to None (built-in)."""
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config(env={}, config_path=tmp_path / "absent.toml")
+    assert cfg.lens_config is None
+
+
+def test_lens_config_env_override(tmp_path: Path) -> None:
+    lens_path = tmp_path / "custom-lenses.toml"
+    lens_path.write_text('[[lenses]]\nname = "X"\ndescriptors = ["y"]\n', encoding="utf-8")
+    cfg = load_config(
+        env={"STACKS_LENS_CONFIG": str(lens_path)}, config_path=tmp_path / "absent.toml"
+    )
+    assert cfg.lens_config == lens_path
+
+
+def test_lens_config_toml_section(tmp_path: Path) -> None:
+    lens_path = tmp_path / "custom-lenses.toml"
+    lens_path.write_text('[[lenses]]\nname = "X"\ndescriptors = ["y"]\n', encoding="utf-8")
+    toml = tmp_path / "stacks.toml"
+    toml.write_text(f'[lenses]\npath = "{lens_path}"\n', encoding="utf-8")
+    cfg = load_config(env={}, config_path=toml)
+    assert cfg.lens_config == lens_path

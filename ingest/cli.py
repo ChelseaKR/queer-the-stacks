@@ -147,6 +147,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             goal_books=config.goal_books,
             goal_pages=config.goal_pages,
             goal_streak_days=config.goal_streak_days,
+            lens_config=config.lens_config,
         )
     finally:
         store.close()

@@ -17,7 +17,7 @@ from recommender.eval import PopCandidate
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 
-from app.diversity import DiversityReport, compute_diversity
+from app.diversity import DEFAULT_DIMENSIONS, DiversityReport, compute_diversity, load_lens_config
 from app.goals import Goal, compute_goals
 from app.shelf import SeriesNext, series_continuations, to_read
 from app.stats import ReadingStats, compute_stats
@@ -67,6 +67,9 @@ def build_view(
     goal_pages: int = 0,
     goal_hours: int = 0,
     goal_streak_days: int = 0,
+    lens_dimensions: tuple[tuple[str, frozenset[str]], ...] = DEFAULT_DIMENSIONS,
+    lens_source: str = "built-in defaults",
+    lens_warning: Optional[str] = None,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure)."""
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
@@ -80,7 +83,12 @@ def build_view(
         hours_target=goal_hours,
         streak_target=goal_streak_days,
     )
-    diversity = compute_diversity(states)
+    diversity = compute_diversity(
+        states,
+        lens_dimensions,
+        lens_source=lens_source,
+        lens_warning=lens_warning,
+    )
     candidate_books = tuple(c.book for c in candidates)  # type: ignore[attr-defined]
     recs = recommend_hybrid(
         states,
@@ -137,18 +145,26 @@ def view_from_store(
     goal_pages: int = 0,
     goal_hours: int = 0,
     goal_streak_days: int = 0,
+    lens_config: Optional[Path] = None,
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
     Recommendations draw on the built-in curated seed catalog (real books on cited
     community lists) plus the hybrid signals; live catalog candidate pools land
     when configured (phase N2 adapters).
+
+    ``lens_config``, if given, points at a validated ``[[lenses]]`` TOML file
+    (see :func:`app.diversity.load_lens_config`) that overrides the built-in
+    diversity-lens grouping; any read/parse/validation failure degrades to the
+    built-in defaults with a visible warning surfaced in the diversity section,
+    never a blank one.
     """
     from ingest.demo import demo_candidates
     from recommender.lists import DEMO_LISTS
 
     states = store.load_states()  # type: ignore[attr-defined]
     activity = store.load_daily_activity()  # type: ignore[attr-defined]
+    lenses = load_lens_config(lens_config)
     return build_view(
         states,
         activity,
@@ -162,6 +178,9 @@ def view_from_store(
         goal_pages=goal_pages,
         goal_hours=goal_hours,
         goal_streak_days=goal_streak_days,
+        lens_dimensions=lenses.dimensions,
+        lens_source=lenses.source,
+        lens_warning=lenses.warning,
     )
 
 
