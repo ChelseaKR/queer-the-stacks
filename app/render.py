@@ -22,6 +22,7 @@ from html import escape
 from typing import Optional
 
 from ingest.models import ReadingState, Recommendation
+from recommender.lists import CuratedList
 
 from app.diversity import DiversityReport
 from app.goals import Goal
@@ -299,6 +300,38 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     )
 
 
+def _authored_lists_section(lists: Sequence[CuratedList]) -> str:
+    """Read-only "Your lists" section: name, citation, retrieved date, book count.
+
+    Authoring itself is CLI-only (``stacks lists new/add/export``, manual
+    export, no network) — this section only ever displays what is already on
+    disk; it never edits, imports, or sends anything.
+    """
+    if not lists:
+        return (
+            "<h2>Your lists</h2>"
+            "<p>No authored lists yet — create one with "
+            "<code>stacks lists new</code> and it will show up here.</p>"
+        )
+    rows = "".join(
+        f'<tr><th scope="row">{escape(lst.name)}</th>'
+        f"<td>{escape(lst.citation)}</td>"
+        f"<td>{len(lst.book_ids)}</td>"
+        f"<td>{escape(lst.retrieved_at)}</td></tr>"
+        for lst in lists
+    )
+    return (
+        "<h2>Your lists</h2>"
+        "<p>Cited lists you've authored with <code>stacks lists</code> — "
+        "read-only here. Export stays a manual, local step "
+        "(<code>stacks lists export</code>); nothing here is sent anywhere.</p>"
+        "<table><caption>Your authored curated lists</caption>"
+        '<thead><tr><th scope="col">Name</th><th scope="col">Citation</th>'
+        '<th scope="col">Books</th><th scope="col">Retrieved</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def _library_table(library: Sequence[ReadingState]) -> str:
     if not library:
         return "<p>Your library is empty.</p>"
@@ -350,6 +383,7 @@ def render_dashboard(
     library: Sequence[ReadingState] = (),
     goals: Sequence[Goal] = (),
     diversity: Optional[DiversityReport] = None,
+    authored_lists: Sequence[CuratedList] = (),
     user: str = "demo",
 ) -> str:
     """Render the complete, accessible dashboard document."""
@@ -401,6 +435,7 @@ def render_dashboard(
         f"{rec_cards}"
         "<h2>Recently finished</h2>"
         f'<ul class="books">{finished_items}</ul>'
+        f"{_authored_lists_section(authored_lists)}"
         "<h2>Browse your library</h2>"
         '<p><label for="lib-filter">Filter the table below '
         "(works without JavaScript via the /browse route):</label> "

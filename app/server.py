@@ -42,6 +42,8 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
 
 def _load_view() -> DashboardView:
     """Load the dashboard from the persisted store, refreshing on first run."""
+    from recommender.lists_store import list_store_path, load_stored_lists
+
     config = load_config()
     store = Store(config.store_path)
     try:
@@ -57,6 +59,7 @@ def _load_view() -> DashboardView:
             goal_pages=config.goal_pages,
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
+            authored_lists=load_stored_lists(list_store_path(config)),
         )
     finally:
         store.close()

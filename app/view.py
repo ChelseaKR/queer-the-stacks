@@ -38,6 +38,7 @@ class DashboardView:
     library: tuple[ReadingState, ...] = ()
     goals: tuple[Goal, ...] = ()
     diversity: Optional[DiversityReport] = None
+    authored_lists: tuple[CuratedList, ...] = ()
     user: str = "demo"
 
 
@@ -59,6 +60,7 @@ def build_view(
     candidates: tuple[object, ...],
     *,
     lists: tuple[CuratedList, ...] = (),
+    authored_lists: tuple[CuratedList, ...] = (),
     user: str = "demo",
     aperture_strength: float = 0.0,
     use_embeddings: bool = False,
@@ -68,7 +70,13 @@ def build_view(
     goal_hours: int = 0,
     goal_streak_days: int = 0,
 ) -> DashboardView:
-    """Build the dashboard view from unified state + candidates (pure)."""
+    """Build the dashboard view from unified state + candidates (pure).
+
+    ``lists`` are the curated lists that feed the recommender (e.g. the seed
+    ``DEMO_LISTS``); ``authored_lists`` are the reader's own, persisted via
+    ``recommender.lists_store`` and shown read-only in a dashboard section —
+    they do not themselves influence recommendations.
+    """
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
     stats = compute_stats(states, daily_activity, today_ordinal)
     wrapped = compute_wrapped(states, daily_activity, year)
@@ -103,6 +111,7 @@ def build_view(
         library=tuple(library),
         goals=goals,
         diversity=diversity,
+        authored_lists=authored_lists,
         user=user,
     )
 
@@ -122,6 +131,7 @@ def render_view(view: DashboardView) -> str:
         library=view.library,
         goals=view.goals,
         diversity=view.diversity,
+        authored_lists=view.authored_lists,
         user=view.user,
     )
 
@@ -137,12 +147,16 @@ def view_from_store(
     goal_pages: int = 0,
     goal_hours: int = 0,
     goal_streak_days: int = 0,
+    authored_lists: tuple[CuratedList, ...] = (),
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
     Recommendations draw on the built-in curated seed catalog (real books on cited
     community lists) plus the hybrid signals; live catalog candidate pools land
-    when configured (phase N2 adapters).
+    when configured (phase N2 adapters). ``authored_lists`` are the reader's own
+    curated lists (see :mod:`recommender.lists_store`), shown read-only; callers
+    load them from ``config`` and pass them through since this function stays
+    store-only otherwise.
     """
     from ingest.demo import demo_candidates
     from recommender.lists import DEMO_LISTS
@@ -154,6 +168,7 @@ def view_from_store(
         activity,
         demo_candidates(),
         lists=DEMO_LISTS,
+        authored_lists=authored_lists,
         user=user,
         aperture_strength=aperture_strength,
         use_embeddings=use_embeddings,
