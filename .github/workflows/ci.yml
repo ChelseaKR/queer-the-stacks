@@ -1,8 +1,17 @@
 name: ci
 
-# Mirrors QUALITY-AND-METRICS-STANDARD §"enforcement pipeline". Every stage is
-# blocking; a merge to main requires this workflow green (branch protection, no
-# admin bypass). `make verify` runs the same stages locally.
+# Mirrors QUALITY-AND-METRICS-STANDARD §"enforcement pipeline". Every stage
+# below is merge-blocking *within this workflow* (no `|| true`/continue-on-error
+# on any gate). `make verify` runs the same stages locally.
+#
+# Honesty note (2026-07-05): branch protection on `main` is NOT currently
+# configured on GitHub (verified via `gh api repos/.../branches/main/protection`
+# -> 404, and independently via OpenSSF Scorecard's Branch-Protection check ->
+# 0/10, see docs/audits/scorecard-2026-07.md). This workflow being green is
+# therefore not yet enforced as a merge requirement — only a norm. Enabling
+# branch protection is a live GitHub-settings change and is tracked as a
+# BLOCKED action in the 2026-07-05 remediation log, not something this
+# workflow file can assert its way into being true.
 
 on:
   push:
@@ -31,38 +40,76 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install project (dev + app extras)
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+        with:
+          version: "0.11.26"
+
+      # `--frozen` fails the build on any drift between pyproject.toml and the
+      # committed uv.lock, instead of silently re-resolving (CQ-09, SEC-13).
+      - name: Install project (dev + app extras, locked)
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[dev,app]"
+          uv sync --frozen --extra dev --extra app
           npm install -g pa11y
+
+      # Pinned, checksum-verified gitleaks binary (no GitHub Action / license
+      # needed — a plain binary on PATH is exactly what scripts/secret-scan.sh
+      # already looks for, so the single-entry-point `make security` design and
+      # local/CI parity are unchanged). Bump both the URL and the checksum
+      # together when upgrading.
+      - name: Install gitleaks (pinned v8.30.1, checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Pinned, checksum-verified osv-scanner binary — scans uv.lock for known
+      # advisories against every locked (not just installed) version (SEC-13).
+      - name: Install osv-scanner (pinned v2.4.0, checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
+          echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  /tmp/osv-scanner" | sha256sum -c -
+          sudo install -m 0755 /tmp/osv-scanner /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      # `uv sync` created .venv above, which is the Makefile's own PYTHON
+      # default — no PYTHON= override needed for these targets.
 
       # 1. format + lint (ruff, incl. bandit SAST subset)
       - name: Lint
-        run: make lint PYTHON=python
+        run: make lint
 
       # 2. strict type-check
       - name: Type-check
-        run: make typecheck PYTHON=python
+        run: make typecheck
 
       # 3. unit + integration tests + coverage gate (>=85%)
       - name: Tests
-        run: make test PYTHON=python
+        run: make test
 
-      # 4. dependency vulnerability scan + secret scan (both merge-blocking).
-      #    `make security` runs pip-audit and scripts/secret-scan.sh (gitleaks
-      #    when present, else a high-signal grep fallback) — no GitHub API calls,
-      #    so it works on a private repo without extra token permissions.
-      - name: Security (deps + secrets)
-        run: make security PYTHON=python
+      # 4. dependency vulnerability scan (installed env) + lockfile CVE scan
+      #    (osv-scanner against uv.lock) + secret scan (all merge-blocking).
+      #    `make security` runs pip-audit, scripts/secret-scan.sh (finds the
+      #    gitleaks binary installed above — no grep fallback in CI), and
+      #    osv-scanner (installed above) — no GitHub API calls, so it works on
+      #    a private repo without extra token permissions.
+      - name: Security (deps + lockfile + secrets)
+        run: make security
 
-      # 5. accessibility — zero axe violations on the rendered dashboard
+      # 5. accessibility — zero violations from BOTH the structural checker and
+      #    pa11y/axe (real browser engine, incl. color-contrast) — both blocking.
       - name: Accessibility
-        run: make a11y PYTHON=python
+        run: make a11y
 
       # 7. responsible-tech: offline eval must beat the popularity baseline
       - name: Eval
-        run: make eval PYTHON=python
+        run: make eval
 
       - name: Upload audit artifacts
         if: always()

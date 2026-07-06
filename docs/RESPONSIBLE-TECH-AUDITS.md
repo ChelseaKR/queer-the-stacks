@@ -33,6 +33,26 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive �
 - **Threat model:** unauthorized access to the self-hosted app, source-DB corruption, API-key leakage, dependency risk.
 - **Controls:** required auth, read-only/snapshot source access, secrets handling, outbound host allowlist, SAST + deps + secret scans merge-blocking.
 - **Residual-risk register** committed in `docs/audits/`. **Auto-gated:** scanners + access + read-only tests. **Review-gated:** threat-model sign-off.
+- **ASVS 5.0 level:** **L2** (reading history = sensitive personal data). Rationale: single-user
+  auth-gated app handling data that can out a reader — above L1 baseline, below L3 (no
+  high-value/regulated transaction surface). Declared 2026-07-05.
+- **Container scan:** ✓ blocking Trivy scan (`.github/workflows/container-scan.yml`), HIGH/CRITICAL,
+  fixable-only.
+- **SBOM / signing:** not yet produced — no release pipeline exists yet (see `docs/ROADMAP.md` and
+  the tracked gap noted in `CHANGELOG.md`/README §Standards). Will be generated (CycloneDX) and
+  signed (cosign keyless + SLSA provenance) by the release workflow once built.
+- **VEX policy:** none needed; empty ignore-list policy in `docs/audits/residual-risk.md` (no
+  accepted advisories exist to VEX against).
+
+## Applicability — AI-EVALUATION and INTERNATIONALIZATION
+- **AI-EVALUATION: N/A.** No LLM/GenAI SDK is used anywhere in this repo (verified: no
+  anthropic/openai/transformers imports). The recommender is a classic content/co-occurrence model
+  plus optional local hash embeddings — not a generative or LLM-backed system, so
+  `AI-EVALUATION-STANDARD` doesn't apply. It has its own merge-blocking offline eval regardless
+  (`make eval` fails unless the recommender beats a popularity baseline; see
+  `docs/audits/eval-report.json`), which is AI-EVAL-shaped rigor applied where it's actually needed.
+- **INTERNATIONALIZATION: N/A.** Single-user, English-only personal tool — see
+  [`docs/I18N.md`](../I18N.md) for the full declaration (I18N-02).
 
 ---
 

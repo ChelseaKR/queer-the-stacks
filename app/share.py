@@ -164,9 +164,14 @@ def _card_figure(card: ShareCard, index: int) -> str:
 
 _SHARE_STYLE = """
 :root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem; }
+/* Explicit fg/bg, same rationale as app/render.py's _STYLE: guarantees an
+   AA-contrast pair in both light and dark instead of relying on unstyled UA
+   defaults (FIX 2026-07-05). */
+html { color: CanvasText; background-color: Canvas; }
+body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
+  color: inherit; background-color: inherit; }
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-textarea.post { width: 100%; font: inherit; }
+textarea.post { width: 100%; font: inherit; color: inherit; background-color: inherit; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
 a:focus, button:focus, .skip:focus { outline: 3px solid; }

@@ -37,4 +37,20 @@ Your reading lives across Calibre (Mac), a Kobo running KOReader, Calibre-Web on
 - **Definition of done:** a single self-hosted dashboard shows your real cross-device reading state and stats from Calibre + KOReader, plus explainable recommendations from ethical sources — read-only against your libraries, private to your seedbox, all `/STANDARDS` gates green.
 
 ## Standards
-Inherits [`/STANDARDS`](../STANDARDS/).
+Inherits [`/STANDARDS`](../STANDARDS/). Per `/STANDARDS/README.md` §"How a repo declares
+conformance," every standard is declared below — silent omission is itself a defect, so nothing
+here is left unstated. *Last verified: 2026-07-05.*
+
+| Standard | Status | Notes |
+|---|---|---|
+| QUALITY-AND-METRICS | **Applies** | `make verify` = lint → typecheck → test (≥85% branch coverage) → security → a11y → eval, identical locally and in CI (`ci.yml`). |
+| CODE-QUALITY | **Applies** | ruff (incl. bandit `S` + mccabe `C90` complexity) + `mypy --strict`, both blocking; `.pre-commit-config.yaml` mirrors the fast checks locally. |
+| SECURITY-AND-SUPPLY-CHAIN | **Applies** | `pip-audit` (empty ignore list) + gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) + Trivy container CVE scan, all merge-blocking; see `docs/audits/residual-risk.md`. |
+| CI-CD | **Applies** | 3 workflows, all least-privilege (`permissions: contents: read`), all `uses:` SHA-pinned. |
+| RELEASE-AND-VERSIONING | **Applies — first release pending, gap tracked in [#33](https://github.com/ChelseaKR/queer-the-stacks/issues/33)** | Pre-1.0 (`0.1.x` is the current, unreleased line per `SECURITY.md`). `CHANGELOG.md` exists; the tag-triggered build/SBOM/signing pipeline does not yet — tracked, not silently missing. |
+| ACCESSIBILITY | **Applies** | Zero-violation gate from **two** blocking layers — a structural checker and pa11y/axe (browser-engine, incl. color-contrast; graduated from advisory 2026-07-05). Manual review-gate walkthroughs (keyboard, screen-reader, zoom/reflow, contrast) are still pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
+| OBSERVABILITY | **Applies — Tier C** | Local-only, single-user, no network surface. Structured JSON logs, `/livez`, fail-closed `/readyz`, `/version` — see [`docs/ROADMAP.md` §Observability](docs/ROADMAP.md#observability) for the full per-signal N/A-with-reason declaration. |
+| INTERNATIONALIZATION | **N/A** — single-user, English-only personal tool (explicit opt-out permitted by the standard) | See [`docs/I18N.md`](docs/I18N.md). |
+| AI-EVALUATION | **N/A** — no LLM/GenAI SDK anywhere; the recommender is a classic content/co-occurrence model | Has its own merge-blocking offline eval regardless (`make eval` — beats the popularity baseline); see [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md#applicability--ai-evaluation-and-internationalization). |
+| DOCUMENTATION | **Applies** | This table, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, `CHANGELOG.md`, currency stamps throughout `docs/`. |
+| RESPONSIBLE-TECH | **Applies** | Full A–F treatment, including an ASVS level declaration, in [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md). |

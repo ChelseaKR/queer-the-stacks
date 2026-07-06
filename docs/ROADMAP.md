@@ -1,7 +1,7 @@
 # Queer the Stacks — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
-> **Last verified: 2026-05-31 · Recheck cadence: per Calibre/KOReader schema + OpenLibrary/Hardcover/Bookwyrm API change.**
+> **Last verified: 2026-07-05 · Recheck cadence: per Calibre/KOReader schema + OpenLibrary/Hardcover/Bookwyrm API change.**
 
 ## 1. Snapshot
 A self-hosted reading dashboard + recommender over your real ebook ecosystem: Calibre's `metadata.db` (SQLite), KOReader's `statistics.sqlite`, and `sync.koreader.rocks` progress. Unifies cross-device reading state, computes stats and a self-hosted Wrapped, and recommends queer/speculative work from ethical, non-gatekept catalogs. Runs on the Whatbox seedbox beside Calibre-Web; single-user; private.
@@ -37,10 +37,15 @@ A self-hosted reading dashboard + recommender over your real ebook ecosystem: Ca
 - **Key decisions (ADRs).** Read-only + snapshot of source DBs (rejected: live writes — risk of corrupting real libraries). FastAPI + light UI over Streamlit (slightly more polish for a self-hosted daily app). Ethical catalogs over Goodreads (ToS + values). Sourced theme tags over auto-labeling authors (avoids pigeonholing).
 
 ### ADRs recorded during the M0–M6 build (2026-06-05)
-- **ADR-1 — Pure HTML renderer audited statically, served live by FastAPI.** `app/render.py` is the single source of truth for dashboard *content*; `make a11y` renders it to a static artifact and gates it (pa11y/axe, or the built-in `app/a11y_check.py` fallback) so the mechanical WCAG checks run in CI without a live browser, and `app/server.py` serves the same HTML. *Rejected: testing a11y against a running server (flakier, needs a browser in CI).*
-- **ADR-2 — Join Calibre ↔ KOReader by a normalized `title|first-author` key, with KOReader md5 as the progress key.** Robust to punctuation/case/spacing drift across the two stores; books read in KOReader but absent from Calibre are still surfaced so history is complete. *Rejected: ISBN-only joins (KOReader stats rarely carry ISBNs).*
-- **ADR-3 — Auth fails closed; demo mode still requires a token.** Non-demo startup raises if `STACKS_AUTH_TOKEN` is unset (no accidental open instance); demo mode uses a fixed token so there is never an unauthenticated path. *Rejected: an "open in demo" bypass — a reading history is sensitive even in demos.*
-- **ADR-4 — Python 3.14 floor; dependency audit clean.** The project targets **Python 3.14** (build + deployment interpreter 3.14.5). This lets every dependency install at a fixed release, so `pip-audit` reports **0 known vulnerabilities** and `make security` runs with no accepted advisories. (Superseded the interim 3.9 floor, under which fixes for `requests`/`urllib3`/`starlette` were not installable and had to be accepted as documented residual risk.) *Rejected: silently pinning vulnerable versions, or dropping the dep audit gate.*
+Ported to [`docs/adr/`](adr/) (MADR format, append-only) on 2026-07-05 — see
+[0001](adr/0001-static-render-audited-by-structural-checker.md),
+[0002](adr/0002-calibre-koreader-join-key.md),
+[0003](adr/0003-auth-fails-closed.md),
+[0004](adr/0004-python-314-floor.md), plus two new ones added directly there:
+[0005](adr/0005-flat-non-src-layout.md) (flat layout rationale) and
+[0006](adr/0006-i18n-and-ai-evaluation-not-applicable.md) (I18N/AI-EVAL N/A declarations). This
+section is kept as a short pointer rather than a duplicate; the full text with rejected
+alternatives lives at the links above.
 
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
@@ -50,7 +55,7 @@ A self-hosted reading dashboard + recommender over your real ebook ecosystem: Ca
 | Goodreads requests | 0 | source-allowlist test | merge-blocking |
 | "Why recommended" + source present | 100% of recs | explanation test | merge-blocking |
 | Recommendation reproducibility (seeded) | deterministic | snapshot test | merge-blocking |
-| axe violations (dashboard) | 0 | pa11y-ci | merge-blocking |
+| axe violations (dashboard) | 0 | `app/a11y_check.py` (structural, blocking) **+** pa11y/axe (browser-engine, incl. contrast — graduated to blocking 2026-07-05) | merge-blocking |
 | Auth on the self-hosted app | required | access test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
 
