@@ -1,0 +1,20 @@
+# Local pre-commit mirror of the CI gates that can run fast and staged-only:
+# secret scan (gitleaks) + lint/format (ruff). This does not replace `make
+# verify` (typecheck/test/a11y/eval still need the full local environment) —
+# it just catches the cheapest failures before they reach CI.
+#
+#   pip install pre-commit && pre-commit install
+#
+# Clears SEC-17 gate 1 (pre-commit gitleaks) and CQ-12.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

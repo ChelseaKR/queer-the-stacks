@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Lightweight secret scan (stand-in for gitleaks when it is not installed).
-# CI uses gitleaks; this gives the same merge-blocking guarantee locally.
+# Secret scan: runs gitleaks if it's on PATH, else falls back to a high-signal
+# grep. CI installs a pinned, checksum-verified gitleaks binary before this
+# script runs (see .github/workflows/ci.yml), so CI always takes the gitleaks
+# path; a local `make security` without gitleaks installed takes the grep
+# fallback, which is a weaker but still merge-blocking approximation.
 set -euo pipefail
 
 if command -v gitleaks >/dev/null 2>&1; then
