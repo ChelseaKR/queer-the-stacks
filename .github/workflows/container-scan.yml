@@ -8,8 +8,20 @@ name: container-scan
 on:
   push:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/container-scan.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/container-scan.yml"
 
 # Least privilege: build + scan only need to read the checked-out tree.
 permissions:
