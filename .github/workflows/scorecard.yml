@@ -16,11 +16,7 @@ name: scorecard
 #     this workflow. <<<
 
 on:
-  branch_protection_rule:
-  schedule:
-    - cron: "24 4 * * 2" # weekly, Tuesday 04:24 UTC
-  push:
-    branches: [main]
+  workflow_dispatch: {}
 
 permissions: read-all
 
