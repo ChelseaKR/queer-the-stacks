@@ -50,8 +50,13 @@ class ExcludedSource:
 
 
 #: A descriptive, identifying User-Agent string and the federation/fetch etiquette
-#: policy we hold ourselves to. Surfaced in the compliance card and enforced by
-#: :func:`recommender.catalogs.etiquette_headers`.
+#: policy we hold ourselves to. Honesty note on enforcement: the User-Agent,
+#: no-reading-data, caching, and allowlist rules are enforced *in code*
+#: (:func:`recommender.catalogs.etiquette_headers`, ``ResponseCache``,
+#: ``assert_allowed``); robots.txt honouring and 429/5xx backoff are committed
+#: policy the live clients must implement when the real candidate pipeline
+#: lands (ideation FIX-01, cassette tests PR #27) — until then they are
+#: enforced by review, not by code.
 FETCH_ETIQUETTE: tuple[str, ...] = (
     "Identify every request with a descriptive User-Agent (app + read-only intent).",
     "Fetch only public catalog metadata — the reader's reading history is never sent.",
@@ -207,8 +212,11 @@ def to_markdown() -> str:
     lines += [
         "## Federation & fetch etiquette",
         "",
-        "Every catalog/federation request follows this policy (enforced by "
-        "`recommender.catalogs.etiquette_headers` + `ResponseCache`):",
+        "Every catalog/federation request follows this policy. The User-Agent, "
+        "public-metadata-only, caching, and host-allowlist rules are enforced in code "
+        "(`recommender.catalogs.etiquette_headers`, `ResponseCache`, `assert_allowed`); "
+        "robots.txt honouring and 429/5xx backoff are committed policy, enforced by "
+        "review until the live candidate pipeline lands (FIX-01 / cassette tests):",
         "",
     ]
     lines += [f"- {rule}" for rule in FETCH_ETIQUETTE]
