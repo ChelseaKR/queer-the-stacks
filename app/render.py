@@ -164,7 +164,14 @@ def _rec_table(recs: Sequence[Recommendation]) -> str:
 
 _STYLE = """
 :root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem; }
+/* Explicit fg/bg (system Canvas/CanvasText, not just the color-scheme hint) so
+   every element inherits a guaranteed-AA-contrast pair in both light and dark —
+   without this, unstyled table cells can inherit mismatched UA default colors
+   in some browsers/OSes and fail the axe color-contrast check (FIX 2026-07-05,
+   closes the pa11y-graduation blocker — see docs/ROADMAP.md §7). */
+html { color: CanvasText; background-color: Canvas; }
+body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
+  color: inherit; background-color: inherit; }
 .card, li.reading { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0;
   list-style: none; }
 ul.books { padding: 0; }
@@ -174,8 +181,10 @@ ul.books { padding: 0; }
 a:focus, .skip:focus { outline: 3px solid; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
-table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
+table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; color: inherit;
+  background-color: inherit; }
+th, td { border: 1px solid; padding: 0.4rem; text-align: left; color: inherit;
+  background-color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }

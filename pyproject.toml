@@ -57,11 +57,15 @@ src = ["ingest", "recommender", "app", "tests"]
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, isort, bugbear, comprehensions, pyupgrade, simplify,
-# flake8-print (no stray prints), flake8-bandit (S) for a light SAST subset.
-select = ["E", "F", "I", "B", "C4", "UP", "SIM", "T20", "S"]
+# flake8-print (no stray prints), flake8-bandit (S) for a light SAST subset,
+# mccabe (C90) for a cyclomatic-complexity gate.
+select = ["E", "F", "I", "B", "C4", "UP", "SIM", "T20", "S", "C90"]
 # S101: assert is allowed in tests (scoped per-file below).
 # UP045/UP007: keep explicit `Optional[...]` for readability over `X | None`.
 ignore = ["S101", "UP045", "UP007"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S311"]  # asserts, dummy secrets, demo RNG
@@ -95,6 +99,9 @@ ignore_missing_imports = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
     "--cov=ingest",
     "--cov=recommender",
     "--cov=app",
