@@ -20,15 +20,16 @@ outcome per key. ``unify`` now just reads the resulting in-memory map.
 from __future__ import annotations
 
 import concurrent.futures
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from ingest.calibre import load_library
 from ingest.config import Config
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
-from ingest.models import DailyActivity, DeviceProgress, ReadingState, ReadingStat
+from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
 from ingest.snapshot import columns, open_readonly
 from ingest.store import Store
 from ingest.unify import unify
@@ -144,7 +145,14 @@ def _resolve_progress(
         if key in signatures and key not in stale
     }
     merged = {**reused, **fresh.progress}
-    store.save_progress(merged, signatures, fetched_at=now)
+    # A key whose fetch *errored* must stay stale: persisting its signature
+    # would record it as "checked, no progress", silently suppressing retries
+    # until the local stat changes — exactly the down-server-looks-like-no-
+    # progress failure mode this module exists to kill. Dropping it from the
+    # persisted signatures makes the next refresh re-fetch it.
+    errored = {outcome.key for outcome in fresh.outcomes if not outcome.ok}
+    persisted = {key: sig for key, sig in signatures.items() if key not in errored}
+    store.save_progress(merged, persisted, fetched_at=now)
 
     return ProgressFetchResult(
         progress=merged, outcomes=fresh.outcomes, fetched=len(merged), errors=fresh.errors

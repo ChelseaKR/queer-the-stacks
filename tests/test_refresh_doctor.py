@@ -8,8 +8,16 @@ import pytest
 from ingest.config import Config, load_config
 from ingest.demo import build_demo_dbs
 from ingest.kosync import FixtureKosync
-from ingest.models import DeviceProgress
-from ingest.refresh import doctor, fetch_progress, ingest_states, refresh, source_mtimes
+from ingest.models import DeviceProgress, ReadingStat
+from ingest.refresh import (
+    _resolve_progress,
+    _stat_signature,
+    doctor,
+    fetch_progress,
+    ingest_states,
+    refresh,
+    source_mtimes,
+)
 from ingest.store import Store
 
 
@@ -190,6 +198,34 @@ def test_fetch_progress_no_progress_is_not_an_error() -> None:
 def test_fetch_progress_handles_no_source_or_no_keys() -> None:
     assert fetch_progress(None, ["a"]).progress == {}
     assert fetch_progress(FixtureKosync({}), []).progress == {}
+
+
+def test_errored_fetch_stays_stale_and_is_retried(tmp_path: Path) -> None:
+    """A transport error must not be cached as "checked, no progress".
+
+    If the sync server is down during one refresh, the affected key must be
+    re-fetched on the next refresh even though the local stat is unchanged —
+    otherwise one transient outage silently suppresses that book's progress
+    until the user next reads it on-device (the exact failure mode FIX-08
+    exists to kill).
+    """
+    stat = ReadingStat("k1", "Nevada", ("Imogen Binnie",), 50, 250, 3600, 1_700_000_000, 2)
+    with Store(tmp_path / "progress.sqlite") as store:
+        # First refresh: the source errors for k1 -> visible error outcome.
+        down = _resolve_progress(_FlakySource(fail_keys={"k1"}), [stat], store, now=1)
+        assert down.errors == 1
+        assert down.progress == {}
+        # The errored key must still be stale — not persisted as "checked".
+        assert "k1" in store.stale_progress_keys({"k1": _stat_signature(stat)})
+
+        # Second refresh with the server back up and the *same* local stat:
+        # the key is re-fetched and resolves instead of being skipped.
+        up = _resolve_progress(_FlakySource(fail_keys=set()), [stat], store, now=2)
+        assert up.errors == 0
+        assert "k1" in up.progress
+        assert store.cached_progress()["k1"].device == "Kobo"
+        # And now that it succeeded, an unchanged stat is no longer stale.
+        assert store.stale_progress_keys({"k1": _stat_signature(stat)}) == set()
 
 
 # --- RefreshResult surfaces per-source progress outcomes (FIX-08 -> FIX-09) -

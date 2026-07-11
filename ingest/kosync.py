@@ -53,12 +53,12 @@ def parse_progress(payload: object) -> Optional[DeviceProgress]:
         return None
     try:
         pct = float(payload.get("percentage", 0.0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pct = 0.0
     pct = max(0.0, min(1.0, pct))
     try:
         ts = int(payload.get("timestamp", 0))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         ts = 0
     return DeviceProgress(
         document=document,
