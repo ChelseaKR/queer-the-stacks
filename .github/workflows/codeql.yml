@@ -3,7 +3,16 @@ name: codeql
 # CodeQL SAST across the Python app and the GitHub Actions workflows themselves
 # (SECURITY-AND-SUPPLY-CHAIN-STANDARD SEC-08, CI-CD-STANDARD CICD-19/20). Runs
 # on every PR/push to main plus a weekly schedule so newly-disclosed query
-# patterns are caught even without a code change. Required check on main.
+# patterns are caught even without a code change.
+#
+# Honesty note (2026-07-11): "Analyze (python)"/"Analyze (actions)" are proposed
+# as required checks in .github/rulesets/main.proposed.json, but the live
+# `protect-main` ruleset requires only `standards` + `verify` — this workflow is
+# NOT a required check on main today. GitHub code scanning is also not yet
+# enabled for this private repo (the API returns 403), so the SARIF upload in
+# the analyze step will fail until it is enabled in repo settings (owner
+# action; private repos may need GitHub Code Security). Triggers are restored
+# anyway so the gap surfaces visibly in CI instead of staying silent.
 
 on:
   push:

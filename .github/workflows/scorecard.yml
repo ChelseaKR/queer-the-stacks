@@ -9,7 +9,10 @@ name: scorecard
 # private, and Scorecard's publish path uploads results to the public OSSF
 # dataset/API (api.securityscorecards.dev), which is meant for public repos.
 # Publishing from a private repo would leak its security posture publicly.
-# SARIF still uploads to this repo's own (private) code-scanning results.
+# SARIF is uploaded to this repo's own (private) code-scanning results — but
+# note (2026-07-11): code scanning is not yet enabled for this repo (API 403),
+# so the upload step will fail until it is enabled in repo settings (owner
+# action). The artifact upload below preserves the results regardless.
 # >>> If/when this repo goes public, flip `publish_results` to `true` to get
 #     the public badge — that visibility change itself must be made
 #     separately and deliberately (Settings → General → Danger Zone), not by
