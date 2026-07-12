@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ingest.models import DailyActivity
+from ingest.models import Book, DailyActivity
 from ingest.serde import (
+    _book_from_dict,
+    _book_to_dict,
     activity_from_dict,
     activity_to_dict,
     state_from_dict,
@@ -22,6 +24,28 @@ def test_state_round_trips_with_full_fidelity(states: list) -> None:
 def test_activity_round_trips() -> None:
     a = DailyActivity(day_ordinal=19000, seconds=1234, pages=42)
     assert activity_from_dict(activity_to_dict(a)) == a
+
+
+def test_book_languages_and_publisher_round_trip() -> None:
+    """FIX-11: sourced languages/publisher facts survive a to_dict/from_dict cycle."""
+    b = Book(
+        book_id="calibre:1",
+        title="Translated Novel",
+        languages=("eng", "fra"),
+        publisher="Small Press",
+    )
+    d = _book_to_dict(b)
+    assert d["languages"] == ["eng", "fra"]
+    assert d["publisher"] == "Small Press"
+    assert _book_from_dict(d) == b
+
+
+def test_book_languages_and_publisher_backward_compat() -> None:
+    """Old persisted snapshots lack the new keys; unknown stays first-class."""
+    d = {"book_id": "calibre:2", "title": "Old Snapshot", "authors": []}
+    b = _book_from_dict(d)
+    assert b.languages == ()
+    assert b.publisher is None
 
 
 def test_store_save_and_load(states: list, daily_activity: list, tmp_path: Path) -> None:

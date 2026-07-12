@@ -9,6 +9,8 @@ from app.diversity import (
     BUILTIN_LENS_SOURCE,
     DEFAULT_DIMENSIONS,
     DIMENSIONS,
+    SENSITIVE_DESCRIPTORS,
+    SENSITIVE_DIMENSIONS,
     LensValidationError,
     compute_diversity,
     load_dimensions,
@@ -114,6 +116,79 @@ def test_demo_diversity_reflects_the_canon(states: list) -> None:
     by_name = {d.name: d for d in report.dimensions}
     assert by_name["Trans & nonbinary"].books >= 3
     assert by_name["Speculative / SFF"].books >= 3
+
+
+# --- R4: per-descriptor provenance + the privacy (hide-sensitive) toggle -------
+
+
+def test_descriptor_provenance_carries_source_and_retrieved_at() -> None:
+    """Every diverse-shelf tag exposes its Source kind, citation, and fetch date."""
+    states = [_state("A", ReadingStatus.FINISHED, (_tag("literary"), _tag("trans")))]
+    report = compute_diversity(states)
+    by_label = {d.label: d for d in report.descriptor_provenance}
+    lit = by_label["literary"]
+    assert lit.source_kinds == ("calibre-tag",)
+    assert lit.latest_retrieved_at == "2026-06-05"
+    assert lit.sources[0].citation == "calibre:local"
+    assert lit.sensitive is False
+    # "trans" is identity-adjacent and flagged sensitive (but still shown by default).
+    assert by_label["trans"].sensitive is True
+    assert report.hide_sensitive is False
+
+
+def test_descriptor_provenance_unions_multiple_sources() -> None:
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("queer", SourceKind.CALIBRE_TAG),)),
+        _state("B", ReadingStatus.FINISHED, (_tag("queer", SourceKind.OPENLIBRARY_SUBJECT),)),
+    ]
+    report = compute_diversity(states)
+    queer = next(d for d in report.descriptor_provenance if d.label == "queer")
+    assert queer.books == 2
+    assert queer.source_kinds == ("calibre-tag", "openlibrary-subject")
+
+
+def test_hide_sensitive_aggregates_identity_descriptors() -> None:
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("trans"), _tag("literary"))),
+        _state("B", ReadingStatus.FINISHED, (_tag("queer"),)),
+    ]
+    report = compute_diversity(states, hide_sensitive=True)
+    labels = {d.label for d in report.descriptor_provenance}
+    # Granular identity labels are gone; the non-sensitive one stays.
+    assert "trans" not in labels and "queer" not in labels
+    assert "literary" in labels
+    # Exactly one aggregated stand-in row, counting distinct books, keeping provenance.
+    agg = [d for d in report.descriptor_provenance if d.aggregated]
+    assert len(agg) == 1
+    assert agg[0].sensitive and agg[0].books == 2
+    assert agg[0].source_kinds == ("calibre-tag",)
+    # Coarse lens counts remain, but their concrete labels are masked.
+    by_name = {d.name: d for d in report.dimensions}
+    assert by_name["Trans & nonbinary"].books == 1
+    assert by_name["Trans & nonbinary"].matched_labels == ("(hidden for privacy)",)
+    # The flat theme breakdown also redacts the granular sensitive labels.
+    tb = dict(report.theme_breakdown)
+    assert "trans" not in tb and "queer" not in tb
+    assert report.hide_sensitive is True
+
+
+def test_hide_sensitive_keeps_nonsensitive_detail() -> None:
+    states = [_state("A", ReadingStatus.FINISHED, (_tag("speculative"), _tag("literary")))]
+    report = compute_diversity(states, hide_sensitive=True)
+    labels = {d.label for d in report.descriptor_provenance}
+    assert {"speculative", "literary"} <= labels
+    # No sensitive descriptors present, so no aggregated row is synthesised.
+    assert not any(d.aggregated for d in report.descriptor_provenance)
+
+
+def test_sensitive_descriptors_are_identity_adjacent() -> None:
+    assert {"trans", "queer"} <= SENSITIVE_DESCRIPTORS
+    # Descriptors of works (not outing identity labels) are never sensitive.
+    assert "speculative" not in SENSITIVE_DESCRIPTORS
+    assert "literary" not in SENSITIVE_DESCRIPTORS
+    # The sensitive lenses are a subset of the published, auditable dimensions.
+    dimension_names = {name for name, _ in DIMENSIONS}
+    assert SENSITIVE_DIMENSIONS.issubset(dimension_names)
 
 
 def test_dimensions_alias_matches_default() -> None:

@@ -72,6 +72,13 @@ def test_env_beats_toml(tmp_path: Path) -> None:
     assert cfg.calibre_db == Path("/from/env.db")
 
 
+def test_hide_sensitive_descriptors_flag(tmp_path: Path) -> None:
+    absent = tmp_path / "absent.toml"
+    assert load_config(env={}, config_path=absent).hide_sensitive_descriptors is False
+    cfg = load_config(env={"STACKS_HIDE_SENSITIVE": "1"}, config_path=absent)
+    assert cfg.hide_sensitive_descriptors is True
+
+
 def test_key_only_from_env_never_file(tmp_path: Path) -> None:
     toml = tmp_path / "stacks.toml"
     # Even if someone puts a key in the file, it is ignored — secrets are env-only.
