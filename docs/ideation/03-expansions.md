@@ -40,6 +40,15 @@ decomposed `score_candidate` (`recommender/model.py`).
 lists, authorship — asserted by test.
 **Excellent:** any candidate in the pool has a complete sourced accounting of
 its rank; a test pins permitted signal kinds in absence-explanations.
+**Status: Shipped (2026-07-02).** `explain_absence(taste, book, lists)` added
+beside `build_explanation()` in `recommender/explain.py`, reusing
+`recommender.model.score_candidate` via a lazy import. Emits sourced-only
+counterfactual signals (`excluded: already on your shelf`; `no sourced tags
+overlap your taste`; `would rise if on a cited list`; `no finished-author
+match`), always non-empty with >=1 cited source. Covered by
+`tests/test_explain_absence.py`, including a pinned-kinds guardrail test.
+Deferred: the per-shelf near-miss surface in `recommend()` (out of scope for
+this pass; the pure function is the core deliverable).
 
 ### EXP-03 — Explicit, reversible taste feedback (local "more/less like this")
 **Pitch:** let the reader adjust the taste profile directly — stored locally,
