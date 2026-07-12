@@ -52,7 +52,7 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive â€
   (`make eval` fails unless the recommender beats a popularity baseline; see
   `docs/audits/eval-report.json`), which is AI-EVAL-shaped rigor applied where it's actually needed.
 - **INTERNATIONALIZATION: N/A.** Single-user, English-only personal tool â€” see
-  [`docs/I18N.md`](../I18N.md) for the full declaration (I18N-02).
+  [`docs/I18N.md`](I18N.md) for the full declaration (I18N-02).
 
 ---
 

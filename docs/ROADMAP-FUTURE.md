@@ -114,7 +114,9 @@ your real library" before adding features.
 5. **Observability without telemetry** — local structured logs with a hard
    "no reading-content in logs" lint (extend the no-egress test family).
 6. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
-   parsers must handle.
+   parsers must handle. *(Done: `tests/schemas/{calibre,koreader}/*.sql` fixtures
+   + `tests/schemas/MATRIX.md`, parametrized in `tests/test_schema_drift.py`,
+   run by `make test` in CI.)*
 
 ---
 
