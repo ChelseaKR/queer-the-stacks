@@ -61,8 +61,12 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
         )
 
 
-def _load_view() -> DashboardView:
-    """Load the dashboard from the persisted store, refreshing on first run."""
+def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
+    """Load the dashboard from the persisted store, refreshing on first run.
+
+    ``hide_sensitive`` is a per-request privacy override; it can only *add*
+    aggregation on top of the configured default (you can always hide more).
+    """
     config = load_config()
     store = Store(config.store_path)
     try:
@@ -78,6 +82,7 @@ def _load_view() -> DashboardView:
             goal_pages=config.goal_pages,
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
+            hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
         )
     finally:
         store.close()
@@ -135,8 +140,8 @@ def _readyz() -> Response:
     return JSONResponse(status_code=200, content={"status": "ok", "checks": checks})
 
 
-def _dashboard() -> HTMLResponse:
-    return HTMLResponse(content=render_view(_load_view()))
+def _dashboard(hide_sensitive: bool = False) -> HTMLResponse:
+    return HTMLResponse(content=render_view(_load_view(hide_sensitive=hide_sensitive)))
 
 
 def _browse(
