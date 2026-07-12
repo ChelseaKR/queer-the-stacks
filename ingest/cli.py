@@ -99,6 +99,11 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         store.close()
     verb = "refreshed" if result.refreshed else "skipped"
     print(f"{verb}: {result.reason} — {result.n_states} books in state")
+    if result.progress_fetched or result.progress_errors:
+        print(
+            f"kosync progress: {result.progress_fetched} resolved, "
+            f"{result.progress_errors} error(s)"
+        )
     return 0
 
 
@@ -126,7 +131,14 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    """Write the dashboard (incl. Wrapped) to a self-contained local HTML file."""
+    """Write the dashboard (incl. Wrapped) to a self-contained local HTML file.
+
+    With ``--archive``, instead writes a preservation-grade JSON bundle (see
+    :mod:`ingest.archive`) — the same "local only" contract, different format.
+    """
+    if args.archive:
+        return _cmd_export_archive(args)
+
     import time
 
     from app.view import render_view, view_from_store
@@ -157,6 +169,58 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export_archive(args: argparse.Namespace) -> int:
+    """Write the full derived app state as a self-describing JSON archive."""
+    import time
+
+    from ingest.archive import build_archive
+    from ingest.config import load_config
+    from ingest.refresh import refresh
+    from ingest.store import Store
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        now = int(time.time())
+        if not store.is_populated:
+            refresh(config, store, now=now)
+        states = store.load_states()
+        activity = store.load_daily_activity()
+        bundle = build_archive(states, activity, generated_at=now)
+    finally:
+        store.close()
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(bundle, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"exported archive to {out} (local only — nothing was published)")
+    return 0
+
+
+def _cmd_import_archive(args: argparse.Namespace) -> int:
+    """Restore derived app state from a preservation-grade JSON archive."""
+    from ingest.archive import restore_archive
+    from ingest.config import load_config
+    from ingest.store import Store
+
+    src = Path(args.archive)
+    bundle = json.loads(src.read_text(encoding="utf-8"))
+    states, activity = restore_archive(bundle)
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        store.save(states, activity, refreshed_at=int(bundle["manifest"]["generated_at"]))
+    finally:
+        store.close()
+    print(
+        f"imported {len(states)} book(s) from {src} into {config.store_path} "
+        "(local only — nothing was published)"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -184,9 +248,28 @@ def main(argv: list[str] | None = None) -> int:
     p_res.add_argument("backup", help="path to a backup .sqlite file")
     p_res.set_defaults(func=_cmd_restore)
 
-    p_exp = sub.add_parser("export", help="export the dashboard to a local HTML file")
+    p_exp = sub.add_parser(
+        "export", help="export the dashboard (or, with --archive, a preservation JSON bundle)"
+    )
     p_exp.add_argument("--out", default="stacks-dashboard.html")
+    p_exp.add_argument(
+        "--archive",
+        action="store_true",
+        help="write a versioned, self-describing JSON archive instead of HTML "
+        "(see ingest.archive); pair with --out to name the .json file",
+    )
     p_exp.set_defaults(func=_cmd_export)
+
+    p_imp = sub.add_parser(
+        "import", help="restore app state from a preservation-grade JSON archive"
+    )
+    p_imp.add_argument(
+        "--archive",
+        dest="archive",
+        required=True,
+        help="path to a JSON archive produced by `stacks export --archive`",
+    )
+    p_imp.set_defaults(func=_cmd_import_archive)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

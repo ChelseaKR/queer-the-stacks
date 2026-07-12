@@ -140,7 +140,7 @@ def read_books(conn: sqlite3.Connection, retrieved_at: str = "1970-01-01") -> li
         series_name, _ = _series_for(conn, bid)
         try:
             series_index = float(r["series_index"]) if r["series_index"] is not None else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             series_index = None
         books.append(
             Book(
