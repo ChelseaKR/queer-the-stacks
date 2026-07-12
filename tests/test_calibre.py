@@ -60,3 +60,52 @@ def test_tolerates_missing_optional_tables(workdir: Path) -> None:
     assert len(books) == 1
     assert books[0].theme_tags == ()
     assert books[0].series is None
+    assert books[0].languages == ()
+    assert books[0].publisher is None
+
+
+def test_languages_and_publisher_are_read(workdir: Path) -> None:
+    """FIX-11: Calibre's languages/publishers tables populate sourced Book facts."""
+    db = workdir / "with_lang_pub.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, series_index REAL, pubdate TEXT);
+        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT, sort TEXT);
+        CREATE TABLE books_authors_link (id INTEGER PRIMARY KEY, book INTEGER, author INTEGER);
+        CREATE TABLE languages (id INTEGER PRIMARY KEY, lang_code TEXT);
+        CREATE TABLE books_languages_link (
+            id INTEGER PRIMARY KEY, book INTEGER, lang_code INTEGER, item_order INTEGER
+        );
+        CREATE TABLE publishers (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE books_publishers_link (
+            id INTEGER PRIMARY KEY, book INTEGER, publisher INTEGER
+        );
+        INSERT INTO books (id, title, series_index, pubdate)
+            VALUES (1, 'Translated Novel', NULL, NULL);
+        INSERT INTO books (id, title, series_index, pubdate)
+            VALUES (2, 'Unknown Facts', NULL, NULL);
+        INSERT INTO authors (id, name, sort) VALUES (1, 'Writer', 'Writer');
+        INSERT INTO books_authors_link (book, author) VALUES (1, 1);
+        INSERT INTO books_authors_link (book, author) VALUES (2, 1);
+        INSERT INTO languages (id, lang_code) VALUES (1, 'eng');
+        INSERT INTO languages (id, lang_code) VALUES (2, 'fra');
+        INSERT INTO books_languages_link (book, lang_code, item_order) VALUES (1, 1, 0);
+        INSERT INTO books_languages_link (book, lang_code, item_order) VALUES (1, 2, 1);
+        INSERT INTO publishers (id, name) VALUES (1, 'Small Press');
+        INSERT INTO books_publishers_link (book, publisher) VALUES (1, 1);
+        """
+    )
+    conn.commit()
+    conn.close()
+    from ingest.snapshot import open_readonly
+
+    with open_readonly(db) as ro:
+        books = read_books(ro)
+    translated = next(b for b in books if b.title == "Translated Novel")
+    assert translated.languages == ("eng", "fra")
+    assert translated.publisher == "Small Press"
+
+    unknown = next(b for b in books if b.title == "Unknown Facts")
+    assert unknown.languages == ()
+    assert unknown.publisher is None

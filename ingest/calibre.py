@@ -91,6 +91,46 @@ def _identifiers_for(conn: sqlite3.Connection, book_id: int) -> dict[str, str]:
     return {str(r["type"]): str(r["val"]) for r in rows}
 
 
+def _languages_for(conn: sqlite3.Connection, book_id: int) -> tuple[str, ...]:
+    """BCP-47 language codes for a book, sourced from Calibre's ``languages`` table.
+
+    Unknown/missing stays an empty tuple — first-class, never guessed.
+    """
+    if not table_exists(conn, "books_languages_link") or not table_exists(conn, "languages"):
+        return ()
+    rows = conn.execute(
+        """
+        SELECT l2.lang_code AS lang_code
+        FROM books_languages_link l
+        JOIN languages l2 ON l2.id = l.lang_code
+        WHERE l.book = ?
+        ORDER BY l.item_order, l2.lang_code
+        """,
+        (book_id,),
+    ).fetchall()
+    return tuple(str(r["lang_code"]) for r in rows if str(r["lang_code"]).strip())
+
+
+def _publisher_for(conn: sqlite3.Connection, book_id: int) -> str | None:
+    """The publisher name for a book, sourced from Calibre's ``publishers`` table.
+
+    Unknown/missing stays ``None`` — first-class, never guessed.
+    """
+    if not table_exists(conn, "books_publishers_link") or not table_exists(conn, "publishers"):
+        return None
+    row = conn.execute(
+        """
+        SELECT p.name AS name
+        FROM books_publishers_link l
+        JOIN publishers p ON p.id = l.publisher
+        WHERE l.book = ?
+        LIMIT 1
+        """,
+        (book_id,),
+    ).fetchone()
+    return str(row["name"]) if row else None
+
+
 def read_books(conn: sqlite3.Connection, retrieved_at: str = "1970-01-01") -> list[Book]:
     """Read every book from an open read-only Calibre connection."""
     books: list[Book] = []
@@ -112,6 +152,8 @@ def read_books(conn: sqlite3.Connection, retrieved_at: str = "1970-01-01") -> li
                 identifiers=_identifiers_for(conn, bid),
                 theme_tags=_tags_for(conn, bid, retrieved_at),
                 pubdate=str(r["pubdate"]) if r["pubdate"] is not None else None,
+                languages=_languages_for(conn, bid),
+                publisher=_publisher_for(conn, bid),
             )
         )
     return books
