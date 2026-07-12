@@ -23,10 +23,29 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
 
 from app.auth import check_credentials
 from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
+from app.security_headers import SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach the fixed defense-in-depth header set to every response.
+
+    Runs on ALL routes — dashboard, ``/browse``, ``/share``, and the
+    health/ready probes — including 401s from :func:`require_auth`, since
+    headers are applied to whatever ``call_next`` returns regardless of
+    status code.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
 
 
 def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
@@ -175,6 +194,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
     configure_logging()
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_api_route("/healthz", _healthz, methods=["GET"])
     app.add_api_route("/livez", _livez, methods=["GET"])

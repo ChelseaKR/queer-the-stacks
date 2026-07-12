@@ -97,7 +97,15 @@ grade; document the TLS assumption behind `Secure`.
 **Excellent:** browser → login → dashboard, keyboard-only, 0 a11y violations;
 401 on tampered/expired cookies; lockout test after N failures.
 
-### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy)
+### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy) — DONE
+**Status:** implemented on `roadmap/fix-05-defense-in-depth-response-headers`:
+`app/security_headers.py` derives the CSP's inline-script/style hashes from
+`_FILTER_JS`/`_COPY_JS`/`_STYLE`/`_SHARE_STYLE` at import time; a
+`SecurityHeadersMiddleware` in `app/server.py` (registered after
+`RequestLoggingMiddleware`) sets the full header set on every response,
+including 401s; citation links in `_sources_html` carry
+`rel="noopener noreferrer external"` when external; `tests/test_security_headers.py`
+covers every route plus a hash-drift test.
 **Pitch:** make "reading data never leaves" hold against markup injection and
 link-away leaks, not just intentional egress.
 **Why / for whom:** the dashboard renders text from external catalogs —
