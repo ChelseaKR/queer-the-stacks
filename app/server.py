@@ -164,6 +164,7 @@ def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
             goal_pages=config.goal_pages,
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
+            lens_config=config.lens_config,
             hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
         )
     finally:
