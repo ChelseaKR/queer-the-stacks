@@ -106,9 +106,14 @@ your real library" before adding features.
 2. **Auth upgrade path** — bearer token → optional OIDC/forward-auth; rate-limit
    the auth endpoint.
 3. **Backups** of `data/` app state + a restore drill.
-4. **Observability without telemetry** — local structured logs with a hard
+4. **Preservation-grade export — done.** `stacks export --archive` /
+   `stacks import --archive` round-trip the full derived state (states +
+   activity + count-only highlight Web Annotations) through a versioned,
+   self-describing, stdlib-only JSON bundle for decades-scale, tool-independent
+   preservation. See `docs/ideation/03-expansions.md` (EXP-13).
+5. **Observability without telemetry** — local structured logs with a hard
    "no reading-content in logs" lint (extend the no-egress test family).
-5. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
+6. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
    parsers must handle. *(Done: `tests/schemas/{calibre,koreader}/*.sql` fixtures
    + `tests/schemas/MATRIX.md`, parametrized in `tests/test_schema_drift.py`,
    run by `make test` in CI.)*

@@ -247,6 +247,13 @@ maintenance promise — version it from day one.
 **Excellent:** today's archive re-imports losslessly on a fresh instance; the
 manifest alone lets a stranger parse the bundle without this codebase.
 
+**Status: shipped.** `stacks export --archive --out <path.json>` writes a
+versioned, self-describing JSON bundle containing the manifest, unified states
+with sourced-tag provenance, daily activity, and count-only highlight Web
+Annotations. `stacks import --archive <file>` restores it losslessly through
+the existing serde/store contract. Highlight text remains explicitly out of
+scope until E11. See `ingest/archive.py` and `tests/test_archive.py`.
+
 ## Horizon 3 — Transformative bets
 
 ### EXP-14 — A local, citation-constrained librarian voice
