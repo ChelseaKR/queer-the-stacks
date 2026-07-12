@@ -1,20 +1,56 @@
 # Local pre-commit mirror of the CI gates that can run fast and staged-only:
-# secret scan (gitleaks) + lint/format (ruff). This does not replace `make
-# verify` (typecheck/test/a11y/eval still need the full local environment) —
-# it just catches the cheapest failures before they reach CI.
+# secret scan (gitleaks) + lint/format (ruff) + file hygiene + typecheck
+# (mypy, BL-16). This does not replace `make verify` (test/a11y/eval still
+# need the full local environment) — it just catches the cheapest failures
+# before they reach CI.
 #
 #   pip install pre-commit && pre-commit install
 #
-# Clears SEC-17 gate 1 (pre-commit gitleaks) and CQ-12.
+# Clears SEC-17 gate 1 (pre-commit gitleaks), CQ-12, and BL-16 (mypy hook).
+# Revisions are pinned to full commit SHAs (tag noted alongside); bump
+# deliberately via a reviewed PR.
+#
+# The mypy hook is a `language: system` local hook running the project venv's
+# mypy (same interpreter, same installed deps, same pyproject config) — exact
+# parity with `make typecheck`. A mirrors-mypy isolated env cannot see the
+# project's dependencies, so `--strict` there would diverge from the real gate.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.30.1
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # v8.30.1
     hooks:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.20
+    rev: c59bba8fb259db0fec2bbb77ad8ba51ea7341b56  # v0.15.20
     hooks:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # v6.0.0
+    hooks:
+      # Generated artifacts (docs/audits/) are excluded from the mutating
+      # hygiene hooks: they must stay byte-identical to their generators'
+      # output, or these hooks would fight `make test` / `make a11y`
+      # regeneration forever.
+      - id: end-of-file-fixer
+        exclude: ^docs/audits/
+      - id: trailing-whitespace
+        exclude: ^docs/audits/
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+        exclude: ^docs/audits/
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict (project venv, gate parity)
+        entry: .venv/bin/python -m mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

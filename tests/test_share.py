@@ -5,8 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.a11y_check import check_html
+from app.color_contrast import contrast_ratio, meets_aa
 from app.share import (
     MAX_POST_CHARS,
+    SVG_BG,
+    SVG_BODY,
+    SVG_BORDER,
+    SVG_HEADING,
     build_share_cards,
     finished_book_card,
     render_share_page,
@@ -145,3 +150,47 @@ def test_no_empty_cards_page_is_accessible() -> None:
     html = render_share_page(())
     assert check_html(html) == []
     assert "No share cards yet" in html
+
+
+def test_share_svg_palette_meets_aa() -> None:
+    """The deterministic contrast gate: the actual SVG palette must pass AA.
+
+    Body text (32px, normal size) needs >=4.5:1; the heading (44px) and the
+    tags/border color (used at 26px, still large text per WCAG's >=18pt / 24px
+    definition) need only >=3.0:1.
+    """
+    assert contrast_ratio(SVG_BODY, SVG_BG) >= 4.5
+    assert meets_aa(SVG_BODY, SVG_BG, large=False)
+    assert contrast_ratio(SVG_HEADING, SVG_BG) >= 3.0
+    assert meets_aa(SVG_HEADING, SVG_BG, large=True)
+    assert contrast_ratio(SVG_BORDER, SVG_BG) >= 3.0
+    assert meets_aa(SVG_BORDER, SVG_BG, large=True)
+
+
+def test_contrast_helper_flags_violation() -> None:
+    """Acceptance criterion: CI fails on an injected contrast violation."""
+    # Known-bad: light gray on white fails even the large-text AA threshold.
+    assert meets_aa("#aaaaaa", "#ffffff", large=False) is False
+    assert meets_aa("#aaaaaa", "#ffffff", large=True) is False
+    # Known-good: near-black on white comfortably passes both thresholds.
+    assert meets_aa("#111111", "#ffffff", large=False) is True
+    assert meets_aa("#111111", "#ffffff", large=True) is True
+
+
+def test_svg_truncates_a_very_long_title() -> None:
+    from ingest.models import Author, Book, ReadingState, ReadingStatus
+
+    book = Book(
+        book_id="b",
+        title="A" * 200,
+        authors=(Author("Someone"),),
+    )
+    state = ReadingState(
+        title=book.title, authors=("Someone",), status=ReadingStatus.FINISHED, book=book
+    )
+    svg = render_share_svg(finished_book_card(state))
+    # The accessible aria-label/<title> (alt_text) keep the full, untruncated
+    # title as a text equivalent; only the visible heading <text> is truncated.
+    after_title = svg.split("</title>", 1)[1]
+    assert "…" in after_title
+    assert ("A" * 200) not in after_title

@@ -4,10 +4,14 @@ This produces the one list the dashboard renders: every book the user owns or ha
 read, with its catalog facts, local reading stats, and freshest cross-device
 progress, classified as currently-reading / finished / unread.
 
-Matching is by a normalized ``title|author`` key, with KOReader md5 used as a
-secondary join when a stat carries one and a book records the same identifier.
-Everything is deterministic (stable sorts, normalized keys) so the unified state
-is reproducible — the merge-blocking reproducibility metric.
+Matching is *solely* by a normalized ``title|first-author`` key
+(:func:`normalize_key`); ``Book.identifiers`` is never consulted. The KOReader
+md5 (``ReadingStat.key``) is **not** a join key — it is only used to look up
+cross-device progress for an already-matched stat (see :func:`_progress_for`).
+A work/edition identity layer that would join on identifiers is future work
+(ideation FIX-03). Everything is deterministic (stable sorts, normalized keys)
+so the unified state is reproducible — the merge-blocking reproducibility
+metric.
 """
 
 from __future__ import annotations

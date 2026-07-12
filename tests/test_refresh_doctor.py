@@ -125,6 +125,44 @@ def test_doctor_runs_without_writing_to_calibre(tmp_path: Path) -> None:
     assert before == after
 
 
+def test_doctor_flags_unknown_stacks_env(tmp_path: Path) -> None:
+    cfg = load_config(env={"STACKS_DEMO": "1"}, config_path=tmp_path / "absent.toml")
+    checks = doctor(cfg, env={"STACKS_CALIBER_DB": "/x", "STACKS_DATA_DIR": "/y"})
+    failing = {c.name: c for c in checks if not c.ok}
+    assert any("STACKS_CALIBER_DB" in name for name in failing)
+    assert not any("STACKS_DATA_DIR" in name for name in failing)  # known key, no warning
+
+
+def test_known_stacks_env_covers_every_var_the_code_reads() -> None:
+    """KNOWN_STACKS_ENV must never drift from the STACKS_* vars the code reads.
+
+    Otherwise `stacks doctor` would false-flag a *legitimate* variable as a typo
+    the moment a new one ships (e.g. a future STACKS_HIDE_SENSITIVE) — the exact
+    failure mode this allowlist exists to prevent. Scans the real source of the
+    three packages so the list and the code cannot diverge silently.
+    """
+    import re
+
+    import app
+    import ingest
+    import recommender
+    from ingest.config import KNOWN_STACKS_ENV
+
+    # Only quoted literals count: identifiers (KNOWN_STACKS_ENV) and prose
+    # examples of typos in comments (STACKS_CALIBER_DB) must not match.
+    pattern = re.compile(r"[\"'](STACKS_[A-Z][A-Z_]*)[\"']")
+    read_in_code: set[str] = set()
+    for pkg in (app, ingest, recommender):
+        pkg_dir = Path(pkg.__file__).parent  # type: ignore[arg-type]
+        for py in pkg_dir.rglob("*.py"):
+            read_in_code |= set(pattern.findall(py.read_text(encoding="utf-8")))
+    assert read_in_code == set(KNOWN_STACKS_ENV), (
+        "STACKS_* variables in code and KNOWN_STACKS_ENV have drifted; "
+        f"only in code: {sorted(read_in_code - set(KNOWN_STACKS_ENV))}, "
+        f"only in allowlist: {sorted(set(KNOWN_STACKS_ENV) - read_in_code)}"
+    )
+
+
 def test_view_from_store_renders(tmp_path: Path) -> None:
     from app.render import render_dashboard
     from app.view import view_from_store

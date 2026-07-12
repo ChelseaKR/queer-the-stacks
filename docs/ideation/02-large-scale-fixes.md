@@ -97,7 +97,15 @@ grade; document the TLS assumption behind `Secure`.
 **Excellent:** browser → login → dashboard, keyboard-only, 0 a11y violations;
 401 on tampered/expired cookies; lockout test after N failures.
 
-### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy)
+### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy) — DONE
+**Status:** implemented on `roadmap/fix-05-defense-in-depth-response-headers`:
+`app/security_headers.py` derives the CSP's inline-script/style hashes from
+`_FILTER_JS`/`_COPY_JS`/`_STYLE`/`_SHARE_STYLE` at import time; a
+`SecurityHeadersMiddleware` in `app/server.py` (registered after
+`RequestLoggingMiddleware`) sets the full header set on every response,
+including 401s; citation links in `_sources_html` carry
+`rel="noopener noreferrer external"` when external; `tests/test_security_headers.py`
+covers every route plus a hash-drift test.
 **Pitch:** make "reading data never leaves" hold against markup injection and
 link-away leaks, not just intentional egress.
 **Why / for whom:** the dashboard renders text from external catalogs —
@@ -211,8 +219,36 @@ stamp + env linting are standalone and cheap.
 **Excellent:** every degraded state observable in demo mode is visible in
 rendered HTML; a view test asserts stamp + per-source rows; zero new a11y
 violations.
+**Status (2026-07-03):** the standalone, non-FIX-08-dependent slice is done —
+`render.py`'s new `_data_status_section` renders a "Data status" table with
+the store's `refreshed_at` stamp as an ISO-8601 UTC string (or "never
+refreshed — run `stacks refresh`" when absent), plus a text
+`<p role="status">` staleness banner past a configurable threshold
+(`app/view.py::STALE_AFTER_SECONDS`, default 7 days); `view.py` threads the
+stamp + staleness through `DashboardView`/`build_view`/`view_from_store`; and
+`ingest/refresh.py::doctor` now flags unrecognized `STACKS_*` env vars against
+the exported `KNOWN_STACKS_ENV` set. Covered by `tests/test_render_view.py` and
+`tests/test_refresh_doctor.py`; zero new a11y violations (`make a11y`).
 
-### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard)
+### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard) — DONE (deterministic slice)
+**Status:** the deterministic, no-browser-needed slice is landed: `app/color_contrast.py`
+(dependency-free WCAG 2.x contrast-ratio helper) + `app/share.py`'s SVG palette
+hoisted into named, introspectable constants (`SVG_BG`/`SVG_BORDER`/
+`SVG_HEADING`/`SVG_BODY`) + a merge-blocking `pytest` gate
+(`tests/test_share.py::test_share_svg_palette_meets_aa`,
+`::test_contrast_helper_flags_violation`) that fails CI on an injected
+contrast violation — verified by flipping `SVG_BODY` to `#cccccc` and
+confirming the test fails. Long share-card titles are now truncated in the
+rendered SVG heading (`MAX_SVG_TITLE_CHARS`) so the fixed-width canvas can't
+overflow; the accessible `<title>`/`aria-label` keep the untruncated text.
+The browser-in-CI piece (Playwright + `@axe-core/playwright` against
+`docs/audits/dashboard.html`/the share page, plus 320px-reflow and keyboard-
+operability assertions) is **deferred**, per this item's own escape hatch
+("if CI proves infeasible, amend §7 to name the static checker") — it is the
+flaky/heavy piece requiring a headless browser in CI, tracked separately
+rather than landed speculatively. `Makefile`'s `a11y` target still runs pa11y
+best-effort (`|| echo …`) with the built-in `app/a11y_check.py` as the
+authoritative, deterministic gate; that split is unchanged by this pass.
 **Pitch:** make the merge-blocking a11y gate match what `ROADMAP.md` §7
 claims; extend the mechanical floor.
 **Why / for whom:** §7 declares "axe violations = 0 · pa11y-ci ·
