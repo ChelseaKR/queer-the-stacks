@@ -49,6 +49,26 @@ class SourceNotAllowed(Exception):
     """Raised when a catalog request targets a blocked or non-allowlisted host."""
 
 
+#: A descriptive, identifying User-Agent for every outbound catalog/federation
+#: request. Federation etiquette (EV-LICENSE): a host can see exactly who we are
+#: and that we are a read-only, caching, self-hosted consumer of *public* metadata.
+USER_AGENT: str = (
+    "QueerTheStacks/1.0 (self-hosted reading dashboard; read-only public-metadata "
+    "fetch; caches responses; see docs/ethical-book-data-sources.md)"
+)
+
+
+def etiquette_headers(accept: str = "application/json") -> dict[str, str]:
+    """Polite, identifying HTTP headers for every catalog/federation fetch.
+
+    Pairs with the on-disk :class:`ResponseCache` (don't re-hit APIs), robots /
+    rate-limit respect, and backoff in the live clients — the documented
+    federation etiquette in ``docs/ethical-book-data-sources.md``. Only public
+    catalog metadata is ever requested; reading data is never sent.
+    """
+    return {"User-Agent": USER_AGENT, "Accept": accept}
+
+
 def assert_allowed(url: str) -> str:
     """Return ``url`` iff its host is allowlisted; otherwise raise.
 
@@ -275,7 +295,7 @@ class OpenLibraryClient:  # pragma: no cover - live network path, integration-ve
             cached = self.cache.get(url)
             if cached is not None:
                 return cached
-        resp = requests.get(url, timeout=self.timeout)
+        resp = requests.get(url, timeout=self.timeout, headers=etiquette_headers())
         resp.raise_for_status()
         if self.cache is not None:
             self.cache.put(url, resp.text)
@@ -295,6 +315,6 @@ class BookwyrmClient:  # pragma: no cover - live network path, integration-verif
         import requests
 
         url = assert_allowed(list_url)
-        resp = requests.get(url, timeout=self.timeout, headers={"accept": "application/json"})
+        resp = requests.get(url, timeout=self.timeout, headers=etiquette_headers())
         resp.raise_for_status()
         return parse_bookwyrm_list(json.loads(resp.text), url, time.strftime("%Y-%m-%d"))

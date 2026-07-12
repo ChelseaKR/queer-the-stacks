@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ingest.models import Author, Book, ReadingStat, ReadingStatus
+import pytest
+from ingest.models import Author, Book, DeviceProgress, ReadingStat, ReadingStatus
 from ingest.unify import (
     currently_reading,
     finished,
@@ -76,3 +77,60 @@ def test_stat_without_calibre_book_is_surfaced() -> None:
     assert states[0].title == "Sideloaded Zine"
     assert states[0].book is None
     assert states[0].status is ReadingStatus.FINISHED
+
+
+class _RaisingSource:
+    """A ProgressSource stand-in for a live client — never given to unify() anymore."""
+
+    def progress_for(self, document: str) -> None:
+        raise RuntimeError("network is down")
+
+
+class _MapSource:
+    """The shape unify() now actually consumes: an already-resolved in-memory map."""
+
+    def __init__(self, progress: dict[str, DeviceProgress]) -> None:
+        self._progress = progress
+
+    def progress_for(self, document: str):  # noqa: ANN201 - mirrors ProgressSource.progress_for
+        return self._progress.get(document)
+
+
+def test_unify_no_longer_swallows_progress_source_errors() -> None:
+    """FIX-08: fetching (and any error capture) happens upstream in fetch_progress now.
+
+    unify() must not catch a ProgressSource error itself — it should propagate,
+    proving the old blanket ``except Exception: return ()`` is gone.
+    """
+    book = Book(book_id="b1", title="Half Read", authors=(Author("X"),))
+    stat = ReadingStat(
+        key="k",
+        title="Half Read",
+        authors=("X",),
+        pages_read=50,
+        total_pages=100,
+        read_time_seconds=600,
+        last_read_ts=1_700_000_000,
+        sessions=2,
+    )
+    with pytest.raises(RuntimeError, match="network is down"):
+        unify([book], [stat], _RaisingSource())
+
+
+def test_unify_reads_resolved_progress_map_without_network() -> None:
+    """unify() just does a lookup against an already-resolved map — no fetching."""
+    book = Book(book_id="b1", title="Half Read", authors=(Author("X"),))
+    stat = ReadingStat(
+        key="k",
+        title="Half Read",
+        authors=("X",),
+        pages_read=50,
+        total_pages=100,
+        read_time_seconds=600,
+        last_read_ts=1_700_000_000,
+        sessions=2,
+    )
+    dp = DeviceProgress(document="k", percentage=0.75, device="Kobo", timestamp=1_700_000_100)
+    states = unify([book], [stat], _MapSource({"k": dp}))
+    assert states[0].progress == (dp,)
+    assert states[0].percent_complete == 0.75
