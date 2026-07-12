@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ingest.config import load_config
+from ingest.kosync import FixtureKosync
 from ingest.models import (
     Author,
     Book,
@@ -12,7 +13,7 @@ from ingest.models import (
     ReadingStat,
     ReadingStatus,
 )
-from ingest.refresh import refresh
+from ingest.refresh import fetch_progress, refresh
 from ingest.store import Store
 from ingest.unify import unify
 
@@ -43,10 +44,22 @@ class _DownKosync:
 
 
 def test_kosync_down_degrades_to_stats() -> None:
+    """Graceful degradation now happens in fetch_progress, upstream of unify().
+
+    FIX-08: unify() no longer swallows a raising ProgressSource itself — the
+    outage is captured as a visible error outcome in fetch_progress, and unify()
+    just reads whatever (possibly empty) map results from that.
+    """
     book = Book(book_id="b", title="Kindred", authors=(Author("Octavia E. Butler"),))
     stat = ReadingStat("md5", "Kindred", ("Octavia E. Butler",), 287, 287, 5000, 1, 8)
-    # Even though the progress source raises, unify still produces state.
-    states = unify([book], [stat], _DownKosync())
+
+    result = fetch_progress(_DownKosync(), [stat.key])
+    assert result.errors == 1
+    assert result.progress == {}
+    assert "sync.koreader.rocks unreachable" in result.outcomes[0].error
+
+    # The resolved (degraded) map still lets unify produce state from stats alone.
+    states = unify([book], [stat], FixtureKosync(result.progress))
     assert len(states) == 1
     assert states[0].progress == ()  # degraded: no device progress
     assert states[0].status is ReadingStatus.FINISHED  # from KOReader stats alone

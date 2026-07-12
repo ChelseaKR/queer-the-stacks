@@ -2,8 +2,10 @@
 # runs the freshness gate. Nothing from portfolio-standards is committed into
 # this repo; the standards exist only on the runner (.standards/, gitignored).
 #
-# Requires the repo secret STANDARDS_DEPLOY_KEY (the read-only deploy key's
-# private half). Installed by automation/ci-fetch/install.sh.
+# Maintainer-originated branches use the read-only STANDARDS_DEPLOY_KEY. GitHub
+# deliberately withholds repository secrets from forks, so forked PRs run the
+# self-contained `make verify` gate in ci.yml and record that the private policy
+# overlay is deferred until trusted code reaches main.
 name: standards
 
 on:
@@ -21,6 +23,7 @@ concurrency:
 
 jobs:
   standards:
+    name: standards
     runs-on: ubuntu-latest
     steps:
       - name: Check out this repo
@@ -29,6 +32,7 @@ jobs:
           persist-credentials: false
 
       - name: Fetch pinned standards (private, read-only deploy key)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ChelseaKR/portfolio-standards
@@ -43,4 +47,11 @@ jobs:
           python-version: '3.x'
 
       - name: Standards freshness gate
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: python3 .standards/automation/check_staleness.py --standards-dir .standards
+
+      - name: Fork policy boundary
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          test -s .standards-version
+          echo "Private portfolio policy is unavailable to forks; ci/verify is authoritative for this pull request."

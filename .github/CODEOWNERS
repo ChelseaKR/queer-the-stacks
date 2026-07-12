@@ -1,0 +1,5 @@
+# Code owners — required reviewers for protected-branch merges.
+# See STANDARDS/CI-CD-STANDARD.md and STANDARDS/CODE-QUALITY-STANDARD.md (CQ-39, CICD-17/18).
+
+*                       @ChelseaKR
+/.github/workflows/     @ChelseaKR

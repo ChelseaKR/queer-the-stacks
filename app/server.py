@@ -14,6 +14,8 @@ TestClient.
 from __future__ import annotations
 
 import time
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -21,10 +23,29 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
 
 from app.auth import check_credentials
 from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
+from app.security_headers import SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach the fixed defense-in-depth header set to every response.
+
+    Runs on ALL routes — dashboard, ``/browse``, ``/share``, and the
+    health/ready probes — including 401s from :func:`require_auth`, since
+    headers are applied to whatever ``call_next`` returns regardless of
+    status code.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
 
 
 def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
@@ -40,8 +61,12 @@ def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
         )
 
 
-def _load_view() -> DashboardView:
-    """Load the dashboard from the persisted store, refreshing on first run."""
+def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
+    """Load the dashboard from the persisted store, refreshing on first run.
+
+    ``hide_sensitive`` is a per-request privacy override; it can only *add*
+    aggregation on top of the configured default (you can always hide more).
+    """
     config = load_config()
     store = Store(config.store_path)
     try:
@@ -57,6 +82,7 @@ def _load_view() -> DashboardView:
             goal_pages=config.goal_pages,
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
+            hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
         )
     finally:
         store.close()
@@ -79,81 +105,128 @@ def readiness_probe() -> dict[str, str]:
     return {"store": "ok"}
 
 
+# Route handlers are module-level (not nested inside create_app) and wired up
+# via add_api_route below — the mccabe/C90 complexity gate (QW-10) counts a
+# closure's branches against its enclosing function, and create_app() itself
+# should stay a flat, low-complexity list of route registrations regardless of
+# how many probe/route handlers exist.
+
+
+def _healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+def _livez() -> dict[str, str]:
+    """Liveness: process is up and not deadlocked. No dependency calls."""
+    return {"status": "ok"}
+
+
+def _version() -> dict[str, str]:
+    """Report the installed package version (REL-19). No internal detail beyond semver."""
+    try:
+        return {"version": _package_version("queer-the-stacks")}
+    except PackageNotFoundError:  # pragma: no cover - only if installed non-editable/unnamed
+        return {"version": "unknown"}
+
+
+def _readyz() -> Response:
+    """Readiness: fail closed with 503 if the app-state store is unavailable."""
+    try:
+        checks = readiness_probe()
+    except Exception as exc:  # fail closed on ANY dependency error
+        # Log the failure type only — never the exception text or a path.
+        get_logger().warning("readyz_unavailable", extra={"error_type": type(exc).__name__})
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+    return JSONResponse(status_code=200, content={"status": "ok", "checks": checks})
+
+
+def _dashboard(hide_sensitive: bool = False) -> HTMLResponse:
+    return HTMLResponse(content=render_view(_load_view(hide_sensitive=hide_sensitive)))
+
+
+def _browse(
+    theme: Optional[str] = None,
+    author: Optional[str] = None,
+    series: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+) -> HTMLResponse:
+    import dataclasses
+
+    from app.browse import filter_states
+
+    view = _load_view()
+    filtered = filter_states(
+        list(view.library),
+        theme=theme,
+        author=author,
+        series=series,
+        status=status,
+        q=q,
+    )
+    return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
+
+
+def _share() -> HTMLResponse:
+    """Locally-composed share cards. Nothing is posted; the user copies them."""
+    from app.share import build_share_cards, render_share_page
+
+    view = _load_view()
+    cards = build_share_cards(view)
+    return HTMLResponse(content=render_share_page(cards, user=view.user))
+
+
+def _share_card_svg(kind: str = "year") -> Response:
+    """Serve a single share card as a self-contained SVG image for download."""
+    from app.share import build_share_cards
+
+    view = _load_view()
+    cards = build_share_cards(view)
+    chosen = next((c for c in cards if c.kind == kind), cards[0] if cards else None)
+    if chosen is None:
+        raise HTTPException(status_code=404, detail="no share card available")
+    from app.share import render_share_svg
+
+    return Response(content=render_share_svg(chosen), media_type="image/svg+xml")
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
     configure_logging()
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.get("/livez")
-    def livez() -> dict[str, str]:
-        """Liveness: process is up and not deadlocked. No dependency calls."""
-        return {"status": "ok"}
-
-    @app.get("/readyz")
-    def readyz() -> Response:
-        """Readiness: fail closed with 503 if the app-state store is unavailable."""
-        try:
-            checks = readiness_probe()
-        except Exception as exc:  # fail closed on ANY dependency error
-            # Log the failure type only — never the exception text or a path.
-            get_logger().warning("readyz_unavailable", extra={"error_type": type(exc).__name__})
-            return JSONResponse(status_code=503, content={"status": "unavailable"})
-        return JSONResponse(status_code=200, content={"status": "ok", "checks": checks})
-
-    @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
-    def dashboard() -> HTMLResponse:
-        return HTMLResponse(content=render_view(_load_view()))
-
-    @app.get("/browse", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
-    def browse(
-        theme: Optional[str] = None,
-        author: Optional[str] = None,
-        series: Optional[str] = None,
-        status: Optional[str] = None,
-        q: Optional[str] = None,
-    ) -> HTMLResponse:
-        import dataclasses
-
-        from app.browse import filter_states
-
-        view = _load_view()
-        filtered = filter_states(
-            list(view.library),
-            theme=theme,
-            author=author,
-            series=series,
-            status=status,
-            q=q,
-        )
-        return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
-
-    @app.get("/share", response_class=HTMLResponse, dependencies=[Depends(require_auth)])
-    def share() -> HTMLResponse:
-        """Locally-composed share cards. Nothing is posted; the user copies them."""
-        from app.share import build_share_cards, render_share_page
-
-        view = _load_view()
-        cards = build_share_cards(view)
-        return HTMLResponse(content=render_share_page(cards, user=view.user))
-
-    @app.get("/share/card.svg", dependencies=[Depends(require_auth)])
-    def share_card_svg(kind: str = "year") -> Response:
-        """Serve a single share card as a self-contained SVG image for download."""
-        from app.share import build_share_cards
-
-        view = _load_view()
-        cards = build_share_cards(view)
-        chosen = next((c for c in cards if c.kind == kind), cards[0] if cards else None)
-        if chosen is None:
-            raise HTTPException(status_code=404, detail="no share card available")
-        from app.share import render_share_svg
-
-        return Response(content=render_share_svg(chosen), media_type="image/svg+xml")
-
+    app.add_api_route("/healthz", _healthz, methods=["GET"])
+    app.add_api_route("/livez", _livez, methods=["GET"])
+    app.add_api_route("/version", _version, methods=["GET"])
+    app.add_api_route("/readyz", _readyz, methods=["GET"])
+    app.add_api_route(
+        "/",
+        _dashboard,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/browse",
+        _browse,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/share",
+        _share,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/share/card.svg",
+        _share_card_svg,
+        methods=["GET"],
+        dependencies=[Depends(require_auth)],
+    )
     return app
 
 
