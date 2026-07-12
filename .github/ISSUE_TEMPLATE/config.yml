@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/ChelseaKR/queer-the-stacks/security/advisories/new
+    about: Report vulnerabilities privately; do not disclose them in an issue.
