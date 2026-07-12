@@ -120,7 +120,15 @@ grade; document the TLS assumption behind `Secure`.
 **Excellent:** browser → login → dashboard, keyboard-only, 0 a11y violations;
 401 on tampered/expired cookies; lockout test after N failures.
 
-### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy)
+### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy) — DONE
+**Status:** implemented on `roadmap/fix-05-defense-in-depth-response-headers`:
+`app/security_headers.py` derives the CSP's inline-script/style hashes from
+`_FILTER_JS`/`_COPY_JS`/`_STYLE`/`_SHARE_STYLE` at import time; a
+`SecurityHeadersMiddleware` in `app/server.py` (registered after
+`RequestLoggingMiddleware`) sets the full header set on every response,
+including 401s; citation links in `_sources_html` carry
+`rel="noopener noreferrer external"` when external; `tests/test_security_headers.py`
+covers every route plus a hash-drift test.
 **Pitch:** make "reading data never leaves" hold against markup injection and
 link-away leaks, not just intentional egress.
 **Why / for whom:** the dashboard renders text from external catalogs —
@@ -179,7 +187,7 @@ update (human gate); growth bounded by pruning.
 **Excellent:** simulated device reset in a fixture — prior years' Wrapped
 still renders, labeled "from local ledger"; prune verifiably deletes.
 
-### FIX-08 — Batch + persist kosync progress (kill the N+1)
+### FIX-08 — Batch + persist kosync progress (kill the N+1) — ✅ done
 **Pitch:** refresh should cost O(changed books), not one sequential HTTP call
 per book with silent failure.
 **Why / for whom:** `ingest/unify.py::_progress_for` issues a synchronous GET
@@ -197,6 +205,22 @@ concurrency.
 **Excellent:** 500-book fixture refresh performs ≤ changed-key fetches;
 kosync-down degrades in one bounded timeout with a visible "progress stale
 since <date>", not silence.
+**Status:** implemented on `roadmap/fix-08-batch-and-persist-kosync-progress`.
+`ingest/refresh.py::fetch_progress` batches every non-empty stat key through a
+bounded `concurrent.futures.ThreadPoolExecutor` (`max_workers`, default 8),
+with deterministic sorted-key dispatch and result assembly, and a captured
+`ProgressOutcome` (ok / no-progress / error) per key — no more blanket
+`except Exception: return ()`. `ingest/unify.py::unify`/`_progress_for` now
+only read an already-resolved in-memory map and no longer catch errors
+themselves — fetching and error capture both moved upstream.
+`ingest/store.py` gained a per-key progress cache
+(`cached_progress`/`stale_progress_keys`/`save_progress`) keyed by a cheap
+`ReadingStat` fingerprint, so a refresh re-fetches only keys whose local stat
+changed and reuses cached progress otherwise. `RefreshResult` now exposes
+`progress_fetched`/`progress_errors`/`progress_outcomes` for FIX-09 to render.
+Also fixed a pre-existing Py2-style `except TypeError, ValueError:` syntax
+error in `ingest/kosync.py::parse_progress` that broke every import of the
+module.
 
 ### FIX-09 — Degradation and freshness made legible on the dashboard
 **Pitch:** the dashboard should say what it knows, how old it is, and what is
@@ -218,8 +242,36 @@ stamp + env linting are standalone and cheap.
 **Excellent:** every degraded state observable in demo mode is visible in
 rendered HTML; a view test asserts stamp + per-source rows; zero new a11y
 violations.
+**Status (2026-07-03):** the standalone, non-FIX-08-dependent slice is done —
+`render.py`'s new `_data_status_section` renders a "Data status" table with
+the store's `refreshed_at` stamp as an ISO-8601 UTC string (or "never
+refreshed — run `stacks refresh`" when absent), plus a text
+`<p role="status">` staleness banner past a configurable threshold
+(`app/view.py::STALE_AFTER_SECONDS`, default 7 days); `view.py` threads the
+stamp + staleness through `DashboardView`/`build_view`/`view_from_store`; and
+`ingest/refresh.py::doctor` now flags unrecognized `STACKS_*` env vars against
+the exported `KNOWN_STACKS_ENV` set. Covered by `tests/test_render_view.py` and
+`tests/test_refresh_doctor.py`; zero new a11y violations (`make a11y`).
 
-### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard)
+### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard) — DONE (deterministic slice)
+**Status:** the deterministic, no-browser-needed slice is landed: `app/color_contrast.py`
+(dependency-free WCAG 2.x contrast-ratio helper) + `app/share.py`'s SVG palette
+hoisted into named, introspectable constants (`SVG_BG`/`SVG_BORDER`/
+`SVG_HEADING`/`SVG_BODY`) + a merge-blocking `pytest` gate
+(`tests/test_share.py::test_share_svg_palette_meets_aa`,
+`::test_contrast_helper_flags_violation`) that fails CI on an injected
+contrast violation — verified by flipping `SVG_BODY` to `#cccccc` and
+confirming the test fails. Long share-card titles are now truncated in the
+rendered SVG heading (`MAX_SVG_TITLE_CHARS`) so the fixed-width canvas can't
+overflow; the accessible `<title>`/`aria-label` keep the untruncated text.
+The browser-in-CI piece (Playwright + `@axe-core/playwright` against
+`docs/audits/dashboard.html`/the share page, plus 320px-reflow and keyboard-
+operability assertions) is **deferred**, per this item's own escape hatch
+("if CI proves infeasible, amend §7 to name the static checker") — it is the
+flaky/heavy piece requiring a headless browser in CI, tracked separately
+rather than landed speculatively. `Makefile`'s `a11y` target still runs pa11y
+best-effort (`|| echo …`) with the built-in `app/a11y_check.py` as the
+authoritative, deterministic gate; that split is unchanged by this pass.
 **Pitch:** make the merge-blocking a11y gate match what `ROADMAP.md` §7
 claims; extend the mechanical floor.
 **Why / for whom:** §7 declares "axe violations = 0 · pa11y-ci ·
@@ -241,7 +293,18 @@ Lighthouse-CI stays separately deferred (ROADMAP-FUTURE §deferred gates).
 **Excellent:** CI fails on an injected contrast violation; §7's row is
 literally true; share cards verified AA with a long-title truncation test.
 
-### FIX-11 — Sourced language & publisher facts in the data model
+### FIX-11 — Sourced language & publisher facts in the data model — ✅ data-model core shipped (2026-07-03)
+**Status:** the data-model core is done — `Book` now carries sourced
+`languages: tuple[str, ...]` (BCP-47, from Calibre's `languages` table) and
+`publisher: Optional[str]` (from Calibre's `publishers` table), round-tripped
+through `serde.py` with backward-compat for old snapshots, and populated by
+new `_languages_for` / `_publisher_for` readers in `calibre.py` following the
+existing `_tags_for` / `_series_for` pattern (unknown stays `()` / `None`,
+first-class). **Still open, deliberately out of scope for this change:** the
+cited publisher `CuratedList` for "small-press" (needs an editorial/SME
+owner), `app/diversity.py` lens wiring, and dimension-aware `aperture_boost`
+in `recommender/rerank.py` — these depend on the press-list curation decision
+and a human representation-review gate, not on code.
 **Pitch:** give `Book` the fields the promised values-lenses require — sourced
 facts with provenance, never guesses.
 **Why / for whom:** ROADMAP-FUTURE B3 / branch E3 promise "small-press /
@@ -264,7 +327,25 @@ owner (SME-adjacent); representation-review note for new lenses (human gate).
 sourced language fact with visible provenance; "publisher unknown" rendered
 honestly; aperture can boost "translated" specifically, still boost-only.
 
-### FIX-12 — Diversity lenses as validated user config
+### FIX-12 — Diversity lenses as validated user config — **DONE**
+**Status:** Implemented on `roadmap/fix-12-diversity-lenses-as-validated-use`.
+`app/diversity.py` now exposes `DEFAULT_DIMENSIONS` (with `DIMENSIONS` kept as
+a back-compat alias), `validate_dimensions`/`load_dimensions`/
+`LensValidationError` (modeled on `recommender/lists.py::validate_lists`), and
+`load_lens_config`, which never raises — any missing/unreadable/malformed/
+invalid `data/lenses.toml` degrades to `DEFAULT_DIMENSIONS` with a visible,
+named warning. `compute_diversity()` takes `dimensions` (+ `lens_source`/
+`lens_warning`) as parameters and stays pure. `ingest/config.py` resolves a
+`Config.lens_config` path (`[lenses].path` in `stacks.toml`,
+`$STACKS_LENS_CONFIG`, else the committed `data/lenses.toml` template if
+present). `app/view.py::view_from_store` loads + validates it and threads the
+result into `compute_diversity`; `app/render.py`'s diversity section now
+states which grouping produced the numbers ("Lens grouping: …") and surfaces
+the degradation warning inline, never a blank section. `data/lenses.toml`
+ships the current 6 defaults as an editable template. Verified manually:
+renaming a lens in the TOML file changes the rendered dashboard with zero code
+changes; a duplicate label degrades to the built-in defaults with a named,
+visible warning.
 **Pitch:** move `DIMENSIONS` out of `app/diversity.py` into a validated,
 documented config file.
 **Why / for whom:** the lens grouping is meant to be personalized ("Edit it to
@@ -284,7 +365,22 @@ visible warning (FIX-09 surface), never a blank section.
 changes; invalid config yields a doctor error naming the line; the page states
 exactly which grouping produced its numbers.
 
-### FIX-13 — Eval that can fail: synthetic-world battery + margins
+### FIX-13 — Eval that can fail: synthetic-world battery + margins — DONE
+**Status:** implemented on `roadmap/fix-13-falsifiable-recommender-eval-synt`:
+`recommender/synth.py` deterministically generates a synthetic library +
+candidate pool per `random.Random(seed)` (noisy canon/distractor tag overlap,
+anti-correlated popularity, an author-loyalty pathway); `recommender/battery.py`
+runs content/hybrid/popularity across the 10 default seeds and gates on
+`median_uplift >= MARGIN (0.5)` with a `no_losing_seed` guarantee, plus
+per-seed ablations (drop curated lists, shuffle 20% of tags) tracked in the
+report. `ingest/cli.py`'s `stacks eval` gates on the battery by default
+(`--no-synthetic` keeps the old single-fixture path informational only) and
+writes `docs/audits/eval-battery.json` alongside the existing
+`docs/audits/eval-report.json`. `tests/test_synth_eval.py` proves the gate is
+falsifiable: zeroing `recommender/model.py::AUTHOR_BONUS` measurably narrows
+the median uplift and flips `passed` to `False`; the tag-shuffle ablation
+never improves content MAP on any seed. `docs/audits/source-ethics.md` now
+explains the distribution instead of citing the saturated 1.0.
 **Pitch:** replace one saturated fixture with seeded synthetic libraries and
 require robust margins, so "beats popularity" is falsifiable.
 **Why / for whom:** `docs/audits/eval-report.json` shows content and hybrid at

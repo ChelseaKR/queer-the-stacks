@@ -65,6 +65,18 @@ def test_livez_is_ok_and_unauthenticated(tmp_path: Path, monkeypatch: pytest.Mon
     assert resp.json() == {"status": "ok"}
 
 
+def test_version_is_reported_and_unauthenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REL-19: an unauthenticated /version route reports the installed package version."""
+    client = _make_client(tmp_path, monkeypatch)
+    resp = client.get("/version")  # no Authorization header
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["version"]
+    assert body["version"] != "unknown"
+
+
 def test_readyz_reports_ready_when_store_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

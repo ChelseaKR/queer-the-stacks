@@ -5,8 +5,9 @@ Two implementations of :class:`ProgressSource`:
 * :class:`KosyncClient` — the live HTTP client for a KOReader sync server
   (``sync.koreader.rocks`` or a self-hosted one). It sends only the user's own
   auth header and reads back the user's *own* progress — a round-trip of the
-  user's data to the user's server, never a third party. Network calls are
-  integration-verified, not unit-gated.
+  user's data to the user's server, never a third party. Request-building and
+  status handling are covered by recorded-cassette contract tests (network
+  stubbed); real connectivity is integration-verified.
 * :class:`FixtureKosync` — an offline, deterministic source built from a dict.
   Used by every test and by demo mode, so the whole system runs with no network.
 
@@ -68,8 +69,8 @@ def parse_progress(payload: object) -> Optional[DeviceProgress]:
     )
 
 
-class KosyncClient:  # pragma: no cover - live network path, verified via integration
-    """Live KOReader sync client. Network calls are integration-tested only."""
+class KosyncClient:
+    """Live KOReader sync client, exercised via recorded-cassette contract tests."""
 
     def __init__(
         self,

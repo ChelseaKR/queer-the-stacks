@@ -123,7 +123,14 @@ class Author:
 
 @dataclass(frozen=True)
 class Book:
-    """A book as known to the system, keyed by a stable ``book_id``."""
+    """A book as known to the system, keyed by a stable ``book_id``.
+
+    ``languages`` and ``publisher`` are sourced catalog facts — read from the
+    library (e.g. Calibre's ``languages``/``publishers`` tables), never
+    inferred or guessed. Unknown stays first-class: an empty tuple / ``None``,
+    not a heuristic. These describe the *book*, not a person, so the
+    no-author-labels guardrail on :class:`Author` is untouched.
+    """
 
     book_id: str
     title: str
@@ -133,6 +140,8 @@ class Book:
     identifiers: dict[str, str] = field(default_factory=dict)  # e.g. {"isbn": "…"}
     theme_tags: tuple[ThemeTag, ...] = ()
     pubdate: Optional[str] = None
+    languages: tuple[str, ...] = ()  # BCP-47 codes, sourced from Calibre
+    publisher: Optional[str] = None
 
     @property
     def author_names(self) -> tuple[str, ...]:
@@ -141,6 +150,11 @@ class Book:
     @property
     def tag_labels(self) -> frozenset[str]:
         return frozenset(t.normalized for t in self.theme_tags)
+
+    @property
+    def languages_lower(self) -> frozenset[str]:
+        """Lowercased language codes, for case-insensitive lens matching."""
+        return frozenset(lang.lower() for lang in self.languages)
 
 
 @dataclass(frozen=True)
