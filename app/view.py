@@ -75,6 +75,7 @@ def build_view(
     goal_pages: int = 0,
     goal_hours: int = 0,
     goal_streak_days: int = 0,
+    hide_sensitive_descriptors: bool = False,
     refreshed_at: Optional[int] = None,
     now: Optional[int] = None,
 ) -> DashboardView:
@@ -97,7 +98,7 @@ def build_view(
         hours_target=goal_hours,
         streak_target=goal_streak_days,
     )
-    diversity = compute_diversity(states)
+    diversity = compute_diversity(states, hide_sensitive=hide_sensitive_descriptors)
     candidate_books = tuple(c.book for c in candidates)  # type: ignore[attr-defined]
     recs = recommend_hybrid(
         states,
@@ -162,6 +163,7 @@ def view_from_store(
     goal_pages: int = 0,
     goal_hours: int = 0,
     goal_streak_days: int = 0,
+    hide_sensitive_descriptors: bool = False,
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
@@ -188,6 +190,7 @@ def view_from_store(
         goal_pages=goal_pages,
         goal_hours=goal_hours,
         goal_streak_days=goal_streak_days,
+        hide_sensitive_descriptors=hide_sensitive_descriptors,
         refreshed_at=refreshed_at,
     )
 

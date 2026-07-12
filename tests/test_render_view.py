@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.a11y_check import check_html
 from app.render import render_dashboard
-from app.view import build_view, demo_view
+from app.view import build_view, demo_view, render_view
 from ingest.models import (
     Author,
     Book,
@@ -139,3 +140,34 @@ def test_render_data_status_stale_banner_is_visible_text() -> None:
     )
     assert 'role="status"' in html
     assert "Stale" in html  # staleness named in text, not colour-only
+
+
+# --- R4: descriptor provenance surfaced in the diversity section --------------
+
+
+def _diversity_section(html: str) -> str:
+    start = html.index("Reading diversity")
+    return html[start : html.index("Reading Wrapped", start)]
+
+
+def test_diversity_provenance_shows_source_and_date(tmp_path: Path) -> None:
+    html = render_view(demo_view(tmp_path))
+    section = _diversity_section(html)
+    # Every diverse-shelf tag shows the source that asserted it and when (R4).
+    assert "Per-descriptor provenance" in section
+    assert "calibre-tag" in section
+    assert "2026-06-05" in section
+    # Sensitive descriptors are flagged in text (never colour-only).
+    assert "(sensitive)" in section
+
+
+def test_hide_sensitive_redacts_diversity_section(states: list, candidates: tuple) -> None:
+    view = build_view(states, [], candidates, hide_sensitive_descriptors=True)
+    html = render_view(view)
+    section = _diversity_section(html)
+    # Identity-adjacent labels are aggregated out of the diverse-shelf view.
+    assert "trans" not in section and "queer" not in section
+    assert "aggregated for privacy" in section
+    assert "Privacy:" in section
+    # The redacted page is still fully accessible (the a11y contract holds).
+    assert check_html(html) == []
