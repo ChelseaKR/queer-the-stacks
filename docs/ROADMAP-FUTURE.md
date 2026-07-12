@@ -47,10 +47,19 @@ your real library" before adding features.
 
 ## Deferred merge-blocking gates the standard names
 
-- **Performance (Quality §2)** — k6/Locust smoke (p95 < 500 ms dashboard route) +
-  Lighthouse-CI on the rendered HTML; make merge-blocking. *(N5)*
-- **Reliability (Quality §5)** — restart-recovery test (reads persisted state) and
-  a chaos test for "kosync down → degrade to KOReader-only". *(N5)*
+- ~~**Performance (Quality §2)** — k6/Locust smoke (p95 < 500 ms dashboard route) +
+  Lighthouse-CI on the rendered HTML; make merge-blocking.~~ **Done (2026-07-03).**
+  `tests/perf/locustfile.py` + `scripts/perf-smoke.sh` (`make perf-load`) boot the
+  demo app and fail the build if the aggregated p95 on `/` is >= 500ms;
+  `.lighthouserc.json` + `make lighthouse` run Lighthouse-CI against the built
+  `docs/audits/dashboard.html` with `categories:performance >= 0.9` and
+  `categories:accessibility >= 1.0` as error-level (merge-blocking) assertions.
+  Both are non-conditional steps in `.github/workflows/ci.yml`. *(N5)*
+- ~~**Reliability (Quality §5)** — restart-recovery test (reads persisted state) and
+  a chaos test for "kosync down → degrade to KOReader-only".~~ **Done.**
+  `tests/test_reliability.py` (`test_restart_recovery`,
+  `test_kosync_down_degrades_to_stats`), run merge-blocking as part of
+  `make test` / the CI `Tests` step. *(N5)*
 - **Manual a11y sign-off** — perform + commit the dated VoiceOver/NVDA walkthrough.
   *(N1–N6, before first release)*
 

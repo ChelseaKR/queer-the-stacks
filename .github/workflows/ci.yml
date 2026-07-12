@@ -111,6 +111,12 @@ jobs:
       - name: Eval
         run: make eval
 
+      - name: Performance load smoke
+        run: make perf-load
+
+      - name: Lighthouse CI
+        run: make lighthouse
+
       - name: Upload audit artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

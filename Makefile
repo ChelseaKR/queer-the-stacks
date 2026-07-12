@@ -9,7 +9,7 @@ PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint marker-hygiene typecheck test security a11y eval perf audit clean
+.PHONY: help install dev verify format lint marker-hygiene typecheck test security a11y eval perf perf-load lighthouse perf-gates audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -88,6 +88,15 @@ eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 
 perf: ## Stage 6 — render/pipeline performance budget (also run within `make test`)
 	$(PYTHON) -m pytest tests/test_perf.py -q -o addopts=""
+
+perf-load: ## Stage 6b — merge-blocking load smoke: p95 < 500ms on the dashboard route
+	@./scripts/perf-smoke.sh
+
+lighthouse: ## Stage 6c — merge-blocking Lighthouse-CI on the built dashboard HTML
+	$(PYTHON) -m app.build_static
+	npx --yes @lhci/cli@0.15.1 autorun --config=.lighthouserc.json
+
+perf-gates: perf-load lighthouse ## Run both merge-blocking performance gates
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null

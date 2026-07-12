@@ -14,6 +14,7 @@ htmlcov/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/demo/
 snapshots/
 
 # Secrets — kosync keys / API tokens live in the environment / .env, never source
@@ -23,6 +24,14 @@ snapshots/
 # Generated a11y raw dumps are not committed; the curated audit md/html are.
 docs/audits/pa11y-raw.json
 node_modules/
+
+# Perf/Lighthouse gate raw dumps (scripts/perf-smoke.sh, `make lighthouse`) are
+# not committed; the curated aggregated perf_stats.csv summary is.
+docs/audits/perf_stats_history.csv
+docs/audits/perf_failures.csv
+docs/audits/perf_exceptions.csv
+docs/audits/lighthouse/
+.lighthouseci/
 
 # runtime-fetched portfolio-standards (never commit)
 .standards/
