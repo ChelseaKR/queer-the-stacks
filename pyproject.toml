@@ -71,7 +71,8 @@ ignore = ["S101", "UP045", "UP007"]
 max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S106", "S311"]  # asserts, dummy secrets, demo RNG
+"tests/*" = ["S101", "S105", "S106", "S311", "S314"]  # asserts, dummy secrets, demo RNG,
+                                                       # stdlib XML parse of our own output
 "ingest/cli.py" = ["T20"]                     # CLI prints to stdout by design
 "app/build_static.py" = ["T20"]              # build script prints its output path
 

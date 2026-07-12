@@ -31,6 +31,7 @@ TestClient.
 
 from __future__ import annotations
 
+import os
 import time
 from html import escape
 from importlib.metadata import PackageNotFoundError
@@ -44,6 +45,7 @@ from ingest.refresh import refresh
 from ingest.store import Store
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from app import opds
 from app.auth import (
     SESSION_TTL_SECONDS,
     LoginLockoutTracker,
@@ -166,6 +168,16 @@ def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
         )
     finally:
         store.close()
+
+
+def _calibre_web_url() -> Optional[str]:
+    """The optional, config-driven base URL of a sibling Calibre-Web instance.
+
+    Never hardcoded: read from ``STACKS_CALIBRE_WEB_URL`` only, and omitted
+    from OPDS entries entirely when unset. Used only as link text in rendered
+    XML — never fetched, so it introduces no egress.
+    """
+    return os.environ.get("STACKS_CALIBRE_WEB_URL") or None
 
 
 def readiness_probe() -> dict[str, str]:
@@ -323,6 +335,39 @@ def _share_card_svg(kind: str = "year") -> Response:
     return Response(content=render_share_svg(chosen), media_type="image/svg+xml")
 
 
+def _opds_root() -> Response:
+    """Root OPDS navigation feed, browsable from KOReader/Readest."""
+    return Response(content=opds.build_root_navigation(_load_view()), media_type=opds.NAV_TYPE)
+
+
+def _opds_shelf(shelf_id: str) -> Response:
+    view = _load_view()
+    entries = opds.entries_for_shelf(shelf_id, view)
+    feed = opds.build_shelf_acquisition(
+        shelf_id,
+        opds.SHELF_TITLES[shelf_id],
+        entries,
+        calibre_web_url=_calibre_web_url(),
+    )
+    return Response(content=feed, media_type=opds.ACQ_TYPE)
+
+
+def _opds_to_read() -> Response:
+    return _opds_shelf("to-read")
+
+
+def _opds_currently_reading() -> Response:
+    return _opds_shelf("currently-reading")
+
+
+def _opds_series_next() -> Response:
+    return _opds_shelf("series-next")
+
+
+def _opds_recommendations() -> Response:
+    return _opds_shelf("recommendations")
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
     configure_logging()
@@ -361,6 +406,36 @@ def create_app() -> FastAPI:
         _browse,
         methods=["GET"],
         response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/opds",
+        _opds_root,
+        methods=["GET"],
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/opds/to-read",
+        _opds_to_read,
+        methods=["GET"],
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/opds/currently-reading",
+        _opds_currently_reading,
+        methods=["GET"],
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/opds/series-next",
+        _opds_series_next,
+        methods=["GET"],
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/opds/recommendations",
+        _opds_recommendations,
+        methods=["GET"],
         dependencies=[Depends(require_auth)],
     )
     app.add_api_route(

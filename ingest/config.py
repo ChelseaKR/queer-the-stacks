@@ -45,6 +45,7 @@ KNOWN_STACKS_ENV = frozenset(
         "STACKS_GOAL_STREAK",
         "STACKS_AUTH_TOKEN",
         "STACKS_HIDE_SENSITIVE",
+        "STACKS_CALIBRE_WEB_URL",
     }
 )
 
