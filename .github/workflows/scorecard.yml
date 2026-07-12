@@ -5,17 +5,14 @@ name: scorecard
 # working tree (CQ-37/38/40/43, CICD-13-16) into a measured, dated score
 # instead of a hand-audit of GitHub settings.
 #
-# `publish_results` is deliberately **false**: this repository is currently
-# private, and Scorecard's publish path uploads results to the public OSSF
-# dataset/API (api.securityscorecards.dev), which is meant for public repos.
-# Publishing from a private repo would leak its security posture publicly.
-# SARIF still uploads to this repo's own (private) code-scanning results.
-# >>> If/when this repo goes public, flip `publish_results` to `true` to get
-#     the public badge — that visibility change itself must be made
-#     separately and deliberately (Settings → General → Danger Zone), not by
-#     this workflow. <<<
+# Results are published to the public OpenSSF dataset and uploaded to this
+# repository's code-scanning results. The workflow runs monthly and whenever
+# branch-protection policy changes.
 
 on:
+  branch_protection_rule: {}
+  schedule:
+    - cron: "37 5 1 * *"
   workflow_dispatch: {}
   schedule:
     - cron: '23 5 7 * *' # monthly — re-armed 2026-07-11 (metrics plan Phase 0.2)
@@ -28,6 +25,7 @@ concurrency:
 
 jobs:
   analysis:
+    name: scorecard
     runs-on: ubuntu-latest
     permissions:
       security-events: write # upload SARIF to (private) code scanning
@@ -42,7 +40,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: false # see rationale above — private repo
+          publish_results: true
 
       - name: Upload SARIF results
         # No GHAS code scanning on a private repo — no-op unless the repo goes public.

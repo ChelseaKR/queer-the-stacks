@@ -2,11 +2,17 @@ name: codeql
 
 # CodeQL SAST across the Python app and the GitHub Actions workflows themselves
 # (SECURITY-AND-SUPPLY-CHAIN-STANDARD SEC-08, CI-CD-STANDARD CICD-19/20). Runs
-# on every push to main plus a weekly schedule so newly-disclosed query patterns
-# are caught even without a code change. PRs skip CodeQL because code scanning is
-# not enabled for this private repo.
+# on every push and pull request to main plus a weekly schedule so newly
+# disclosed query patterns are caught even without a code change. Code scanning
+# is available because this is an open-source repository.
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "19 4 * * 1"
   workflow_dispatch: {}
   schedule:
     - cron: '41 3 * * 3' # weekly — re-armed 2026-07-11 (metrics plan Phase 0.2)
