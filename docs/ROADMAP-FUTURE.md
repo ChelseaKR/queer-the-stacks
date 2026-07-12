@@ -6,9 +6,9 @@
 > **Status (2026-06-06): N1–N6 shipped.** All phases below are implemented with
 > `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
 > `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
-> follow-ups remain open and are noted inline: live-network contract cassettes, a
-> real (still-local) embedding model, Lighthouse/k6 in CI, and sidecar
-> highlight-*text* import.
+> follow-ups remain open and are noted inline: a real (still-local) embedding
+> model, Lighthouse/k6 in CI, and sidecar highlight-*text* import. Live-network
+> contract cassettes shipped 2026-07-03 (see §0).
 
 **Guiding constraint.** Every item below must hold the four hard guardrails or it
 does not ship:
@@ -35,9 +35,13 @@ your real library" before adding features.
 - **Persisted derived state** — a `data/` SQLite app-state store with a `stacks
   refresh` job and an "ingest only if the source mtime changed" guard; surface a
   "data as of …" freshness stamp. *(Phase N1)*
-- **Live-path contract tests** — the live `KosyncClient` / `OpenLibraryClient` are
-  `pragma: no cover` today; add recorded-cassette tests so parsers are exercised
-  against real response shapes without network in CI. *(N2)*
+- **Live-path contract tests — DONE (2026-07-03).** Recorded-cassette tests
+  (`tests/test_live_clients_cassettes.py`, bodies under `tests/cassettes/`) now
+  exercise `KosyncClient`, `OpenLibraryClient`, and `BookwyrmClient` — request
+  building, header/URL construction, 404 handling, and the `ResponseCache`
+  put/get path — against real response shapes, with `requests.get` stubbed (no
+  network in CI). The `pragma: no cover` markers on all three client classes are
+  removed; `make test` stays green at ≥85% coverage. *(N2)*
 - **Coverage honesty** — add TestClient route tests so `app/server.py` wiring is
   covered, not just the auth path. *(N1)*
 

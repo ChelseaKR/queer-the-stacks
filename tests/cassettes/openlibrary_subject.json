@@ -1,0 +1,19 @@
+{
+  "key": "/subjects/queer",
+  "name": "queer",
+  "work_count": 2,
+  "works": [
+    {
+      "key": "/works/OL1W",
+      "title": "Nevada",
+      "authors": [{"name": "Imogen Binnie", "key": "/authors/OL1A"}],
+      "subject": ["Transgender women", "Fiction"]
+    },
+    {
+      "key": "/works/OL2W",
+      "title": "Detransition, Baby",
+      "authors": [{"name": "Torrey Peters", "key": "/authors/OL2A"}],
+      "subject": ["Transgender people", "Fiction"]
+    }
+  ]
+}
