@@ -164,7 +164,7 @@ update (human gate); growth bounded by pruning.
 **Excellent:** simulated device reset in a fixture — prior years' Wrapped
 still renders, labeled "from local ledger"; prune verifiably deletes.
 
-### FIX-08 — Batch + persist kosync progress (kill the N+1)
+### FIX-08 — Batch + persist kosync progress (kill the N+1) — ✅ done
 **Pitch:** refresh should cost O(changed books), not one sequential HTTP call
 per book with silent failure.
 **Why / for whom:** `ingest/unify.py::_progress_for` issues a synchronous GET
@@ -182,6 +182,22 @@ concurrency.
 **Excellent:** 500-book fixture refresh performs ≤ changed-key fetches;
 kosync-down degrades in one bounded timeout with a visible "progress stale
 since <date>", not silence.
+**Status:** implemented on `roadmap/fix-08-batch-and-persist-kosync-progress`.
+`ingest/refresh.py::fetch_progress` batches every non-empty stat key through a
+bounded `concurrent.futures.ThreadPoolExecutor` (`max_workers`, default 8),
+with deterministic sorted-key dispatch and result assembly, and a captured
+`ProgressOutcome` (ok / no-progress / error) per key — no more blanket
+`except Exception: return ()`. `ingest/unify.py::unify`/`_progress_for` now
+only read an already-resolved in-memory map and no longer catch errors
+themselves — fetching and error capture both moved upstream.
+`ingest/store.py` gained a per-key progress cache
+(`cached_progress`/`stale_progress_keys`/`save_progress`) keyed by a cheap
+`ReadingStat` fingerprint, so a refresh re-fetches only keys whose local stat
+changed and reuses cached progress otherwise. `RefreshResult` now exposes
+`progress_fetched`/`progress_errors`/`progress_outcomes` for FIX-09 to render.
+Also fixed a pre-existing Py2-style `except TypeError, ValueError:` syntax
+error in `ingest/kosync.py::parse_progress` that broke every import of the
+module.
 
 ### FIX-09 — Degradation and freshness made legible on the dashboard
 **Pitch:** the dashboard should say what it knows, how old it is, and what is

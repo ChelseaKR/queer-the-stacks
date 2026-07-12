@@ -99,6 +99,11 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         store.close()
     verb = "refreshed" if result.refreshed else "skipped"
     print(f"{verb}: {result.reason} — {result.n_states} books in state")
+    if result.progress_fetched or result.progress_errors:
+        print(
+            f"kosync progress: {result.progress_fetched} resolved, "
+            f"{result.progress_errors} error(s)"
+        )
     return 0
 
 

@@ -67,6 +67,13 @@ def unify(
 
     Books and stats are matched by :func:`normalize_key`. A stat with no matching
     book still appears (it is something the user read that is not in Calibre).
+
+    ``progress_source`` must already be a resolved, in-memory lookup (e.g. a
+    :class:`~ingest.kosync.FixtureKosync` built by
+    :func:`ingest.refresh.fetch_progress`) — ``unify`` performs no network I/O
+    and no longer swallows lookup errors. Batching, bounded concurrency, and
+    per-key error capture all happen upstream, once per refresh, not once per
+    book here.
     """
     stats_by_key: dict[str, ReadingStat] = {}
     for stat in stats:
@@ -115,12 +122,9 @@ def _progress_for(
 ) -> tuple[DeviceProgress, ...]:
     if stat is None or source is None or not stat.key:
         return ()
-    # Graceful degradation (reliability): if the kosync server is down or errors,
-    # fall back to KOReader stats rather than failing the whole dashboard.
-    try:
-        dp = source.progress_for(stat.key)
-    except Exception:  # noqa: BLE001 - any transport failure degrades to stats-only
-        return ()
+    # A plain in-memory lookup by now (see ingest.refresh.fetch_progress) — no
+    # network call, no exception to degrade from, so nothing to swallow here.
+    dp = source.progress_for(stat.key)
     return (dp,) if dp is not None else ()
 
 
