@@ -7,6 +7,7 @@ already-ingested data; :func:`demo_view` walks the full offline demo pipeline.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,11 @@ from app.goals import Goal, compute_goals
 from app.shelf import SeriesNext, series_continuations, to_read
 from app.stats import ReadingStats, compute_stats
 from app.wrapped import Wrapped, compute_wrapped
+
+# How old the persisted refresh stamp can get before the dashboard calls it
+# stale. A module constant (not a magic number inline) so tests can exercise
+# the boundary without patching.
+STALE_AFTER_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
 @dataclass(frozen=True)
@@ -39,6 +45,8 @@ class DashboardView:
     goals: tuple[Goal, ...] = ()
     diversity: Optional[DiversityReport] = None
     user: str = "demo"
+    refreshed_at: Optional[int] = None
+    stale: bool = False
 
 
 def _infer_today_and_year(
@@ -68,8 +76,17 @@ def build_view(
     goal_hours: int = 0,
     goal_streak_days: int = 0,
     hide_sensitive_descriptors: bool = False,
+    refreshed_at: Optional[int] = None,
+    now: Optional[int] = None,
 ) -> DashboardView:
-    """Build the dashboard view from unified state + candidates (pure)."""
+    """Build the dashboard view from unified state + candidates (pure).
+
+    ``refreshed_at`` is the persisted store stamp (epoch seconds), if any;
+    ``now`` defaults to the wall clock but is overridable so staleness is
+    testable without patching time. Staleness is silent (``False``) when
+    there is no stamp at all — "never refreshed" is its own, distinct state,
+    rendered as text rather than the staleness banner.
+    """
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
     stats = compute_stats(states, daily_activity, today_ordinal)
     wrapped = compute_wrapped(states, daily_activity, year)
@@ -93,6 +110,10 @@ def build_view(
         dnf_signals=dnf_signals,
     )
     library = sorted(states, key=lambda s: (s.title.lower(), s.authors))
+    stale = False
+    if refreshed_at is not None:
+        current = int(time.time()) if now is None else now
+        stale = (current - refreshed_at) > STALE_AFTER_SECONDS
     return DashboardView(
         currently_reading=tuple(currently_reading(states)),
         finished=tuple(finished(states)),
@@ -105,6 +126,8 @@ def build_view(
         goals=goals,
         diversity=diversity,
         user=user,
+        refreshed_at=refreshed_at,
+        stale=stale,
     )
 
 
@@ -124,6 +147,8 @@ def render_view(view: DashboardView) -> str:
         goals=view.goals,
         diversity=view.diversity,
         user=view.user,
+        refreshed_at=view.refreshed_at,
+        stale=view.stale,
     )
 
 
@@ -151,6 +176,7 @@ def view_from_store(
 
     states = store.load_states()  # type: ignore[attr-defined]
     activity = store.load_daily_activity()  # type: ignore[attr-defined]
+    refreshed_at = store.refreshed_at()  # type: ignore[attr-defined]
     return build_view(
         states,
         activity,
@@ -165,6 +191,7 @@ def view_from_store(
         goal_hours=goal_hours,
         goal_streak_days=goal_streak_days,
         hide_sensitive_descriptors=hide_sensitive_descriptors,
+        refreshed_at=refreshed_at,
     )
 
 

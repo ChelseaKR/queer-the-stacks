@@ -195,6 +195,18 @@ stamp + env linting are standalone and cheap.
 **Excellent:** every degraded state observable in demo mode is visible in
 rendered HTML; a view test asserts stamp + per-source rows; zero new a11y
 violations.
+**Status (2026-07-03):** the standalone, non-FIX-08-dependent slice is done —
+`render.py`'s new `_data_status_section` renders a "Data status" table with
+the store's `refreshed_at` stamp as an ISO-8601 UTC string (or "never
+refreshed — run `stacks refresh`" when absent), plus a text
+`<p role="status">` staleness banner past a configurable threshold
+(`app/view.py::STALE_AFTER_SECONDS`, default 7 days); `view.py` threads the
+stamp + staleness through `DashboardView`/`build_view`/`view_from_store`; and
+`ingest/refresh.py::doctor` now flags unrecognized `STACKS_*` env vars (e.g.
+the `STACKS_CALIBER_DB` typo) against a `KNOWN_STACKS_ENV` set exported from
+`ingest/config.py`. Per-source `RefreshResult` rows remain out of scope,
+pending FIX-08. Covered by `tests/test_render_view.py` and
+`tests/test_refresh_doctor.py`; zero new a11y violations (`make a11y`).
 
 ### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard)
 **Pitch:** make the merge-blocking a11y gate match what `ROADMAP.md` §7

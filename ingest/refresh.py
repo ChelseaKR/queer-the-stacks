@@ -12,12 +12,14 @@ with on-disk SQLite fixtures and no network.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from ingest.calibre import load_library
-from ingest.config import Config
+from ingest.config import KNOWN_STACKS_ENV, Config
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.models import DailyActivity, ReadingState
 from ingest.snapshot import columns, open_readonly
@@ -145,8 +147,21 @@ def _check_source(label: str, path: Optional[Path], required_table: str) -> list
     return checks
 
 
-def doctor(config: Config, store: Optional[Store] = None) -> list[Check]:
+def _check_env(env: Mapping[str, str]) -> list[Check]:
+    """Flag unrecognized ``STACKS_*`` variables — typos are silently ignored otherwise."""
+    unknown = sorted(k for k in env if k.startswith("STACKS_") and k not in KNOWN_STACKS_ENV)
+    return [
+        Check(f"env {key}", False, "unknown STACKS_* variable — ignored (typo?)") for key in unknown
+    ]
+
+
+def doctor(
+    config: Config,
+    store: Optional[Store] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> list[Check]:
     """Validate configuration + read-only access; never mutates anything."""
+    resolved_env: Mapping[str, str] = os.environ if env is None else env
     checks: list[Check] = []
     checks.append(
         Check("mode", True, "demo (built-in offline library)" if config.demo else "real sources")
@@ -171,4 +186,5 @@ def doctor(config: Config, store: Optional[Store] = None) -> list[Check]:
             )
         else:
             checks.append(Check("app-state store", True, "empty — run `stacks refresh`"))
+    checks.extend(_check_env(resolved_env))
     return checks

@@ -17,6 +17,7 @@ Accessibility decisions baked in here:
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Sequence
 from html import escape
 from typing import Optional
@@ -383,6 +384,37 @@ _FILTER_JS = (
 )
 
 
+def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False) -> str:
+    """Say what the dashboard knows and how old it is — never silently stale.
+
+    Degrades gracefully: per-source ``RefreshResult`` rows land with FIX-08;
+    until then this shows the one honest thing the store already persists —
+    the ``refreshed_at`` stamp — plus a text (not colour-only) staleness banner.
+    """
+    if refreshed_at is None:
+        as_of = "never refreshed — run `stacks refresh`"
+    else:
+        # datetime.utcfromtimestamp is deprecated; fromtimestamp(..., UTC) is the
+        # non-deprecated equivalent and yields the identical ISO-8601 UTC string.
+        as_of = datetime.datetime.fromtimestamp(refreshed_at, datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+    banner = (
+        '<p role="status">Stale: this data is more than the freshness threshold old — '
+        "run <code>stacks refresh</code> to update it.</p>"
+        if stale
+        else ""
+    )
+    rows = f'<tr><th scope="row">Data as of</th><td>{escape(as_of)}</td></tr>'
+    return (
+        f"{banner}"
+        "<h2>Data status</h2>"
+        "<table><caption>How current the data on this page is</caption>"
+        '<thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def render_dashboard(
     currently_reading: Sequence[ReadingState],
     finished: Sequence[ReadingState],
@@ -396,6 +428,8 @@ def render_dashboard(
     goals: Sequence[Goal] = (),
     diversity: Optional[DiversityReport] = None,
     user: str = "demo",
+    refreshed_at: Optional[int] = None,
+    stale: bool = False,
 ) -> str:
     """Render the complete, accessible dashboard document."""
     reading_items = "".join(_reading_item(s) for s in currently_reading) or (
@@ -422,6 +456,7 @@ def render_dashboard(
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
         "catalogs. Reading data never leaves this instance.</p></header>"
         '<main id="main">'
+        f"{_data_status_section(refreshed_at, stale)}"
         "<h2>Currently reading</h2>"
         f'<ul class="books">{reading_items}</ul>'
         "<h2>Reading stats</h2>"
