@@ -89,9 +89,11 @@ coordinated disclosure.
 
 ## Standards
 
-This repo inherits the portfolio [`/STANDARDS`](../STANDARDS/) (fetched pinned in CI, not vendored).
-The cross-cutting rigor — coverage floors, the merge-gate model, the security posture — lives there
-and is referenced, not restated here.
+`make verify` is the public, self-contained merge gate. Maintainer branches
+also check the pinned portfolio policy version recorded in
+[`.standards-version`](./.standards-version). GitHub does not expose repository
+secrets to forks, so external pull requests skip that private policy fetch and
+must pass the complete local verification command before review.
 
 ---
 

@@ -1,0 +1,16 @@
+{
+  "books": [
+    {
+      "id": "42",
+      "title": "Confessions of the Fox",
+      "authors": [{"name": "Jordy Rosenberg"}],
+      "subjects": ["trans", "speculative", "historical"]
+    },
+    {
+      "id": "43",
+      "title": "The Deep",
+      "authors": [{"name": "Rivers Solomon"}],
+      "subjects": ["afrofuturism", "queer"]
+    }
+  ]
+}

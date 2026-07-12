@@ -6,9 +6,9 @@
 > **Status (2026-06-06): N1–N6 shipped.** All phases below are implemented with
 > `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
 > `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
-> follow-ups remain open and are noted inline: live-network contract cassettes, a
-> real (still-local) embedding model, Lighthouse/k6 in CI, and sidecar
-> highlight-*text* import.
+> follow-ups remain open and are noted inline: a real (still-local) embedding
+> model, Lighthouse/k6 in CI, and sidecar highlight-*text* import. Live-network
+> contract cassettes shipped 2026-07-03 (see §0).
 
 **Guiding constraint.** Every item below must hold the four hard guardrails or it
 does not ship:
@@ -35,9 +35,13 @@ your real library" before adding features.
 - **Persisted derived state** — a `data/` SQLite app-state store with a `stacks
   refresh` job and an "ingest only if the source mtime changed" guard; surface a
   "data as of …" freshness stamp. *(Phase N1)*
-- **Live-path contract tests** — the live `KosyncClient` / `OpenLibraryClient` are
-  `pragma: no cover` today; add recorded-cassette tests so parsers are exercised
-  against real response shapes without network in CI. *(N2)*
+- **Live-path contract tests — DONE (2026-07-03).** Recorded-cassette tests
+  (`tests/test_live_clients_cassettes.py`, bodies under `tests/cassettes/`) now
+  exercise `KosyncClient`, `OpenLibraryClient`, and `BookwyrmClient` — request
+  building, header/URL construction, 404 handling, and the `ResponseCache`
+  put/get path — against real response shapes, with `requests.get` stubbed (no
+  network in CI). The `pragma: no cover` markers on all three client classes are
+  removed; `make test` stays green at ≥85% coverage. *(N2)*
 - **Coverage honesty** — add TestClient route tests so `app/server.py` wiring is
   covered, not just the auth path. *(N1)*
 
@@ -103,6 +107,14 @@ your real library" before adding features.
    an opt-in local PNG/PDF export (nothing auto-published).
 3. **Search & browse** by sourced theme/genre, author, series, status.
 4. **Goal tracking** — pages/books/streak goals, computed locally.
+5. **EXP-01 — OPDS feed of your own shelves. Shipped 2026-07-03.** An
+   auth-gated, read-only OPDS 1.2 catalog (`app/opds.py`, wired at `/opds` and
+   `/opds/{to-read,currently-reading,series-next,recommendations}` in
+   `app/server.py`) rendered from the same `DashboardView` the dashboard uses,
+   so it's browsable straight from KOReader/Readest. Recommendation entries
+   carry the sourced why/explanation, never an inferred label; a Calibre-Web
+   alternate link is config-driven (`STACKS_CALIBRE_WEB_URL`) and omitted when
+   unset. GET-only, no new write surface. See `tests/test_opds.py`.
 
 ## E. Hardening, ops, distribution
 
@@ -111,10 +123,17 @@ your real library" before adding features.
 2. **Auth upgrade path** — bearer token → optional OIDC/forward-auth; rate-limit
    the auth endpoint.
 3. **Backups** of `data/` app state + a restore drill.
-4. **Observability without telemetry** — local structured logs with a hard
+4. **Preservation-grade export — done.** `stacks export --archive` /
+   `stacks import --archive` round-trip the full derived state (states +
+   activity + count-only highlight Web Annotations) through a versioned,
+   self-describing, stdlib-only JSON bundle for decades-scale, tool-independent
+   preservation. See `docs/ideation/03-expansions.md` (EXP-13).
+5. **Observability without telemetry** — local structured logs with a hard
    "no reading-content in logs" lint (extend the no-egress test family).
-5. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
-   parsers must handle.
+6. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
+   parsers must handle. *(Done: `tests/schemas/{calibre,koreader}/*.sql` fixtures
+   + `tests/schemas/MATRIX.md`, parametrized in `tests/test_schema_drift.py`,
+   run by `make test` in CI.)*
 
 ---
 
