@@ -1,4 +1,4 @@
-"""Runtime configuration — where the real Calibre/KOReader libraries live.
+"""Runtime configuration — where the real Calibre/KOReader/Kobo libraries live.
 
 Resolution order (later overrides earlier):
 
@@ -38,6 +38,7 @@ KNOWN_STACKS_ENV = frozenset(
         "STACKS_DEMO",
         "STACKS_CALIBRE_DB",
         "STACKS_KOREADER_DB",
+        "STACKS_KOBO_DB",
         "STACKS_KOSYNC_HOST",
         "STACKS_KOSYNC_USER",
         "STACKS_KOSYNC_KEY",
@@ -67,6 +68,7 @@ class Config:
     kosync_user: Optional[str]
     kosync_key: Optional[str]  # md5 key, from the environment only
     demo: bool
+    kobo_db: Optional[Path] = None  # Kobo's native KoboReader.sqlite (read-only source)
     aperture_strength: float = 0.0  # boost-only discovery-widening lens (0 = off)
     embeddings_enabled: bool = False  # optional, strictly-local semantic signal
     dnf_signals: bool = False  # opt-in soft down-weighting of stalled themes
@@ -93,7 +95,9 @@ class Config:
 
     @property
     def has_real_sources(self) -> bool:
-        return self.calibre_db is not None or self.koreader_db is not None
+        return (
+            self.calibre_db is not None or self.koreader_db is not None or self.kobo_db is not None
+        )
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -124,6 +128,7 @@ def load_config(
     toml = _read_toml(path)
     calibre = _section(toml, "calibre")
     koreader = _section(toml, "koreader")
+    kobo = _section(toml, "kobo")
     kosync = _section(toml, "kosync")
     storage = _section(toml, "storage")
 
@@ -163,6 +168,7 @@ def load_config(
     return Config(
         calibre_db=_opt_path(pick("STACKS_CALIBRE_DB", calibre, "path")),
         koreader_db=_opt_path(pick("STACKS_KOREADER_DB", koreader, "path")),
+        kobo_db=_opt_path(pick("STACKS_KOBO_DB", kobo, "path")),
         data_dir=data_dir,
         kosync_host=pick("STACKS_KOSYNC_HOST", kosync, "host"),
         kosync_user=pick("STACKS_KOSYNC_USER", kosync, "user"),

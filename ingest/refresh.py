@@ -28,6 +28,7 @@ from typing import Optional
 
 from ingest.calibre import load_library
 from ingest.config import KNOWN_STACKS_ENV, Config
+from ingest.kobo import load_stats as load_kobo_stats
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
@@ -174,7 +175,11 @@ class RefreshResult:
 def source_mtimes(config: Config) -> dict[str, int]:
     """Integer mtimes of the configured source files that currently exist."""
     out: dict[str, int] = {}
-    for name, path in (("calibre", config.calibre_db), ("koreader", config.koreader_db)):
+    for name, path in (
+        ("calibre", config.calibre_db),
+        ("koreader", config.koreader_db),
+        ("kobo", config.kobo_db),
+    ):
         if path is not None and path.is_file():
             out[name] = int(path.stat().st_mtime)
     return out
@@ -202,6 +207,7 @@ def _ingest_real(
     snap = config.snapshot_dir
     books = load_library(config.calibre_db, snap) if config.calibre_db else []
     stats = load_stats(config.koreader_db, snap) if config.koreader_db else []
+    stats = stats + (load_kobo_stats(config.kobo_db, snap) if config.kobo_db else [])
     activity = load_daily_activity(config.koreader_db, snap) if config.koreader_db else []
     progress_result = _resolve_progress(_kosync(config), stats, store, now)
     states = unify(books, stats, FixtureKosync(progress_result.progress))
@@ -322,6 +328,8 @@ def doctor(
     if not config.demo:
         checks.extend(_check_source("Calibre", config.calibre_db, "books"))
         checks.extend(_check_source("KOReader", config.koreader_db, "book"))
+        if config.kobo_db is not None:
+            checks.extend(_check_source("Kobo", config.kobo_db, "content"))
         checks.append(
             Check(
                 "kosync",
