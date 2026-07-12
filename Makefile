@@ -9,7 +9,7 @@ PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval perf audit clean
+.PHONY: help install dev verify format lint marker-hygiene typecheck test security a11y eval perf audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -32,9 +32,28 @@ verify: lint typecheck test security a11y eval ## Run every checkable gate (CI p
 format: ## Auto-format the code
 	$(PYTHON) -m ruff format .
 
-lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset)
+lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset) + marker hygiene
 	$(PYTHON) -m ruff format --check .
 	$(PYTHON) -m ruff check .
+	@$(MAKE) --no-print-directory marker-hygiene
+
+# CQ-34/35: state is already clean (verified 2026-07-05) — freeze it. Bare
+# TODO/FIXME/HACK and un-coded noqa/type-ignore suppressions are the AUTO
+# check; the standard's issue-link requirement is warn-only for now (ratchet
+# later). `|| true` on the grep itself just avoids grep's "no match" exit
+# code tripping `set -e` — the real gate is the line count check after it.
+marker-hygiene:
+	@bare_markers=$$(grep -rnE '\b(TODO|FIXME|HACK)\b' --include='*.py' ingest recommender app tests || true); \
+	uncoded_noqa=$$(grep -rnE '# *noqa($$|[^:])' --include='*.py' ingest recommender app tests || true); \
+	uncoded_ignore=$$(grep -rnE 'type: *ignore($$|[^[])' --include='*.py' ingest recommender app tests || true); \
+	if [ -n "$$bare_markers$$uncoded_noqa$$uncoded_ignore" ]; then \
+		echo "marker-hygiene: found bare TODO/FIXME/HACK or un-coded noqa/type-ignore suppressions:"; \
+		[ -n "$$bare_markers" ] && echo "$$bare_markers"; \
+		[ -n "$$uncoded_noqa" ] && echo "$$uncoded_noqa"; \
+		[ -n "$$uncoded_ignore" ] && echo "$$uncoded_ignore"; \
+		exit 1; \
+	fi
+	@echo "marker-hygiene: 0 bare markers, 0 un-coded suppressions"
 
 typecheck: ## Stage 2 — strict static typing (mypy --strict)
 	$(PYTHON) -m mypy
@@ -42,25 +61,27 @@ typecheck: ## Stage 2 — strict static typing (mypy --strict)
 test: ## Stage 3 — unit + integration tests with coverage gate (>=85%)
 	$(PYTHON) -m pytest
 
-security: ## Stage 4 — dependency vulnerability + secret scan
+security: ## Stage 4 — dependency vulnerability + secret scan + lockfile CVE scan
 	# On the Python 3.14 floor every dependency has a fixed release installed, so
 	# the audit runs with no accepted advisories. Any future finding is tracked in
 	# docs/audits/residual-risk.md before being ignored here.
 	$(PYTHON) -m pip_audit --skip-editable
 	@./scripts/secret-scan.sh
-
-a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
-	$(PYTHON) -m app.build_static
-	# The built-in static checker is the AUTHORITATIVE, deterministic gate (no
-	# browser needed, so it is reliable in CI). pa11y/axe runs as a best-effort
-	# extra when a working headless Chrome is available — its crash on a sandboxed
-	# CI runner must not fail the build.
-	$(PYTHON) -m app.a11y_check $(A11Y_HTML)
-	@if command -v pa11y >/dev/null 2>&1; then \
-		echo "running pa11y (axe runtime, best-effort)"; \
-		pa11y --runner axe --config .pa11y.json $(A11Y_HTML) \
-			|| echo "pa11y/axe unavailable or crashed — built-in checker is authoritative"; \
+	@if command -v osv-scanner >/dev/null 2>&1; then \
+		osv-scanner --lockfile=uv.lock; \
+	else \
+		echo "osv-scanner not installed locally — CI installs a pinned binary and runs this blocking (ci.yml); install it (https://google.github.io/osv-scanner) to match CI locally"; \
 	fi
+
+a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations, blocking)
+	$(PYTHON) -m app.build_static
+	# Two blocking layers: the built-in static checker (deterministic, no browser
+	# needed — structural: lang/viewport/headings/landmarks/tables/links) PLUS
+	# pa11y (axe runtime, real browser-engine checks incl. color-contrast). Both
+	# must be zero-violation to pass; neither is advisory (graduated 2026-07-05 —
+	# see docs/ROADMAP.md §7 and A11Y-03).
+	$(PYTHON) -m app.a11y_check $(A11Y_HTML)
+	pa11y --runner axe --config .pa11y.json $(A11Y_HTML)
 
 eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 	$(PYTHON) -m ingest.cli eval --k 5 --out docs/audits/eval-report.json
