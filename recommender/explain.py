@@ -8,10 +8,17 @@ list the book appears on — with the actual citations behind each.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ingest.models import Book, Explanation, Signal, Source, SourceKind
 
 from recommender.collaborative import CoAnchor
 from recommender.lists import CuratedList
+
+if TYPE_CHECKING:
+    # Only for type-checking: recommender.model imports build_explanation from
+    # this module, so a runtime import here would be circular.
+    from recommender.model import TasteProfile
 
 
 def _dedup_sources(sources: list[Source]) -> tuple[Source, ...]:
@@ -132,6 +139,78 @@ def build_explanation(
     _ensure_non_empty(book, signals, sources)
 
     summary = f"Recommended because it {signals[0].detail}."
+    return Explanation(
+        signals=tuple(signals),
+        sources=_dedup_sources(sources),
+        summary=summary,
+    )
+
+
+def explain_absence(taste: TasteProfile, book: Book, lists: tuple[CuratedList, ...]) -> Explanation:
+    """The counterfactual accounting: why ``book`` ranked low or was excluded.
+
+    Every candidate — not just the winners — gets a sourced "why not" (audit
+    §D, EXP-02): what it lacks (theme overlap, a curated-list hit, a
+    finished-author match), and whether it was excluded outright as already
+    owned. Signals here only ever cite sourced tags, curated lists, and
+    authorship — the same honesty guardrail as :func:`build_explanation` — and
+    the result is never empty, mirroring its non-empty guarantee.
+
+    ``recommender.model`` is imported lazily: it imports :func:`build_explanation`
+    from this module, so a top-level import here would be circular.
+    """
+    from ingest.unify import book_key
+
+    from recommender.model import score_candidate
+
+    signals: list[Signal] = []
+    sources: list[Source] = []
+
+    score, overlap, loved_author, lists_hit = score_candidate(taste, book, lists)
+
+    if book_key(book) in taste.owned_keys:
+        signals.append(
+            Signal(kind="excluded", detail="excluded: already on your shelf", weight=0.0)
+        )
+
+    if overlap:
+        shown = ", ".join(overlap[:4])
+        signals.append(
+            Signal(kind="theme", detail=f"shares your themes: {shown}", weight=round(score, 4))
+        )
+        wanted = set(overlap)
+        for tag in book.theme_tags:
+            if tag.normalized in wanted:
+                sources.append(tag.source)
+    else:
+        signals.append(
+            Signal(kind="theme", detail="no sourced tags overlap your taste", weight=0.0)
+        )
+
+    if loved_author is not None:
+        signals.append(
+            Signal(kind="author", detail=f"by {loved_author}, whom you've finished", weight=1.0)
+        )
+    else:
+        signals.append(Signal(kind="author", detail="no finished-author match", weight=0.0))
+
+    if lists_hit:
+        for lst in lists_hit:
+            signals.append(
+                Signal(kind="list", detail=f"already on the curated list “{lst.name}”", weight=0.0)
+            )
+            sources.append(lst.as_source())
+    else:
+        signals.append(Signal(kind="list", detail="would rise if on a cited list", weight=0.0))
+
+    # Cite the book's own sourced theme tags so the accounting is never bare,
+    # even for a candidate with zero overlap and no list membership.
+    if not sources:
+        sources.extend(tag.source for tag in book.theme_tags)
+    if not sources:  # pragma: no cover - candidates always carry sourced tags
+        raise ValueError("an absence explanation must carry at least one source")
+
+    summary = f"Ranked as it did because it {signals[0].detail}."
     return Explanation(
         signals=tuple(signals),
         sources=_dedup_sources(sources),
