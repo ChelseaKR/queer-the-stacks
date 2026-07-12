@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   zizmor:
+    name: zizmor
     runs-on: ubuntu-latest
     permissions:
       contents: read
