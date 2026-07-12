@@ -5,20 +5,11 @@ name: release
 # re-run at the exact tagged commit. Tag like `v0.1.0` (`git tag -s v0.1.0 -m
 # "v0.1.0" && git push origin v0.1.0`).
 #
-# This app's deployable artifact is a container image run on the maintainer's
-# own seedbox next to Calibre-Web (docker-compose.yml) — it is deliberately
-# NOT published to a public registry (README: "self-hosted, private by
-# design"; no GHCR credentials are configured for this repo). So this
-# pipeline does what a release *can* mean here without inventing a publish
-# target that doesn't exist yet: it re-verifies at the tag, builds the image
-# and gates it on the same Trivy HIGH/CRITICAL scan container-scan.yml runs
-# in CI, builds the installable sdist+wheel of the `stacks` CLI/library
-# packages (ingest/recommender/app) that the container itself is built from,
-# generates a CycloneDX SBOM, attests build provenance (keyless OIDC, no
-# stored signing key), and creates the GitHub Release with the CHANGELOG
-# section as notes. If/when a registry publish target is decided (issue
-# #33), add a `packages: write` publish job after this one — don't block the
-# rest of the pipeline on that undecided step.
+# The release re-verifies at the tag, scans and publishes the container to
+# GHCR by digest, builds the sdist+wheel, generates a CycloneDX SBOM, creates
+# keyless Sigstore signatures and GitHub build-provenance attestations, creates
+# the GitHub Release from the matching CHANGELOG section, then downloads and
+# verifies every published artifact (issue #33).
 
 on:
   push:
@@ -37,6 +28,7 @@ jobs:
   # The tag must match the package version (without the leading v) — the
   # single source of version truth is `pyproject.toml` (REL §2).
   version-check:
+    name: Validate release metadata
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -52,11 +44,45 @@ jobs:
             exit 1
           fi
 
+      - name: Require a verified signed annotated tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]; then
+            echo "::error::${GITHUB_REF_NAME} must be an annotated tag"
+            exit 1
+          fi
+          tag_object="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}")"
+          verified="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object}" --jq '.verification.verified')"
+          if [ "$verified" != "true" ]; then
+            echo "::error::${GITHUB_REF_NAME} is not a cryptographically verified signed tag"
+            exit 1
+          fi
+
+      - name: CHANGELOG and CITATION match the tag
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          citation_version="$(awk '$1 == "version:" {print $2; exit}' CITATION.cff)"
+          citation_date="$(awk '$1 == "date-released:" {print $2; exit}' CITATION.cff)"
+          tag_date="$(git for-each-ref --format='%(taggerdate:short)' "refs/tags/${GITHUB_REF_NAME}")"
+          test "$citation_version" = "$version" || {
+            echo "::error::CITATION.cff version ${citation_version} does not match ${version}"; exit 1;
+          }
+          test "$citation_date" = "$tag_date" || {
+            echo "::error::CITATION.cff date-released ${citation_date} does not match tag date ${tag_date}"; exit 1;
+          }
+          grep -Fq "## [${version}]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no ## [${version}] section"; exit 1;
+          }
+
   # Never publish untested code: re-run the exact merge-blocking gate
   # (`make verify` — lint, typecheck, test+coverage, security, a11y, eval) at
   # the tagged commit, not the PR's stale green check. Mirrors ci.yml's
   # toolchain setup exactly so local/CI/release parity holds.
   verify-at-tag:
+    name: Verify tagged commit
     needs: [version-check]
     runs-on: ubuntu-latest
     steps:
@@ -89,7 +115,7 @@ jobs:
       - name: Install project (dev + app extras, locked)
         run: |
           uv sync --frozen --extra dev --extra app
-          npm install -g pa11y
+          npm install -g pa11y@9.1.1
 
       - name: Install gitleaks (pinned v8.30.1, checksum-verified)
         run: |
@@ -117,6 +143,7 @@ jobs:
   # main (container-scan.yml) — a release must not ship a HIGH/CRITICAL image
   # even though the image itself isn't published anywhere by this workflow.
   container-scan-at-tag:
+    name: Scan release container
     needs: [version-check]
     runs-on: ubuntu-latest
     permissions:
@@ -142,6 +169,7 @@ jobs:
           format: table
 
   build:
+    name: Build and attest packages
     needs: [verify-at-tag, container-scan-at-tag]
     runs-on: ubuntu-latest
     permissions:
@@ -187,12 +215,57 @@ jobs:
           name: dist
           path: dist/
 
-  # Create the GitHub Release with the matching CHANGELOG section as notes.
-  github-release:
-    needs: build
+  publish-image:
+    name: Publish and sign GHCR image
+    needs: [verify-at-tag, container-scan-at-tag]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      packages: write # publish the release image to GHCR
+      id-token: write # obtain the keyless Sigstore identity
+      attestations: write # publish image provenance to GitHub
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Build and publish GHCR image by digest
+        id: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -t "${image}:${GITHUB_REF_NAME}" .
+          docker push "${image}:${GITHUB_REF_NAME}"
+          digest_ref="$(docker inspect --format='{{index .RepoDigests 0}}' "${image}:${GITHUB_REF_NAME}")"
+          test -n "$digest_ref"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest_ref#*@}" >> "$GITHUB_OUTPUT"
+      - name: Keyless-sign the image digest
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ steps.publish.outputs.image }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+  # Create the GitHub Release with the matching CHANGELOG section as notes.
+  github-release:
+    name: Publish GitHub Release
+    needs: [build, publish-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its assets
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -212,7 +285,8 @@ jobs:
           if [ -s /tmp/release-notes.md ]; then
             echo "notes extracted for $version:"; cat /tmp/release-notes.md
           else
-            echo "::warning::no CHANGELOG section found for $version; falling back to autogenerated notes"
+            echo "::error::no CHANGELOG section found for $version"
+            exit 1
           fi
 
       - name: Create GitHub Release
@@ -222,7 +296,45 @@ jobs:
           if [ -s /tmp/release-notes.md ]; then
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md --verify-tag
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
           fi
+
+  verify-published:
+    name: Verify published artifacts
+    needs: [build, publish-image, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read # pull the just-published GHCR image by digest
+    steps:
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+        with:
+          version: "0.11.26"
+          enable-cache: false
+      - name: Install cosign (pinned)
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and validate published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir dist
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -ge 3
+          uvx twine check dist/*.whl dist/*.tar.gz
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' dist/sbom.cdx.json >/dev/null
+          gh attestation verify dist/*.whl dist/*.tar.gz dist/sbom.cdx.json \
+            --repo "$GITHUB_REPOSITORY"
+      - name: Verify and pull the signed image by digest
+        env:
+          IMAGE: ${{ needs.publish-image.outputs.image }}
+          DIGEST: ${{ needs.publish-image.outputs.digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/v" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${DIGEST}"
+          docker pull "${IMAGE}@${DIGEST}"

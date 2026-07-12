@@ -8,9 +8,9 @@ release (see `docs/ROADMAP.md` REL-01/REL-05: pre-1.0, current line `0.1.x`).
 
 ## [Unreleased]
 
-No release has been tagged yet. `v0.1.0` is pending: the release-lifecycle pipeline
-(build/sign/SBOM/publish) and the pre-release accessibility/responsible-tech sign-offs are
-tracked gaps — see README §Standards and `docs/audits/accessibility-2026-06-05.md`.
+No release has been tagged yet. `v0.1.0` is pending the pre-release
+accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
+keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Added
 - Structured JSON request logging, `/livez`, and fail-closed `/readyz` (#13).
