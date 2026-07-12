@@ -77,7 +77,30 @@ the layer first, A4's queue UI second.
 same title/different author, edition split) yields 100% correct or explicitly-
 unmatched — never a silent wrong merge; overrides round-trip through refresh.
 
-### FIX-04 — Browser-native session auth (login → HttpOnly cookie)
+### FIX-04 — Browser-native session auth (login → HttpOnly cookie) — DONE
+**Status:** implemented on `roadmap/fix-04-browser-native-session-auth-login`:
+`app/auth.py` gains `sign_session`/`verify_session` (stdlib `hmac`+`hashlib`
+HMAC-SHA256, keyed by an HMAC of `expected_token()` over a fixed salt — no new
+secret/config) and a pure, testable `LoginLockoutTracker`
+(5 failures / 15 min per IP, reset on success). `app/server.py::require_auth`
+now accepts a valid `Authorization: Bearer` header **or** a valid
+`stacks_session` cookie. `GET /login` renders an accessible sign-in form
+(label-linked input, skip link, single landmark); `POST /login` — the one
+deliberate exception to the app's otherwise GET-only routes, since a
+GET-with-query-param login would leak the token into browser history/logs —
+exchanges the token for a signed, HttpOnly, `SameSite=Strict`, `Secure`
+session cookie (12h TTL) and 303-redirects to `/`; failed attempts are
+rate-limited per client IP and locked-out attempts get 429. `GET /logout`
+clears the cookie and redirects to `/login`. `python-multipart` was added to
+the `app` extra (Starlette's `Request.form()` requires it even for
+`application/x-www-form-urlencoded` bodies). `tests/test_auth.py` covers the
+sign/verify round trip, tamper and expiry rejection, the lockout tracker, and
+the full browser flow via FastAPI's `TestClient` (login → cookie → dashboard,
+logout → 401, lockout → 429), plus a Bearer-header regression check. The TLS
+assumption behind `Secure` is documented in `app/auth.py`'s module docstring:
+the cookie is only ever sent over HTTPS, so deployment must terminate TLS in
+front of the app (the seedbox's reverse proxy) or otherwise ensure the browser
+reaches it only over a secure/loopback channel.
 **Pitch:** let a phone browser reach the dashboard without weakening
 fail-closed auth.
 **Why / for whom:** every content route requires an `Authorization: Bearer`
@@ -353,3 +376,4 @@ another process (the stamp check handles it); interacts with FIX-01/FIX-06.
 **Excellent:** p95 dashboard latency flat as library size grows (extend
 `tests/test_perf.py` with a large fixture); zero ingest work inside requests;
 coverage includes server wiring with the ≥85% gate intact.
+

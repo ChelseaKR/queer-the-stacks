@@ -1,10 +1,28 @@
 """The self-hosted FastAPI app — serves the dashboard, only behind auth.
 
-Every route depends on :func:`require_auth`, which rejects any request without a
-valid bearer token (401). There is no unauthenticated path: even ``/`` is gated,
-because a reading history can out a reader (privacy guardrail). The app is
-single-user and binds to localhost by default (``make dev``); deployment puts it
-behind the seedbox's auth next to Calibre-Web.
+Every content route depends on :func:`require_auth`, which rejects any request
+without a valid bearer token *or* a valid signed session cookie (401). There is
+no unauthenticated path: even ``/`` is gated, because a reading history can out
+a reader (privacy guardrail). The app is single-user and binds to localhost by
+default (``make dev``); deployment puts it behind the seedbox's auth next to
+Calibre-Web.
+
+Browser session auth (FIX-04): a phone/desktop browser can't attach an
+``Authorization`` header on plain navigation, so ``GET /login`` renders a form
+and ``POST /login`` exchanges the same bearer token for a signed, HttpOnly,
+``SameSite=Strict``, ``Secure`` cookie (see :mod:`app.auth` for the signing and
+TTL). ``GET /logout`` clears it. The ``Secure`` attribute means the cookie is
+only ever sent by the browser over HTTPS — deployment must terminate TLS in
+front of this app (the seedbox's reverse proxy) or otherwise ensure the
+browser reaches it only over a secure/loopback channel, or the cookie flow
+simply won't work (by design: no session ever traverses plain HTTP).
+
+Every other route stays GET-only, so CSRF exposure elsewhere stays nil.
+``POST /login`` is the one deliberate exception: putting the bearer token in a
+``GET`` query string would leak it into browser history, referrers, and access
+logs, which is worse than the (nil, since it only ever *creates* a session
+using a secret the client already proved knowledge of, and SameSite=Strict
+blocks cross-site delivery of any ambient cookie) CSRF exposure of a POST form.
 
 Coverage note: this thin wiring is omitted from the unit-coverage gate and
 verified instead by the auth access test in ``tests/test_auth.py`` via FastAPI's
@@ -14,22 +32,30 @@ TestClient.
 from __future__ import annotations
 
 import time
+from html import escape
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
 
-from app.auth import check_credentials
+from app.auth import (
+    SESSION_TTL_SECONDS,
+    LoginLockoutTracker,
+    check_credentials,
+    sign_session,
+    verify_session,
+)
 from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
 from app.security_headers import SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
+
+SESSION_COOKIE = "stacks_session"  # noqa: S105 - cookie name, not a secret
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -48,17 +74,71 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
-    """FastAPI dependency: require a valid ``Authorization: Bearer <token>``."""
+# Process-local: single-user, single-process self-hosted app. A restart resets
+# any in-progress lockouts.
+_lockout = LoginLockoutTracker()
+
+
+def require_auth(
+    authorization: Optional[str] = Header(default=None),
+    stacks_session: Optional[str] = Cookie(default=None),
+) -> None:
+    """Require a valid bearer token or signed session cookie."""
     token: Optional[str] = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[len("bearer ") :].strip()
-    if not check_credentials(token):
-        raise HTTPException(
-            status_code=401,
-            detail="authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if check_credentials(token):
+        return
+    if verify_session(stacks_session, int(time.time())):
+        return
+    raise HTTPException(
+        status_code=401,
+        detail="authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _render_login_page(error: Optional[str] = None) -> str:
+    """Render the minimal sign-in form (same escaping + a11y discipline as the
+    dashboard renderer: lang, viewport, one h1, a main landmark, a skip link,
+    and a label linked to its input).
+    """
+    error_html = f'<p role="alert" class="error">{escape(error)}</p>' if error else ""
+    return (
+        "<!doctype html>"
+        '<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        "<title>Queer the Stacks — sign in</title>"
+        "<style>"
+        ":root { color-scheme: light dark; }"
+        "body { font-family: system-ui, sans-serif; max-width: 40ch; margin: 3rem auto; "
+        "padding: 1rem; }"
+        "a:focus, .skip:focus, input:focus, button:focus { outline: 3px solid; }"
+        ".skip { position: absolute; left: -999px; }"
+        ".skip:focus { left: 1rem; top: 1rem; }"
+        "label { display: block; margin: 1rem 0 0.25rem; }"
+        "input { width: 100%; padding: 0.5rem; font-size: 1rem; }"
+        "button { margin-top: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }"
+        ".error { border: 1px solid; border-radius: 4px; padding: 0.5rem; }"
+        "</style></head><body>"
+        '<a class="skip" href="#main">Skip to the sign-in form</a>'
+        '<main id="main">'
+        "<h1>Queer the Stacks</h1>"
+        "<p>Sign in with your access token to reach your private reading "
+        "dashboard.</p>"
+        f"{error_html}"
+        '<form method="post" action="/login">'
+        '<label for="token">Access token</label>'
+        '<input id="token" name="token" type="password" autocomplete="current-password" '
+        "required autofocus>"
+        '<button type="submit">Sign in</button>'
+        "</form>"
+        "</main></body></html>"
+    )
 
 
 def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
@@ -140,6 +220,59 @@ def _readyz() -> Response:
     return JSONResponse(status_code=200, content={"status": "ok", "checks": checks})
 
 
+def _login_form() -> HTMLResponse:
+    """Render the sign-in form. Unauthenticated by necessity (it's the entry
+    point), but it reveals no reading content — just an empty form."""
+    return HTMLResponse(content=_render_login_page())
+
+
+def _login_submit(request: Request, token: str = Form(...)) -> Response:
+    """Exchange the bearer token for a signed session cookie.
+
+    The lone POST route in an otherwise GET-only app — see the module
+    docstring for why a GET-with-query-param login was rejected. Failed
+    attempts are rate-limited per client IP (5 / 15min) to blunt brute force.
+    """
+    now = int(time.time())
+    ip = _client_ip(request)
+    if _lockout.is_locked_out(ip, now):
+        return HTMLResponse(
+            content=_render_login_page("Too many attempts. Try again later."),
+            status_code=429,
+        )
+    if not check_credentials(token):
+        _lockout.record_failure(ip, now)
+        return HTMLResponse(
+            content=_render_login_page("Incorrect token."),
+            status_code=401,
+        )
+    _lockout.reset(ip)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE,
+        sign_session(now),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/",
+    )
+    return response
+
+
+def _logout() -> Response:
+    """Clear the session cookie and send the browser back to /login."""
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="strict",
+    )
+    return response
+
+
 def _dashboard(hide_sensitive: bool = False) -> HTMLResponse:
     return HTMLResponse(content=render_view(_load_view(hide_sensitive=hide_sensitive)))
 
@@ -200,6 +333,22 @@ def create_app() -> FastAPI:
     app.add_api_route("/livez", _livez, methods=["GET"])
     app.add_api_route("/version", _version, methods=["GET"])
     app.add_api_route("/readyz", _readyz, methods=["GET"])
+    app.add_api_route(
+        "/login",
+        _login_form,
+        methods=["GET"],
+        response_class=HTMLResponse,
+    )
+    app.add_api_route(
+        "/login",
+        _login_submit,
+        methods=["POST"],
+    )
+    app.add_api_route(
+        "/logout",
+        _logout,
+        methods=["GET"],
+    )
     app.add_api_route(
         "/",
         _dashboard,

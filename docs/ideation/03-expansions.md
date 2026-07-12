@@ -323,3 +323,4 @@ otherwise.
 **Excellent:** two external projects consume the Atlas; at least one real
 steward and one real author have reviewed their entries (dated artifacts);
 `docs/ethical-book-data-sources.md` becomes a pinned render of it.
+
