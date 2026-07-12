@@ -95,7 +95,14 @@ first-class).
 **Excellent:** forecasts carry their basis ("from your last 30 reading days");
 a fixture test pins the math; thin-data fallback verified.
 
-### EXP-05 — Curated-list authoring studio (create, cite, export)
+### EXP-05 — Curated-list authoring studio (create, cite, export) — DONE
+**Status:** implemented on `roadmap/exp-05-curated-list-authoring-studio` —
+`recommender/lists_store.py` (serializer + validated JSON file store atop
+`recommender/lists.py`'s `load_lists`/`validate_lists`), `stacks lists
+new/add/export/ls` in `ingest/cli.py`, and a read-only "Your lists" dashboard
+section (`app/render.py`, wired through `app/view.py::DashboardView
+.authored_lists`). Export remains CLI-only/manual, no auto-egress. The
+"import of others' exports" half of the shape stays open for a follow-up.
 **Pitch:** first-class tooling to *make* cited lists from your shelf and
 export them as validated JSON others can import.
 **Impact:** ROADMAP-FUTURE C3 / branch E4 cover *importing*. Authoring is the

@@ -152,6 +152,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
     try:
         if not store.is_populated:
             refresh(config, store, now=int(time.time()))
+        from recommender.lists_store import list_store_path, load_stored_lists
+
         view = view_from_store(
             store,
             user="demo" if config.demo else "you",
@@ -160,6 +162,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             goal_pages=config.goal_pages,
             goal_streak_days=config.goal_streak_days,
             lens_config=config.lens_config,
+            authored_lists=load_stored_lists(list_store_path(config)),
         )
     finally:
         store.close()
@@ -222,6 +225,84 @@ def _cmd_import_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_lists_new(args: argparse.Namespace) -> int:
+    """Create a new authored curated list and persist it to ``data_dir/lists.json``."""
+    from recommender.lists_store import list_store_path, load_stored_lists, new_list, save_lists
+
+    from ingest.config import load_config
+
+    config = load_config()
+    path = list_store_path(config)
+    lists = load_stored_lists(path)
+    lists = new_list(lists, args.name, args.citation, tuple(args.book or ()))
+    save_lists(path, lists)
+    added = next(lst for lst in lists if lst.name == args.name)
+    print(f"created list {added.name!r} ({len(added.book_ids)} book(s)) — saved to {path}")
+    return 0
+
+
+def _cmd_lists_add(args: argparse.Namespace) -> int:
+    """Add a book to an existing authored list."""
+    from recommender.lists_store import (
+        add_book_to_list,
+        list_store_path,
+        load_stored_lists,
+        save_lists,
+    )
+
+    from ingest.config import load_config
+
+    config = load_config()
+    path = list_store_path(config)
+    lists = load_stored_lists(path)
+    lists = add_book_to_list(lists, args.name, args.book)
+    save_lists(path, lists)
+    updated = next(lst for lst in lists if lst.name == args.name)
+    print(f"list {updated.name!r} now has {len(updated.book_ids)} book(s) — saved to {path}")
+    return 0
+
+
+def _cmd_lists_export(args: argparse.Namespace) -> int:
+    """Export authored lists as validated JSON — manual-only, no network.
+
+    Writes to stdout by default, or a local file with ``--out``. Nothing here
+    ever transmits the export; the reader shares it themselves if they choose.
+    """
+    from recommender.lists_store import export_lists, list_store_path, load_stored_lists
+
+    from ingest.config import load_config
+
+    config = load_config()
+    lists = load_stored_lists(list_store_path(config))
+    body = export_lists(lists)
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body, encoding="utf-8")
+        print(f"exported {len(lists)} list(s) to {out} (local only — nothing was sent)")
+    else:
+        print(body, end="")
+    return 0
+
+
+def _cmd_lists_ls(args: argparse.Namespace) -> int:
+    """List authored lists with their citation and book count."""
+    from recommender.lists_store import list_store_path, load_stored_lists
+
+    from ingest.config import load_config
+
+    config = load_config()
+    lists = load_stored_lists(list_store_path(config))
+    if not lists:
+        print("no authored lists yet — create one with 'stacks lists new'")
+        return 0
+    for lst in lists:
+        print(
+            f"{lst.name} — {lst.citation} — {len(lst.book_ids)} book(s), as of {lst.retrieved_at}"
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -271,6 +352,31 @@ def main(argv: list[str] | None = None) -> int:
         help="path to a JSON archive produced by `stacks export --archive`",
     )
     p_imp.set_defaults(func=_cmd_import_archive)
+
+    p_lists = sub.add_parser("lists", help="author cited curated lists")
+    lists_sub = p_lists.add_subparsers(dest="lists_command", required=True)
+
+    p_lists_new = lists_sub.add_parser("new", help="create a new curated list")
+    p_lists_new.add_argument("name", help="list name (must be unique)")
+    p_lists_new.add_argument("--citation", required=True, help="where this list came from")
+    p_lists_new.add_argument(
+        "--book", action="append", default=[], help="a book id to seed the list with (repeatable)"
+    )
+    p_lists_new.set_defaults(func=_cmd_lists_new)
+
+    p_lists_add = lists_sub.add_parser("add", help="add a book to an existing list")
+    p_lists_add.add_argument("name", help="list name")
+    p_lists_add.add_argument("--book", required=True, help="book id to add")
+    p_lists_add.set_defaults(func=_cmd_lists_add)
+
+    p_lists_export = lists_sub.add_parser(
+        "export", help="export authored lists as validated JSON (manual-only, no network)"
+    )
+    p_lists_export.add_argument("--out", default=None, help="write to this file instead of stdout")
+    p_lists_export.set_defaults(func=_cmd_lists_export)
+
+    p_lists_ls = lists_sub.add_parser("ls", help="list your authored curated lists")
+    p_lists_ls.set_defaults(func=_cmd_lists_ls)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

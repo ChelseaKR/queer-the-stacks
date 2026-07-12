@@ -149,6 +149,8 @@ def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
     ``hide_sensitive`` is a per-request privacy override; it can only *add*
     aggregation on top of the configured default (you can always hide more).
     """
+    from recommender.lists_store import list_store_path, load_stored_lists
+
     config = load_config()
     store = Store(config.store_path)
     try:
@@ -166,6 +168,7 @@ def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
             goal_streak_days=config.goal_streak_days,
             lens_config=config.lens_config,
             hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
+            authored_lists=load_stored_lists(list_store_path(config)),
         )
     finally:
         store.close()

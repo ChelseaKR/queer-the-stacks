@@ -44,6 +44,7 @@ class DashboardView:
     library: tuple[ReadingState, ...] = ()
     goals: tuple[Goal, ...] = ()
     diversity: Optional[DiversityReport] = None
+    authored_lists: tuple[CuratedList, ...] = ()
     user: str = "demo"
     refreshed_at: Optional[int] = None
     stale: bool = False
@@ -67,6 +68,7 @@ def build_view(
     candidates: tuple[object, ...],
     *,
     lists: tuple[CuratedList, ...] = (),
+    authored_lists: tuple[CuratedList, ...] = (),
     user: str = "demo",
     aperture_strength: float = 0.0,
     use_embeddings: bool = False,
@@ -134,6 +136,7 @@ def build_view(
         library=tuple(library),
         goals=goals,
         diversity=diversity,
+        authored_lists=authored_lists,
         user=user,
         refreshed_at=refreshed_at,
         stale=stale,
@@ -155,6 +158,7 @@ def render_view(view: DashboardView) -> str:
         library=view.library,
         goals=view.goals,
         diversity=view.diversity,
+        authored_lists=view.authored_lists,
         user=view.user,
         refreshed_at=view.refreshed_at,
         stale=view.stale,
@@ -174,6 +178,7 @@ def view_from_store(
     goal_streak_days: int = 0,
     lens_config: Optional[Path] = None,
     hide_sensitive_descriptors: bool = False,
+    authored_lists: tuple[CuratedList, ...] = (),
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
@@ -199,6 +204,7 @@ def view_from_store(
         activity,
         demo_candidates(),
         lists=DEMO_LISTS,
+        authored_lists=authored_lists,
         user=user,
         aperture_strength=aperture_strength,
         use_embeddings=use_embeddings,
