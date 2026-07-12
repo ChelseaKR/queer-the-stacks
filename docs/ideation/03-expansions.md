@@ -68,7 +68,20 @@ rather than overrides sourced signals.
 cited in each affected explanation; deleting it restores prior ranks
 deterministically.
 
-### EXP-04 — Reading-pace forecasts on TBR and series
+### EXP-04 — Reading-pace forecasts on TBR and series — ✅ shipped (2026-07-03)
+**Status:** done. `app/forecast.py` is a pure module (no I/O, deterministic)
+that derives per-page pace from the most-recent active `DailyActivity` days
+and returns a `Forecast(low_hours, high_hours, basis, estimable)` — always a
+range (p25–p75 of recent per-page seconds), never a single point. Fewer than
+`MIN_DAYS_FOR_ESTIMATE` valid days, or a non-positive remaining-pages count,
+returns the honest `Forecast.unknown()` ("not enough recent reading to
+estimate") instead of guessing. `forecast_series` reuses the same math over a
+combined remaining-pages total and adds a weeks-ish gloss to the basis when
+the high end is large. `tests/test_forecast.py` pins the p25/p75 math against
+a hand-computable fixture and covers the thin-data and zero/negative-pages
+fallbacks. Not wired into `render.py`/`app/server.py` — the spec scoped this
+item to the pure module + fixture test; wiring into the dashboard view is a
+natural, still-open follow-up.
 **Pitch:** "at your recent pace, this 384-page book ≈ 8–10 hours; this series
 ≈ 6 weeks" — locally, from KOReader page timing.
 **Impact:** turns data the system already has
