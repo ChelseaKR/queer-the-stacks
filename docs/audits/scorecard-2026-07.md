@@ -32,7 +32,7 @@ UNVERIFIED from the working tree in the 2026-07-05 conformance audit into measur
 | 0/10 | Fuzzing | project is not fuzzed (not applicable to this app's surface today) |
 | 9/10 | License | license file detected |
 | 0/10 | Maintained | project created within the last 90 days (expected — young repo; will rise over time) |
-| ? | Packaging | no packaging workflow detected (tracked — see release-lifecycle gap, issue #33) |
+| ✓ | Packaging | tag-triggered package, SBOM, and GHCR release workflow is present |
 | 3/10 | Pinned-Dependencies | dependency not pinned by hash detected — see note above |
 | 0/10 | SAST | not run on all commits *(this pass adds `codeql.yml` + `zizmor.yml` — should rise once pushed)* |
 | 10/10 | Security-Policy | `SECURITY.md` detected |
