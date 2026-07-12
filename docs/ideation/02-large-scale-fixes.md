@@ -400,7 +400,37 @@ real-finish temporal holdout stays R6 and stays real-data-gated.
 **Excellent:** setting `recommender/model.py::AUTHOR_BONUS = 0` fails the
 gate; the saturated-1.0 report becomes a distribution the eval doc explains.
 
-### FIX-14 — Serving-path lifecycle: startup checks, view cache, coverage
+### FIX-14 — Serving-path lifecycle: startup checks, view cache, coverage — DONE
+**Status:** implemented on `roadmap/fix-14-serving-path-lifecycle-startup-ch`:
+`app/server.py` gains a FastAPI `lifespan` (`_lifespan`) that resolves config
+and opens `Store(config.store_path)` + calls `store.refreshed_at()` once at
+startup, failing closed like `app/auth.py::AuthNotConfigured` — a bad config
+file raises `ConfigInvalid`, an unreachable/unwritable store raises
+`StoreUnavailable`, and either aborts boot. A never-refreshed store is *not*
+a startup failure (it only logs `startup_store_unpopulated`), since ingest at
+startup can be slow/blocking. `_load_view` no longer runs ingest inline: it
+raises `HTTPException(503)` when `store.refreshed_at()` is `None`, so
+`/`, `/browse`, `/share`, and `/share/card.svg` fail closed until an explicit
+`stacks refresh` populates the store. Otherwise it builds a cache key from
+`(store_path, refreshed_at stamp, hash of view-relevant config fields)` —
+the latter via a new `Config.view_cache_fields()` helper (`ingest/config.py`)
+covering `demo`/`aperture_strength`/`embeddings_enabled`/`dnf_signals`/the
+`goal_*` fields — and stores the built `DashboardView` on `app.state.view_cache`,
+keyed by that tuple; a request only rebuilds
+stats/wrapped/diversity/recommendations when the store was actually refreshed
+or the config actually changed. `/browse` still calls `_load_view` and only
+replaces `.library` via `dataclasses.replace`, so caching the base view stays
+safe. `pyproject.toml`'s `[tool.coverage.run]` omit list no longer excludes
+`app/server.py` (the `--cov-fail-under=85` gate is unchanged).
+`tests/test_server_lifecycle.py` (new) exercises all four data routes against
+a populated store, 503s against an unpopulated one, cache reuse vs. rebuild
+across a bumped `refreshed_at` stamp, and lifespan failing closed on bad
+config/an unreachable store via FastAPI's `TestClient`; `tests/test_auth.py`,
+`tests/test_goals_time.py`, and `tests/test_observability.py` were updated to
+seed the store explicitly (via a new `tests/conftest.py::seed_store_from_env`
+helper) before hitting data routes, since the server never ingests inside a
+request anymore. Full suite: 206 passed, 96.6% total coverage,
+`app/server.py` at 98%.
 **Pitch:** requests become boring — validated at startup, cached between
 refreshes, measured by coverage.
 **Why / for whom:** `app/server.py::_load_view` re-resolves config, opens the

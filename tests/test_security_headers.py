@@ -23,6 +23,9 @@ def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setenv("STACKS_DEMO", "1")
     monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    from tests.conftest import seed_store_from_env
+
+    seed_store_from_env()
     from app.server import create_app
 
     return TestClient(create_app())

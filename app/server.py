@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from html import escape
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
@@ -40,8 +42,7 @@ from typing import Optional
 
 from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from ingest.config import load_config
-from ingest.refresh import refresh
+from ingest.config import Config, load_config
 from ingest.store import Store
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -58,6 +59,18 @@ from app.security_headers import SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
 
 SESSION_COOKIE = "stacks_session"  # noqa: S105 - cookie name, not a secret
+
+# (store_path, refreshed_at stamp, hash of view-relevant config fields)
+_ViewCacheKey = tuple[str, Optional[int], int]
+_ViewCacheEntry = tuple[_ViewCacheKey, DashboardView]
+
+
+class ConfigInvalid(Exception):
+    """Raised at startup when the app configuration cannot be resolved."""
+
+
+class StoreUnavailable(Exception):
+    """Raised at startup when the app-state store cannot be opened or probed."""
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -143,20 +156,28 @@ def _render_login_page(error: Optional[str] = None) -> str:
     )
 
 
-def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
-    """Load the dashboard from the persisted store, refreshing on first run.
+def _cache_key(config: Config, stamp: Optional[int]) -> _ViewCacheKey:
+    return (str(config.store_path), stamp, hash(config.view_cache_fields()))
 
-    ``hide_sensitive`` is a per-request privacy override; it can only *add*
-    aggregation on top of the configured default (you can always hide more).
-    """
+
+def _load_view(app: FastAPI, *, hide_sensitive: bool = False) -> DashboardView:
+    """Build or reuse the dashboard view; never run ingest inside a request."""
     from recommender.lists_store import list_store_path, load_stored_lists
 
     config = load_config()
     store = Store(config.store_path)
     try:
-        if not store.is_populated:
-            refresh(config, store, now=int(time.time()))
-        return view_from_store(
+        stamp = store.refreshed_at()
+        if stamp is None:
+            raise HTTPException(
+                status_code=503,
+                detail="dashboard not yet populated — run `stacks refresh` first",
+            )
+        key = _cache_key(config, stamp)
+        cached: Optional[_ViewCacheEntry] = app.state.view_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        view = view_from_store(
             store,
             user="demo" if config.demo else "you",
             aperture_strength=config.aperture_strength,
@@ -170,6 +191,8 @@ def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
             hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
             authored_lists=load_stored_lists(list_store_path(config)),
         )
+        app.state.view_cache = (key, view)
+        return view
     finally:
         store.close()
 
@@ -199,6 +222,26 @@ def readiness_probe() -> dict[str, str]:
     finally:
         store.close()
     return {"store": "ok"}
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Validate configuration and store access before accepting traffic."""
+    try:
+        config = load_config()
+    except Exception as exc:
+        raise ConfigInvalid("failed to resolve app configuration at startup") from exc
+    try:
+        store = Store(config.store_path)
+        try:
+            populated = store.refreshed_at() is not None
+        finally:
+            store.close()
+    except Exception as exc:
+        raise StoreUnavailable("app-state store is unavailable at startup") from exc
+    if not populated:
+        get_logger().warning("startup_store_unpopulated")
+    yield
 
 
 # Route handlers are module-level (not nested inside create_app) and wired up
@@ -289,11 +332,12 @@ def _logout() -> Response:
     return response
 
 
-def _dashboard(hide_sensitive: bool = False) -> HTMLResponse:
-    return HTMLResponse(content=render_view(_load_view(hide_sensitive=hide_sensitive)))
+def _dashboard(request: Request, hide_sensitive: bool = False) -> HTMLResponse:
+    return HTMLResponse(content=render_view(_load_view(request.app, hide_sensitive=hide_sensitive)))
 
 
 def _browse(
+    request: Request,
     theme: Optional[str] = None,
     author: Optional[str] = None,
     series: Optional[str] = None,
@@ -304,7 +348,7 @@ def _browse(
 
     from app.browse import filter_states
 
-    view = _load_view()
+    view = _load_view(request.app)
     filtered = filter_states(
         list(view.library),
         theme=theme,
@@ -316,20 +360,20 @@ def _browse(
     return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
 
 
-def _share() -> HTMLResponse:
+def _share(request: Request) -> HTMLResponse:
     """Locally-composed share cards. Nothing is posted; the user copies them."""
     from app.share import build_share_cards, render_share_page
 
-    view = _load_view()
+    view = _load_view(request.app)
     cards = build_share_cards(view)
     return HTMLResponse(content=render_share_page(cards, user=view.user))
 
 
-def _share_card_svg(kind: str = "year") -> Response:
+def _share_card_svg(request: Request, kind: str = "year") -> Response:
     """Serve a single share card as a self-contained SVG image for download."""
     from app.share import build_share_cards
 
-    view = _load_view()
+    view = _load_view(request.app)
     cards = build_share_cards(view)
     chosen = next((c for c in cards if c.kind == kind), cards[0] if cards else None)
     if chosen is None:
@@ -339,13 +383,15 @@ def _share_card_svg(kind: str = "year") -> Response:
     return Response(content=render_share_svg(chosen), media_type="image/svg+xml")
 
 
-def _opds_root() -> Response:
+def _opds_root(request: Request) -> Response:
     """Root OPDS navigation feed, browsable from KOReader/Readest."""
-    return Response(content=opds.build_root_navigation(_load_view()), media_type=opds.NAV_TYPE)
+    return Response(
+        content=opds.build_root_navigation(_load_view(request.app)), media_type=opds.NAV_TYPE
+    )
 
 
-def _opds_shelf(shelf_id: str) -> Response:
-    view = _load_view()
+def _opds_shelf(shelf_id: str, request: Request) -> Response:
+    view = _load_view(request.app)
     entries = opds.entries_for_shelf(shelf_id, view)
     feed = opds.build_shelf_acquisition(
         shelf_id,
@@ -356,24 +402,25 @@ def _opds_shelf(shelf_id: str) -> Response:
     return Response(content=feed, media_type=opds.ACQ_TYPE)
 
 
-def _opds_to_read() -> Response:
-    return _opds_shelf("to-read")
+def _opds_to_read(request: Request) -> Response:
+    return _opds_shelf("to-read", request)
 
 
-def _opds_currently_reading() -> Response:
-    return _opds_shelf("currently-reading")
+def _opds_currently_reading(request: Request) -> Response:
+    return _opds_shelf("currently-reading", request)
 
 
-def _opds_series_next() -> Response:
-    return _opds_shelf("series-next")
+def _opds_series_next(request: Request) -> Response:
+    return _opds_shelf("series-next", request)
 
 
-def _opds_recommendations() -> Response:
-    return _opds_shelf("recommendations")
+def _opds_recommendations(request: Request) -> Response:
+    return _opds_shelf("recommendations", request)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None, lifespan=_lifespan)
+    app.state.view_cache = None
     configure_logging()
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

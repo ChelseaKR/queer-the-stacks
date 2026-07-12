@@ -97,9 +97,10 @@ ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # Test + coverage gate (CI stage 3)
-# Coverage is measured on CORE LOGIC (ingest + recommender + the pure app
-# logic). The FastAPI wiring, the static-build script, and the CLI glue are
-# integration/manual-verified, not unit-gated (omitted below).
+# Coverage is measured on CORE LOGIC (ingest + recommender + app) plus the
+# FastAPI wiring in app/server.py, which is exercised directly via TestClient
+# in tests/test_auth.py and tests/test_server_lifecycle.py. The static-build
+# script and the CLI glue remain integration/manual-verified (omitted below).
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 addopts = [
@@ -128,7 +129,6 @@ filterwarnings = [
 [tool.coverage.run]
 branch = true
 omit = [
-    "app/server.py",        # FastAPI wiring — verified via TestClient access test + manual
     "app/build_static.py",  # thin static-render script
     "ingest/cli.py",        # thin argparse glue
 ]

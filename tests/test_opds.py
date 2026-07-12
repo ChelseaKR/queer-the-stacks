@@ -235,6 +235,9 @@ def test_opds_requires_auth_and_serves_atom(
 
     monkeypatch.setenv("STACKS_DEMO", "1")
     monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    from tests.conftest import seed_store_from_env
+
+    seed_store_from_env()
     from app.server import create_app
 
     client = TestClient(create_app())
