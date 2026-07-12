@@ -4,14 +4,9 @@ name: ci
 # below is merge-blocking *within this workflow* (no `|| true`/continue-on-error
 # on any gate). `make verify` runs the same stages locally.
 #
-# Honesty note (2026-07-05): branch protection on `main` is NOT currently
-# configured on GitHub (verified via `gh api repos/.../branches/main/protection`
-# -> 404, and independently via OpenSSF Scorecard's Branch-Protection check ->
-# 0/10, see docs/audits/scorecard-2026-07.md). This workflow being green is
-# therefore not yet enforced as a merge requirement — only a norm. Enabling
-# branch protection is a live GitHub-settings change and is tracked as a
-# BLOCKED action in the 2026-07-05 remediation log, not something this
-# workflow file can assert its way into being true.
+# The repository `protect-main` ruleset requires this workflow's `verify` job
+# and the standards job before merge. The workflow remains self-contained for
+# forked pull requests and receives only read access to repository contents.
 
 on:
   push:
@@ -28,6 +23,7 @@ concurrency:
 
 jobs:
   verify:
+    name: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -38,6 +34,10 @@ jobs:
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.14"
+          # §11f: cache the pip download cache. Keyed off pyproject.toml since
+          # deps install from its [dev,app] extras (no requirements.txt).
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Set up Node (for the pa11y/axe a11y runner)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -54,7 +54,7 @@ jobs:
       - name: Install project (dev + app extras, locked)
         run: |
           uv sync --frozen --extra dev --extra app
-          npm install -g pa11y
+          npm install -g pa11y@9.1.1
 
       # Pinned, checksum-verified gitleaks binary (no GitHub Action / license
       # needed — a plain binary on PATH is exactly what scripts/secret-scan.sh
@@ -101,8 +101,8 @@ jobs:
       #    (osv-scanner against uv.lock) + secret scan (all merge-blocking).
       #    `make security` runs pip-audit, scripts/secret-scan.sh (finds the
       #    gitleaks binary installed above — no grep fallback in CI), and
-      #    osv-scanner (installed above) — no GitHub API calls, so it works on
-      #    a private repo without extra token permissions.
+      #    osv-scanner (installed above) — no GitHub API calls or repository
+      #    secrets are needed, so the same gate runs on forked pull requests.
       - name: Security (deps + lockfile + secrets)
         run: make security
 
