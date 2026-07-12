@@ -55,6 +55,8 @@ def _book_to_dict(b: Book) -> dict[str, Any]:
             {"label": t.label, "source": _source_to_dict(t.source)} for t in b.theme_tags
         ],
         "pubdate": b.pubdate,
+        "languages": list(b.languages),
+        "publisher": b.publisher,
     }
 
 
@@ -71,6 +73,8 @@ def _book_from_dict(d: dict[str, Any]) -> Book:
             for t in d.get("theme_tags", [])
         ),
         pubdate=d.get("pubdate"),
+        languages=tuple(d.get("languages", ())),
+        publisher=d.get("publisher"),
     )
 
 

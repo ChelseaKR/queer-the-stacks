@@ -40,6 +40,8 @@ decomposed `score_candidate` (`recommender/model.py`).
 lists, authorship — asserted by test.
 **Excellent:** any candidate in the pool has a complete sourced accounting of
 its rank; a test pins permitted signal kinds in absence-explanations.
+<<<<<<< HEAD
+=======
 **Status: Shipped (2026-07-02).** `explain_absence(taste, book, lists)` added
 beside `build_explanation()` in `recommender/explain.py`, reusing
 `recommender.model.score_candidate` via a lazy import. Emits sourced-only
@@ -49,6 +51,7 @@ match`), always non-empty with >=1 cited source. Covered by
 `tests/test_explain_absence.py`, including a pinned-kinds guardrail test.
 Deferred: the per-shelf near-miss surface in `recommend()` (out of scope for
 this pass; the pure function is the core deliverable).
+>>>>>>> origin/main
 
 ### EXP-03 — Explicit, reversible taste feedback (local "more/less like this")
 **Pitch:** let the reader adjust the taste profile directly — stored locally,
@@ -68,6 +71,9 @@ rather than overrides sourced signals.
 cited in each affected explanation; deleting it restores prior ranks
 deterministically.
 
+<<<<<<< HEAD
+### EXP-04 — Reading-pace forecasts on TBR and series
+=======
 ### EXP-04 — Reading-pace forecasts on TBR and series — ✅ shipped (2026-07-03)
 **Status:** done. `app/forecast.py` is a pure module (no I/O, deterministic)
 that derives per-page pace from the most-recent active `DailyActivity` days
@@ -82,6 +88,7 @@ a hand-computable fixture and covers the thin-data and zero/negative-pages
 fallbacks. Not wired into `render.py`/`app/server.py` — the spec scoped this
 item to the pure module + fixture test; wiring into the dashboard view is a
 natural, still-open follow-up.
+>>>>>>> origin/main
 **Pitch:** "at your recent pace, this 384-page book ≈ 8–10 hours; this series
 ≈ 6 weeks" — locally, from KOReader page timing.
 **Impact:** turns data the system already has
@@ -247,6 +254,8 @@ maintenance promise — version it from day one.
 **Excellent:** today's archive re-imports losslessly on a fresh instance; the
 manifest alone lets a stranger parse the bundle without this codebase.
 
+<<<<<<< HEAD
+=======
 **Status: shipped.** `stacks export --archive --out <path.json>` writes a
 versioned, self-describing JSON bundle containing the manifest, unified states
 with sourced-tag provenance, daily activity, and count-only highlight Web
@@ -254,6 +263,7 @@ Annotations. `stacks import --archive <file>` restores it losslessly through
 the existing serde/store contract. Highlight text remains explicitly out of
 scope until E11. See `ingest/archive.py` and `tests/test_archive.py`.
 
+>>>>>>> origin/main
 ## Horizon 3 — Transformative bets
 
 ### EXP-14 — A local, citation-constrained librarian voice
@@ -323,4 +333,7 @@ otherwise.
 **Excellent:** two external projects consume the Atlas; at least one real
 steward and one real author have reviewed their entries (dated artifacts);
 `docs/ethical-book-data-sources.md` becomes a pinned render of it.
+<<<<<<< HEAD
+=======
 
+>>>>>>> origin/main

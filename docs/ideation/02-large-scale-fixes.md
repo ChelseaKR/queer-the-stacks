@@ -77,6 +77,9 @@ the layer first, A4's queue UI second.
 same title/different author, edition split) yields 100% correct or explicitly-
 unmatched — never a silent wrong merge; overrides round-trip through refresh.
 
+<<<<<<< HEAD
+### FIX-04 — Browser-native session auth (login → HttpOnly cookie)
+=======
 ### FIX-04 — Browser-native session auth (login → HttpOnly cookie) — DONE
 **Status:** implemented on `roadmap/fix-04-browser-native-session-auth-login`:
 `app/auth.py` gains `sign_session`/`verify_session` (stdlib `hmac`+`hashlib`
@@ -101,6 +104,7 @@ assumption behind `Secure` is documented in `app/auth.py`'s module docstring:
 the cookie is only ever sent over HTTPS, so deployment must terminate TLS in
 front of the app (the seedbox's reverse proxy) or otherwise ensure the browser
 reaches it only over a secure/loopback channel.
+>>>>>>> origin/main
 **Pitch:** let a phone browser reach the dashboard without weakening
 fail-closed auth.
 **Why / for whom:** every content route requires an `Authorization: Bearer`
@@ -120,6 +124,9 @@ grade; document the TLS assumption behind `Secure`.
 **Excellent:** browser → login → dashboard, keyboard-only, 0 a11y violations;
 401 on tampered/expired cookies; lockout test after N failures.
 
+<<<<<<< HEAD
+### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy)
+=======
 ### FIX-05 — Defense-in-depth response headers (CSP, Referrer-Policy) — DONE
 **Status:** implemented on `roadmap/fix-05-defense-in-depth-response-headers`:
 `app/security_headers.py` derives the CSP's inline-script/style hashes from
@@ -129,6 +136,7 @@ grade; document the TLS assumption behind `Secure`.
 including 401s; citation links in `_sources_html` carry
 `rel="noopener noreferrer external"` when external; `tests/test_security_headers.py`
 covers every route plus a hash-drift test.
+>>>>>>> origin/main
 **Pitch:** make "reading data never leaves" hold against markup injection and
 link-away leaks, not just intentional egress.
 **Why / for whom:** the dashboard renders text from external catalogs —
@@ -187,7 +195,11 @@ update (human gate); growth bounded by pruning.
 **Excellent:** simulated device reset in a fixture — prior years' Wrapped
 still renders, labeled "from local ledger"; prune verifiably deletes.
 
+<<<<<<< HEAD
+### FIX-08 — Batch + persist kosync progress (kill the N+1)
+=======
 ### FIX-08 — Batch + persist kosync progress (kill the N+1) — ✅ done
+>>>>>>> origin/main
 **Pitch:** refresh should cost O(changed books), not one sequential HTTP call
 per book with silent failure.
 **Why / for whom:** `ingest/unify.py::_progress_for` issues a synchronous GET
@@ -205,6 +217,8 @@ concurrency.
 **Excellent:** 500-book fixture refresh performs ≤ changed-key fetches;
 kosync-down degrades in one bounded timeout with a visible "progress stale
 since <date>", not silence.
+<<<<<<< HEAD
+=======
 **Status:** implemented on `roadmap/fix-08-batch-and-persist-kosync-progress`.
 `ingest/refresh.py::fetch_progress` batches every non-empty stat key through a
 bounded `concurrent.futures.ThreadPoolExecutor` (`max_workers`, default 8),
@@ -221,6 +235,7 @@ changed and reuses cached progress otherwise. `RefreshResult` now exposes
 Also fixed a pre-existing Py2-style `except TypeError, ValueError:` syntax
 error in `ingest/kosync.py::parse_progress` that broke every import of the
 module.
+>>>>>>> origin/main
 
 ### FIX-09 — Degradation and freshness made legible on the dashboard
 **Pitch:** the dashboard should say what it knows, how old it is, and what is
@@ -242,6 +257,10 @@ stamp + env linting are standalone and cheap.
 **Excellent:** every degraded state observable in demo mode is visible in
 rendered HTML; a view test asserts stamp + per-source rows; zero new a11y
 violations.
+<<<<<<< HEAD
+
+### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard)
+=======
 **Status (2026-07-03):** the standalone, non-FIX-08-dependent slice is done —
 `render.py`'s new `_data_status_section` renders a "Data status" table with
 the store's `refreshed_at` stamp as an ISO-8601 UTC string (or "never
@@ -272,6 +291,7 @@ flaky/heavy piece requiring a headless browser in CI, tracked separately
 rather than landed speculatively. `Makefile`'s `a11y` target still runs pa11y
 best-effort (`|| echo …`) with the built-in `app/a11y_check.py` as the
 authoritative, deterministic gate; that split is unchanged by this pass.
+>>>>>>> origin/main
 **Pitch:** make the merge-blocking a11y gate match what `ROADMAP.md` §7
 claims; extend the mechanical floor.
 **Why / for whom:** §7 declares "axe violations = 0 · pa11y-ci ·
@@ -293,7 +313,22 @@ Lighthouse-CI stays separately deferred (ROADMAP-FUTURE §deferred gates).
 **Excellent:** CI fails on an injected contrast violation; §7's row is
 literally true; share cards verified AA with a long-title truncation test.
 
+<<<<<<< HEAD
+### FIX-11 — Sourced language & publisher facts in the data model — ✅ data-model core shipped (2026-07-03)
+**Status:** the data-model core is done — `Book` now carries sourced
+`languages: tuple[str, ...]` (BCP-47, from Calibre's `languages` table) and
+`publisher: Optional[str]` (from Calibre's `publishers` table), round-tripped
+through `serde.py` with backward-compat for old snapshots, and populated by
+new `_languages_for` / `_publisher_for` readers in `calibre.py` following the
+existing `_tags_for` / `_series_for` pattern (unknown stays `()` / `None`,
+first-class). **Still open, deliberately out of scope for this change:** the
+cited publisher `CuratedList` for "small-press" (needs an editorial/SME
+owner), `app/diversity.py` lens wiring, and dimension-aware `aperture_boost`
+in `recommender/rerank.py` — these depend on the press-list curation decision
+and a human representation-review gate, not on code.
+=======
 ### FIX-11 — Sourced language & publisher facts in the data model
+>>>>>>> origin/main
 **Pitch:** give `Book` the fields the promised values-lenses require — sourced
 facts with provenance, never guesses.
 **Why / for whom:** ROADMAP-FUTURE B3 / branch E3 promise "small-press /
@@ -376,4 +411,7 @@ another process (the stamp check handles it); interacts with FIX-01/FIX-06.
 **Excellent:** p95 dashboard latency flat as library size grows (extend
 `tests/test_perf.py` with a large fixture); zero ingest work inside requests;
 coverage includes server wiring with the ≥85% gate intact.
+<<<<<<< HEAD
+=======
 
+>>>>>>> origin/main
