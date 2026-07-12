@@ -365,7 +365,22 @@ visible warning (FIX-09 surface), never a blank section.
 changes; invalid config yields a doctor error naming the line; the page states
 exactly which grouping produced its numbers.
 
-### FIX-13 — Eval that can fail: synthetic-world battery + margins
+### FIX-13 — Eval that can fail: synthetic-world battery + margins — DONE
+**Status:** implemented on `roadmap/fix-13-falsifiable-recommender-eval-synt`:
+`recommender/synth.py` deterministically generates a synthetic library +
+candidate pool per `random.Random(seed)` (noisy canon/distractor tag overlap,
+anti-correlated popularity, an author-loyalty pathway); `recommender/battery.py`
+runs content/hybrid/popularity across the 10 default seeds and gates on
+`median_uplift >= MARGIN (0.5)` with a `no_losing_seed` guarantee, plus
+per-seed ablations (drop curated lists, shuffle 20% of tags) tracked in the
+report. `ingest/cli.py`'s `stacks eval` gates on the battery by default
+(`--no-synthetic` keeps the old single-fixture path informational only) and
+writes `docs/audits/eval-battery.json` alongside the existing
+`docs/audits/eval-report.json`. `tests/test_synth_eval.py` proves the gate is
+falsifiable: zeroing `recommender/model.py::AUTHOR_BONUS` measurably narrows
+the median uplift and flips `passed` to `False`; the tag-shuffle ablation
+never improves content MAP on any seed. `docs/audits/source-ethics.md` now
+explains the distribution instead of citing the saturated 1.0.
 **Pitch:** replace one saturated fixture with seeded synthetic libraries and
 require robust margins, so "beats popularity" is falsifiable.
 **Why / for whom:** `docs/audits/eval-report.json` shows content and hybrid at

@@ -33,20 +33,51 @@ def _demo_states_and_candidates() -> tuple[
     return states, demo_candidates(), DEMO_LISTS
 
 
+def _parse_seeds(spec: str) -> list[int]:
+    """Parse ``--seeds``: either ``start:stop`` (a range) or a comma list."""
+    if ":" in spec:
+        start_s, stop_s = spec.split(":", 1)
+        return list(range(int(start_s), int(stop_s)))
+    return [int(s) for s in spec.split(",") if s.strip()]
+
+
 def _cmd_eval(args: argparse.Namespace) -> int:
     from recommender.eval import evaluate, to_report
     from recommender.hybrid import recommend_hybrid
 
+    # The demo single-fixture report stays available (informational — it was
+    # the whole gate before FIX-13, now it is one saturated illustrative
+    # datapoint) alongside the merge-blocking synthetic battery below.
     states, candidates, lists = _demo_states_and_candidates()
     results = evaluate(states, list(candidates), lists=lists, k=args.k)
     top = recommend_hybrid(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
-    report = to_report(results, top_books=[r.book for r in top], k=args.k)
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps(report, indent=2))
-    if not report["content_beats_popularity"]:
-        print("FAIL: the recommender did not beat the popularity baseline", file=sys.stderr)
+    demo_report = to_report(results, top_books=[r.book for r in top], k=args.k)
+    demo_out = Path(args.out)
+    demo_out.parent.mkdir(parents=True, exist_ok=True)
+    demo_out.write_text(json.dumps(demo_report, indent=2), encoding="utf-8")
+
+    if not args.synthetic:
+        print(json.dumps(demo_report, indent=2))
+        if not demo_report["content_beats_popularity"]:
+            print("FAIL: the recommender did not beat the popularity baseline", file=sys.stderr)
+            return 1
+        return 0
+
+    from recommender.battery import DEFAULT_SEEDS, run_battery
+
+    seeds = _parse_seeds(args.seeds) if args.seeds else list(DEFAULT_SEEDS)
+    battery_report = run_battery(seeds, k=args.k)
+    battery_out = Path(args.battery_out)
+    battery_out.parent.mkdir(parents=True, exist_ok=True)
+    battery_out.write_text(json.dumps(battery_report, indent=2), encoding="utf-8")
+    print(json.dumps(battery_report, indent=2))
+    if not battery_report["passed"]:
+        print(
+            "FAIL: synthetic-world battery — median content-vs-popularity MAP uplift "
+            f"{battery_report['median_uplift']} < margin {battery_report['margin']}, "
+            f"or a losing seed (no_losing_seed={battery_report['no_losing_seed']})",
+            file=sys.stderr,
+        )
         return 1
     return 0
 
@@ -309,7 +340,32 @@ def main(argv: list[str] | None = None) -> int:
 
     p_eval = sub.add_parser("eval", help="offline eval vs the popularity baseline")
     p_eval.add_argument("--k", type=int, default=5)
-    p_eval.add_argument("--out", default="docs/audits/eval-report.json")
+    p_eval.add_argument(
+        "--out", default="docs/audits/eval-report.json", help="demo single-fixture report path"
+    )
+    p_eval.add_argument(
+        "--battery-out",
+        default="docs/audits/eval-battery.json",
+        help="synthetic-world battery distribution report path",
+    )
+    p_eval.add_argument(
+        "--synthetic",
+        dest="synthetic",
+        action="store_true",
+        default=True,
+        help="gate on the seeded synthetic-world battery (default; the merge-blocking gate)",
+    )
+    p_eval.add_argument(
+        "--no-synthetic",
+        dest="synthetic",
+        action="store_false",
+        help="gate on the single demo fixture instead (legacy, always-saturated)",
+    )
+    p_eval.add_argument(
+        "--seeds",
+        default=None,
+        help="battery seeds: 'start:stop' (a range) or a comma list; default range(0, 10)",
+    )
     p_eval.set_defaults(func=_cmd_eval)
 
     p_rec = sub.add_parser("recommend", help="print demo recommendations")
