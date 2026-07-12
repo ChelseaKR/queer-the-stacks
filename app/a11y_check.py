@@ -28,35 +28,55 @@ class _A11yParser(HTMLParser):
         self._open_a = False
         self._a_text = ""
 
-    def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
-        attrs = dict(attrs_list)
+    # Split into per-concern helpers (mccabe/C90 gate, QW-10): handle_starttag
+    # itself just dispatches, so each independent tag check stays separately
+    # readable and under the complexity ceiling. Behavior is unchanged — every
+    # check below ran unconditionally in the original flat `if` chain too.
+    def _check_landmarks(self, tag: str, attrs: dict[str, str | None]) -> None:
         if tag == "html" and attrs.get("lang"):
             self.html_lang = True
         if tag == "meta" and attrs.get("name") == "viewport":
             self.has_viewport = True
+        if tag == "main" or attrs.get("role") == "main":
+            self.has_main = True
+
+    def _check_heading(self, tag: str) -> None:
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             level = int(tag[1])
             self.heading_levels.append(level)
             if level == 1:
                 self.h1_count += 1
-        if tag == "main" or attrs.get("role") == "main":
-            self.has_main = True
-        if tag == "a":
-            href = attrs.get("href") or ""
-            if href.startswith("#") and ("skip" in (attrs.get("class") or "")):
-                self.has_skip = True
-            self._open_a = True
-            self._a_text = ""
-            if not href.strip():
-                self.violations.append("anchor with empty href")
+
+    def _check_anchor_open(self, tag: str, attrs: dict[str, str | None]) -> None:
+        if tag != "a":
+            return
+        href = attrs.get("href") or ""
+        if href.startswith("#") and ("skip" in (attrs.get("class") or "")):
+            self.has_skip = True
+        self._open_a = True
+        self._a_text = ""
+        if not href.strip():
+            self.violations.append("anchor with empty href")
+
+    def _check_img(self, tag: str, attrs: dict[str, str | None]) -> None:
         if tag == "img" and not attrs.get("alt") and attrs.get("alt") != "":
             self.violations.append("img without alt attribute")
+
+    def _check_table_open(self, tag: str, attrs: dict[str, str | None]) -> None:
         if tag == "table":
             self._table_has_caption = False
         if tag == "caption":
             self._table_has_caption = True
         if tag == "th" and not attrs.get("scope"):
             self.violations.append("th without scope attribute")
+
+    def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
+        attrs = dict(attrs_list)
+        self._check_landmarks(tag, attrs)
+        self._check_heading(tag)
+        self._check_anchor_open(tag, attrs)
+        self._check_img(tag, attrs)
+        self._check_table_open(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "a":
