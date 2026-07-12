@@ -210,13 +210,29 @@ refreshed — run `stacks refresh`" when absent), plus a text
 `<p role="status">` staleness banner past a configurable threshold
 (`app/view.py::STALE_AFTER_SECONDS`, default 7 days); `view.py` threads the
 stamp + staleness through `DashboardView`/`build_view`/`view_from_store`; and
-`ingest/refresh.py::doctor` now flags unrecognized `STACKS_*` env vars (e.g.
-the `STACKS_CALIBER_DB` typo) against a `KNOWN_STACKS_ENV` set exported from
-`ingest/config.py`. Per-source `RefreshResult` rows remain out of scope,
-pending FIX-08. Covered by `tests/test_render_view.py` and
+`ingest/refresh.py::doctor` now flags unrecognized `STACKS_*` env vars against
+the exported `KNOWN_STACKS_ENV` set. Covered by `tests/test_render_view.py` and
 `tests/test_refresh_doctor.py`; zero new a11y violations (`make a11y`).
 
-### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard)
+### FIX-10 — Close the a11y gate-claim gap (real axe, reflow, keyboard) — DONE (deterministic slice)
+**Status:** the deterministic, no-browser-needed slice is landed: `app/color_contrast.py`
+(dependency-free WCAG 2.x contrast-ratio helper) + `app/share.py`'s SVG palette
+hoisted into named, introspectable constants (`SVG_BG`/`SVG_BORDER`/
+`SVG_HEADING`/`SVG_BODY`) + a merge-blocking `pytest` gate
+(`tests/test_share.py::test_share_svg_palette_meets_aa`,
+`::test_contrast_helper_flags_violation`) that fails CI on an injected
+contrast violation — verified by flipping `SVG_BODY` to `#cccccc` and
+confirming the test fails. Long share-card titles are now truncated in the
+rendered SVG heading (`MAX_SVG_TITLE_CHARS`) so the fixed-width canvas can't
+overflow; the accessible `<title>`/`aria-label` keep the untruncated text.
+The browser-in-CI piece (Playwright + `@axe-core/playwright` against
+`docs/audits/dashboard.html`/the share page, plus 320px-reflow and keyboard-
+operability assertions) is **deferred**, per this item's own escape hatch
+("if CI proves infeasible, amend §7 to name the static checker") — it is the
+flaky/heavy piece requiring a headless browser in CI, tracked separately
+rather than landed speculatively. `Makefile`'s `a11y` target still runs pa11y
+best-effort (`|| echo …`) with the built-in `app/a11y_check.py` as the
+authoritative, deterministic gate; that split is unchanged by this pass.
 **Pitch:** make the merge-blocking a11y gate match what `ROADMAP.md` §7
 claims; extend the mechanical floor.
 **Why / for whom:** §7 declares "axe violations = 0 · pa11y-ci ·
