@@ -42,6 +42,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from ingest.config import load_config
 from ingest.refresh import refresh
 from ingest.store import Store
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.auth import (
     SESSION_TTL_SECONDS,
@@ -51,12 +52,30 @@ from app.auth import (
     verify_session,
 )
 from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
+from app.security_headers import SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
 
 SESSION_COOKIE = "stacks_session"  # noqa: S105 - cookie name, not a secret
 
-# Process-local: single-user, single-process self-hosted app (see LoginLockoutTracker
-# docstring). A restart resets any in-progress lockouts.
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach the fixed defense-in-depth header set to every response.
+
+    Runs on ALL routes — dashboard, ``/browse``, ``/share``, and the
+    health/ready probes — including 401s from :func:`require_auth`, since
+    headers are applied to whatever ``call_next`` returns regardless of
+    status code.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
+
+
+# Process-local: single-user, single-process self-hosted app. A restart resets
+# any in-progress lockouts.
 _lockout = LoginLockoutTracker()
 
 
@@ -64,7 +83,7 @@ def require_auth(
     authorization: Optional[str] = Header(default=None),
     stacks_session: Optional[str] = Cookie(default=None),
 ) -> None:
-    """FastAPI dependency: require a valid bearer token OR a valid session cookie."""
+    """Require a valid bearer token or signed session cookie."""
     token: Optional[str] = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[len("bearer ") :].strip()
@@ -122,8 +141,12 @@ def _render_login_page(error: Optional[str] = None) -> str:
     )
 
 
-def _load_view() -> DashboardView:
-    """Load the dashboard from the persisted store, refreshing on first run."""
+def _load_view(*, hide_sensitive: bool = False) -> DashboardView:
+    """Load the dashboard from the persisted store, refreshing on first run.
+
+    ``hide_sensitive`` is a per-request privacy override; it can only *add*
+    aggregation on top of the configured default (you can always hide more).
+    """
     config = load_config()
     store = Store(config.store_path)
     try:
@@ -139,6 +162,7 @@ def _load_view() -> DashboardView:
             goal_pages=config.goal_pages,
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
+            hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
         )
     finally:
         store.close()
@@ -249,8 +273,8 @@ def _logout() -> Response:
     return response
 
 
-def _dashboard() -> HTMLResponse:
-    return HTMLResponse(content=render_view(_load_view()))
+def _dashboard(hide_sensitive: bool = False) -> HTMLResponse:
+    return HTMLResponse(content=render_view(_load_view(hide_sensitive=hide_sensitive)))
 
 
 def _browse(
@@ -303,6 +327,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None)
     configure_logging()
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_api_route("/healthz", _healthz, methods=["GET"])
     app.add_api_route("/livez", _livez, methods=["GET"])

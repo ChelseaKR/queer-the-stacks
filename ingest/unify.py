@@ -4,10 +4,14 @@ This produces the one list the dashboard renders: every book the user owns or ha
 read, with its catalog facts, local reading stats, and freshest cross-device
 progress, classified as currently-reading / finished / unread.
 
-Matching is by a normalized ``title|author`` key, with KOReader md5 used as a
-secondary join when a stat carries one and a book records the same identifier.
-Everything is deterministic (stable sorts, normalized keys) so the unified state
-is reproducible — the merge-blocking reproducibility metric.
+Matching is *solely* by a normalized ``title|first-author`` key
+(:func:`normalize_key`); ``Book.identifiers`` is never consulted. The KOReader
+md5 (``ReadingStat.key``) is **not** a join key — it is only used to look up
+cross-device progress for an already-matched stat (see :func:`_progress_for`).
+A work/edition identity layer that would join on identifiers is future work
+(ideation FIX-03). Everything is deterministic (stable sorts, normalized keys)
+so the unified state is reproducible — the merge-blocking reproducibility
+metric.
 """
 
 from __future__ import annotations
@@ -63,6 +67,13 @@ def unify(
 
     Books and stats are matched by :func:`normalize_key`. A stat with no matching
     book still appears (it is something the user read that is not in Calibre).
+
+    ``progress_source`` must already be a resolved, in-memory lookup (e.g. a
+    :class:`~ingest.kosync.FixtureKosync` built by
+    :func:`ingest.refresh.fetch_progress`) — ``unify`` performs no network I/O
+    and no longer swallows lookup errors. Batching, bounded concurrency, and
+    per-key error capture all happen upstream, once per refresh, not once per
+    book here.
     """
     stats_by_key: dict[str, ReadingStat] = {}
     for stat in stats:
@@ -111,12 +122,9 @@ def _progress_for(
 ) -> tuple[DeviceProgress, ...]:
     if stat is None or source is None or not stat.key:
         return ()
-    # Graceful degradation (reliability): if the kosync server is down or errors,
-    # fall back to KOReader stats rather than failing the whole dashboard.
-    try:
-        dp = source.progress_for(stat.key)
-    except Exception:  # noqa: BLE001 - any transport failure degrades to stats-only
-        return ()
+    # A plain in-memory lookup by now (see ingest.refresh.fetch_progress) — no
+    # network call, no exception to degrade from, so nothing to swallow here.
+    dp = source.progress_for(stat.key)
     return (dp,) if dp is not None else ()
 
 
