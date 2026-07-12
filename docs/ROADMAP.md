@@ -1,10 +1,15 @@
 # Queer the Stacks — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
-> **Last verified: 2026-05-31 · Recheck cadence: per Calibre/KOReader schema + OpenLibrary/Hardcover/Bookwyrm API change.**
+> **Last verified: 2026-07-05 · Recheck cadence: per Calibre/KOReader schema + OpenLibrary/Hardcover/Bookwyrm API change.**
 
 ## 1. Snapshot
-A self-hosted reading dashboard + recommender over your real ebook ecosystem: Calibre's `metadata.db` (SQLite), KOReader's `statistics.sqlite`, and `sync.koreader.rocks` progress. Unifies cross-device reading state, computes stats and a self-hosted Wrapped, and recommends queer/speculative work from ethical, non-gatekept catalogs. Runs on the Whatbox seedbox beside Calibre-Web; single-user; private.
+A self-hosted reading dashboard + recommender over a reader's ebook ecosystem:
+Calibre's `metadata.db` (SQLite), KOReader's `statistics.sqlite`, and optional
+KOReader sync progress. It unifies cross-device reading state, computes stats
+and a self-hosted Wrapped, and recommends queer/speculative work from ethical,
+non-gatekept catalogs. It is designed for a single-user home server or seedbox
+deployment beside Calibre-Web.
 
 ## 2. Problem & users
 - **Problem.** Reading is fragmented across Calibre/KOReader/Readest with no unified view, and mainstream recommenders are bad at trans/queer/spec-fic and built on surveillance-heavy, gatekept catalogs.
@@ -37,10 +42,15 @@ A self-hosted reading dashboard + recommender over your real ebook ecosystem: Ca
 - **Key decisions (ADRs).** Read-only + snapshot of source DBs (rejected: live writes — risk of corrupting real libraries). FastAPI + light UI over Streamlit (slightly more polish for a self-hosted daily app). Ethical catalogs over Goodreads (ToS + values). Sourced theme tags over auto-labeling authors (avoids pigeonholing).
 
 ### ADRs recorded during the M0–M6 build (2026-06-05)
-- **ADR-1 — Pure HTML renderer audited statically, served live by FastAPI.** `app/render.py` is the single source of truth for dashboard *content*; `make a11y` renders it to a static artifact and gates it (pa11y/axe, or the built-in `app/a11y_check.py` fallback) so the mechanical WCAG checks run in CI without a live browser, and `app/server.py` serves the same HTML. *Rejected: testing a11y against a running server (flakier, needs a browser in CI).*
-- **ADR-2 — Join Calibre ↔ KOReader by a normalized `title|first-author` key, with KOReader md5 as the progress key.** Robust to punctuation/case/spacing drift across the two stores; books read in KOReader but absent from Calibre are still surfaced so history is complete. *Rejected: ISBN-only joins (KOReader stats rarely carry ISBNs).*
-- **ADR-3 — Auth fails closed; demo mode still requires a token.** Non-demo startup raises if `STACKS_AUTH_TOKEN` is unset (no accidental open instance); demo mode uses a fixed token so there is never an unauthenticated path. *Rejected: an "open in demo" bypass — a reading history is sensitive even in demos.*
-- **ADR-4 — Python 3.14 floor; dependency audit clean.** The project targets **Python 3.14** (build + deployment interpreter 3.14.5). This lets every dependency install at a fixed release, so `pip-audit` reports **0 known vulnerabilities** and `make security` runs with no accepted advisories. (Superseded the interim 3.9 floor, under which fixes for `requests`/`urllib3`/`starlette` were not installable and had to be accepted as documented residual risk.) *Rejected: silently pinning vulnerable versions, or dropping the dep audit gate.*
+Ported to [`docs/adr/`](adr/) (MADR format, append-only) on 2026-07-05 — see
+[0001](adr/0001-static-render-audited-by-structural-checker.md),
+[0002](adr/0002-calibre-koreader-join-key.md),
+[0003](adr/0003-auth-fails-closed.md),
+[0004](adr/0004-python-314-floor.md), plus two new ones added directly there:
+[0005](adr/0005-flat-non-src-layout.md) (flat layout rationale) and
+[0006](adr/0006-i18n-and-ai-evaluation-not-applicable.md) (I18N/AI-EVAL N/A declarations). This
+section is kept as a short pointer rather than a duplicate; the full text with rejected
+alternatives lives at the links above.
 
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
@@ -50,7 +60,7 @@ A self-hosted reading dashboard + recommender over your real ebook ecosystem: Ca
 | Goodreads requests | 0 | source-allowlist test | merge-blocking |
 | "Why recommended" + source present | 100% of recs | explanation test | merge-blocking |
 | Recommendation reproducibility (seeded) | deterministic | snapshot test | merge-blocking |
-| axe violations (dashboard) | 0 | pa11y-ci | merge-blocking |
+| axe violations (dashboard) | 0 | `app/a11y_check.py` (structural, blocking) **+** pa11y/axe (browser-engine, incl. contrast — graduated to blocking 2026-07-05) | merge-blocking |
 | Auth on the self-hosted app | required | access test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
 
@@ -83,7 +93,7 @@ docs/
 - **Privacy.** Reading data is sensitive (it can out a reader) → self-hosted, private, behind auth, never shared.
 
 ## 11. Operations & sustainability
-- **Hosting/cost.** Runs on the existing Whatbox seedbox; negligible marginal cost.
+- **Hosting/cost.** Runs on an existing home server or seedbox; negligible marginal cost.
 - **Maintenance.** Re-snapshot on a schedule; resilient to Calibre/KOReader schema drift (versioned parsers).
 - **Sustainability.** Single-user, self-hosted, no external dependencies for the core view.
 
@@ -91,7 +101,9 @@ docs/
 Top risks: (1) corrupting your real Calibre/KOReader libraries → strictly read-only + snapshot-first (tested); (2) outing a reader by leaking sensitive reading data → self-hosted, private, no egress (tested); (3) recommendations that mirror gatekept, surveillance-heavy catalogs → ethical sources + diverse surfacing; (4) pigeonholing authors via auto-assigned identity labels → sourced theme tags only. Full treatment in [`RESPONSIBLE-TECH-AUDITS.md`](./RESPONSIBLE-TECH-AUDITS.md).
 
 ## Observability
-Generic gates live in [`/STANDARDS/OBSERVABILITY-STANDARD.md`](../../STANDARDS/OBSERVABILITY-STANDARD.md); this section records only this repo's *values* and its N/A-with-reason declarations.
+The checkable gates are implemented by this repository's `Makefile` and CI
+workflows; this section records this project's observability values and its
+N/A-with-reason declarations.
 
 **Tier — C (local-only, single-user, no network surface).** The app is self-hosted beside Calibre-Web, binds to localhost, and never egresses (§/no-egress test). Per §0/§10 the OTel signals are **out-of-scope, N/A-with-reason**:
 - **OTel traces (§1) — N/A:** no cross-service surface; a single local process with no collector to export to.
@@ -104,11 +116,11 @@ What this repo **does** ship on its self-hosted service surface (for the seedbox
 
 | Metric | Target | Measured by | Gate | Owner |
 |--------|--------|-------------|------|-------|
-| No secrets/PII/reading-data in logs (§3, non-tiered) | zero — logs carry only method, path (no query string), status, latency, request id | `tests/test_observability.py` + `tests/test_log_safety.py` (core stays log-free) | merge-blocking | Chelsea |
-| Structured JSON logs (§3) | one valid JSON object per line; fields `ts, level, msg, request_id, method, path, status, latency_ms` | `tests/test_observability.py` (parse + field-set assertion) | merge-blocking | Chelsea |
-| Logs never egress (§3/§10) | stdout only; no network log handler; `propagate=False` | `tests/test_observability.py` + `tests/test_no_egress.py` | merge-blocking | Chelsea |
-| `/livez` (§6) | 200 `{"status":"ok"}`, no dependency calls, unauthenticated | `tests/test_observability.py` | merge-blocking | Chelsea |
-| `/readyz` (§6) | 200 when the app-state store is reachable; **fail-closed 503** otherwise, leaking no internal detail | `tests/test_observability.py` (ready + stubbed-down cases) | merge-blocking | Chelsea |
-| Probes excluded from access logs (§6) | `/livez`,`/readyz`,`/healthz` produce no request log line | `tests/test_observability.py` | merge-blocking | Chelsea |
+| No secrets/PII/reading-data in logs (§3, non-tiered) | zero — logs carry only method, path (no query string), status, latency, request id | `tests/test_observability.py` + `tests/test_log_safety.py` (core stays log-free) | merge-blocking | Maintainer |
+| Structured JSON logs (§3) | one valid JSON object per line; fields `ts, level, msg, request_id, method, path, status, latency_ms` | `tests/test_observability.py` (parse + field-set assertion) | merge-blocking | Maintainer |
+| Logs never egress (§3/§10) | stdout only; no network log handler; `propagate=False` | `tests/test_observability.py` + `tests/test_no_egress.py` | merge-blocking | Maintainer |
+| `/livez` (§6) | 200 `{"status":"ok"}`, no dependency calls, unauthenticated | `tests/test_observability.py` | merge-blocking | Maintainer |
+| `/readyz` (§6) | 200 when the app-state store is reachable; **fail-closed 503** otherwise, leaking no internal detail | `tests/test_observability.py` (ready + stubbed-down cases) | merge-blocking | Maintainer |
+| Probes excluded from access logs (§6) | `/livez`,`/readyz`,`/healthz` produce no request log line | `tests/test_observability.py` | merge-blocking | Maintainer |
 
 Logging is confined to `app/logging_config.py` + its wiring in `app/server.py`; the core (`ingest`/`recommender` + pure `app` modules) stays log-free so reading content has no path into the log stream.

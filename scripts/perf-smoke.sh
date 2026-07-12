@@ -17,6 +17,7 @@ STATS_CSV="${OUT_PREFIX}_stats.csv"
 THRESHOLD_MS="${PERF_P95_THRESHOLD_MS:-500}"
 PYTHON="${PYTHON:-.venv/bin/python}"
 command -v "$PYTHON" >/dev/null 2>&1 || PYTHON=python3
+DATA_DIR="$(mktemp -d)"
 
 mkdir -p docs/audits
 
@@ -26,11 +27,15 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
+  rm -rf "$DATA_DIR"
 }
 trap cleanup EXIT INT TERM
 
+echo "perf-smoke: seeding an isolated demo store"
+STACKS_DEMO=1 STACKS_DATA_DIR="$DATA_DIR" "$PYTHON" -m ingest.cli refresh
+
 echo "perf-smoke: starting app (demo mode) on ${BASE_URL}"
-STACKS_DEMO=1 "$PYTHON" -m uvicorn app.server:app --host "$HOST" --port "$PORT" \
+STACKS_DEMO=1 STACKS_DATA_DIR="$DATA_DIR" "$PYTHON" -m uvicorn app.server:app --host "$HOST" --port "$PORT" \
   >/tmp/perf-smoke-server.log 2>&1 &
 SERVER_PID=$!
 
@@ -61,11 +66,9 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-# Warm the store once, single-threaded, before the concurrent load starts.
-# The dashboard route populates the app-state store lazily on first access;
-# without this, the first wave of concurrent Locust users can race each other
-# into that one-time population instead of exercising steady-state latency.
-"$PYTHON" - "$BASE_URL" <<'PY' || true
+# Warm the view cache once before the concurrent load starts. The store was
+# explicitly populated above; requests never run ingest inline.
+"$PYTHON" - "$BASE_URL" <<'PY'
 import sys
 import urllib.request
 
@@ -76,14 +79,15 @@ urllib.request.urlopen(req, timeout=10)
 PY
 
 echo "perf-smoke: running Locust (headless, 20 users, 20s)"
-# Locust exits non-zero if any request failed during the run; that must not
-# short-circuit this script (under `set -e`) before the p95 budget is checked
-# below — a slow-but-successful run and a fast-but-flaky run are different
-# failure modes, and this gate is scoped to the p95 latency budget.
-locust -f tests/perf/locustfile.py --headless \
+# Capture the exit status so the report can still be parsed, then fail the gate
+# after reporting p95 if any request failed.
+set +e
+"$PYTHON" -m locust -f tests/perf/locustfile.py --headless \
   -u 20 -r 5 -t 20s \
   --host "$BASE_URL" \
-  --csv="$OUT_PREFIX" --only-summary || true
+  --csv="$OUT_PREFIX" --only-summary --exit-code-on-error 1
+locust_status=$?
+set -e
 
 if [ ! -f "$STATS_CSV" ]; then
   echo "perf-smoke: expected stats file ${STATS_CSV} not found" >&2
@@ -106,6 +110,11 @@ PY
 )"
 
 echo "perf-smoke: aggregated p95 = ${p95}ms (budget < ${THRESHOLD_MS}ms)"
+
+if [ "$locust_status" -ne 0 ]; then
+  echo "perf-smoke: FAIL — one or more load-test requests failed" >&2
+  exit "$locust_status"
+fi
 
 if "$PYTHON" - "$p95" "$THRESHOLD_MS" <<'PY'
 import sys

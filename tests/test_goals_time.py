@@ -99,8 +99,11 @@ def test_share_route_served_behind_auth(tmp_path: Path, monkeypatch: pytest.Monk
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
+    from tests.conftest import seed_store_from_env
+
     monkeypatch.setenv("STACKS_DEMO", "1")
     monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    seed_store_from_env()  # data routes 503 until refreshed (FIX-14)
     from app.server import create_app
 
     client = TestClient(create_app())

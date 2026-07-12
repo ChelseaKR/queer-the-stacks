@@ -3,7 +3,9 @@
 The dashboard reads unified reading state + per-day activity from here instead of
 re-snapshotting the real libraries on every request. The store also records when
 the data was refreshed and the source files' mtimes, so :mod:`ingest.refresh` can
-skip work when nothing changed.
+skip work when nothing changed. It also caches per-key kosync progress with a
+fetched-at timestamp, so a refresh only re-fetches keys whose underlying
+``ReadingStat`` changed (see the kosync-progress-cache section below).
 
 This is *derived* state about the user's own reading; it is sensitive and stays
 local (``data/`` is git-ignored). It is the app's own writable database — wholly
@@ -17,7 +19,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from ingest.models import DailyActivity, ReadingState
+from ingest.models import DailyActivity, DeviceProgress, ReadingState
 from ingest.serde import (
     activity_from_dict,
     activity_to_dict,
@@ -29,6 +31,7 @@ _STATES_KEY = "reading_states"
 _ACTIVITY_KEY = "daily_activity"
 _REFRESHED_KEY = "refreshed_at"
 _MTIMES_KEY = "source_mtimes"
+_PROGRESS_KEY = "kosync_progress"
 
 
 class Store:
@@ -102,3 +105,83 @@ class Store:
     @property
     def is_populated(self) -> bool:
         return self.refreshed_at() is not None
+
+    # --- kosync progress cache ----------------------------------------------
+    #
+    # Per-key cross-device progress (see ingest.refresh.fetch_progress), kept
+    # with a fingerprint of the local ReadingStat that produced the key and a
+    # fetched-at timestamp. This lets a refresh skip re-fetching keys whose
+    # underlying stat has not changed since the last successful fetch, instead
+    # of re-issuing a kosync GET for every book on every refresh.
+
+    def cached_progress(self) -> dict[str, DeviceProgress]:
+        """Cached device progress from the last fetch, keyed by stat key.
+
+        Only keys that actually resolved to progress are included. A key that
+        was checked but had no progress ("no progress yet") is tracked
+        internally so :meth:`stale_progress_keys` can tell "checked, none
+        found" apart from "never checked" — but it has no ``DeviceProgress``
+        to return here.
+        """
+        raw = self._get(_PROGRESS_KEY)
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, DeviceProgress] = {}
+        for key, entry in raw.items():
+            if not isinstance(entry, dict) or not entry.get("found"):
+                continue
+            out[str(key)] = DeviceProgress(
+                document=str(entry.get("document", "")),
+                percentage=float(entry.get("percentage", 0.0)),
+                device=str(entry.get("device", "unknown")),
+                timestamp=int(entry.get("timestamp", 0)),
+            )
+        return out
+
+    def stale_progress_keys(self, signatures: dict[str, str]) -> set[str]:
+        """Keys in ``signatures`` that need a fresh kosync fetch.
+
+        ``signatures`` maps a stat key to a cheap fingerprint of its current
+        local reading state. A key is stale (needs re-fetching) if it has no
+        cached entry yet, or if its stored fingerprint no longer matches —
+        everything else can safely reuse :meth:`cached_progress`.
+        """
+        raw = self._get(_PROGRESS_KEY)
+        cached = raw if isinstance(raw, dict) else {}
+        stale: set[str] = set()
+        for key, sig in signatures.items():
+            entry = cached.get(key)
+            if not isinstance(entry, dict) or entry.get("signature") != sig:
+                stale.add(key)
+        return stale
+
+    def save_progress(
+        self,
+        progress: dict[str, DeviceProgress],
+        signatures: dict[str, str],
+        fetched_at: int,
+    ) -> None:
+        """Persist resolved kosync progress, replacing the prior cache.
+
+        ``signatures`` should cover every stat key considered this refresh
+        (whether or not it resolved to progress) so the next refresh's
+        :meth:`stale_progress_keys` call has a complete picture; ``progress``
+        need only carry the keys that actually resolved.
+        """
+        entries: dict[str, dict[str, object]] = {}
+        for key, sig in signatures.items():
+            dp = progress.get(key)
+            entry: dict[str, object] = {
+                "signature": sig,
+                "fetched_at": int(fetched_at),
+                "found": dp is not None,
+            }
+            if dp is not None:
+                entry.update(
+                    document=dp.document,
+                    percentage=dp.percentage,
+                    device=dp.device,
+                    timestamp=dp.timestamp,
+                )
+            entries[key] = entry
+        self._put(_PROGRESS_KEY, entries)

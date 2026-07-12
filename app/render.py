@@ -17,11 +17,13 @@ Accessibility decisions baked in here:
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Sequence
 from html import escape
 from typing import Optional
 
 from ingest.models import ReadingState, Recommendation
+from recommender.lists import CuratedList
 
 from app.diversity import DiversityReport
 from app.goals import Goal
@@ -107,10 +109,18 @@ def _wrapped_table(wrapped: Wrapped) -> str:
     )
 
 
+#: Applied to every external (http/https) citation link: ``noopener`` +
+#: ``noreferrer`` stop the new-tab window-handle and Referer leaks respectively
+#: (belt-and-suspenders alongside the app-wide ``Referrer-Policy: no-referrer``
+#: header); ``external`` is a plain semantic hint, not a browser behavior.
+_EXTERNAL_REL = "noopener noreferrer external"
+
+
 def _sources_html(rec: Recommendation) -> str:
     items = "".join(
         f"<li>{escape(str(s.kind))}: "
-        f'<a href="{escape(_as_url(s.citation))}">{escape(s.citation)}</a> '
+        f'<a href="{escape(_as_url(s.citation))}"{_link_rel_attr(s.citation)}>'
+        f"{escape(s.citation)}</a> "
         f'<span class="retrieved">(retrieved {escape(s.retrieved_at)})</span></li>'
         for s in rec.explanation.sources
     )
@@ -122,6 +132,13 @@ def _as_url(citation: str) -> str:
     if citation.startswith(("http://", "https://")):
         return citation
     return f"#source-{citation.replace(':', '-').replace(' ', '-')}"
+
+
+def _link_rel_attr(citation: str) -> str:
+    """A ``rel`` attribute for a citation link — only external links get it."""
+    if citation.startswith(("http://", "https://")):
+        return f' rel="{_EXTERNAL_REL}"'
+    return ""
 
 
 def _signals_html(rec: Recommendation) -> str:
@@ -164,8 +181,14 @@ def _rec_table(recs: Sequence[Recommendation]) -> str:
 
 _STYLE = """
 :root { color-scheme: light dark; }
+/* Explicit fg/bg (system Canvas/CanvasText, not just the color-scheme hint) so
+   every element inherits a guaranteed-AA-contrast pair in both light and dark —
+   without this, unstyled table cells can inherit mismatched UA default colors
+   in some browsers/OSes and fail the axe color-contrast check (FIX 2026-07-05,
+   closes the pa11y-graduation blocker — see docs/ROADMAP.md §7). */
+html { color: CanvasText; background-color: Canvas; }
 body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
-  background: Canvas; color: CanvasText; }
+  color: inherit; background-color: inherit; }
 a { color: LinkText; }
 a:visited { color: VisitedText; }
 .card, li.reading { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0;
@@ -177,8 +200,11 @@ ul.books { padding: 0; }
 a:focus, .skip:focus { outline: 3px solid; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
-table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
+table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; color: inherit;
+  background-color: inherit; }
+th, td { border: 1px solid; padding: 0.4rem; text-align: left; color: inherit;
+  background-color: inherit; }
+.lens-warning { border: 2px dashed; border-radius: 8px; padding: 0.5rem 0.75rem; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
@@ -261,6 +287,16 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
         f'<th scope="col">Value</th></tr></thead><tbody>{coverage_rows}</tbody></table>'
     )
 
+    # Lens provenance: which grouping produced the numbers below, so a renamed
+    # lens in data/lenses.toml appears verbatim and a degraded config is never
+    # silent (extends the tag-provenance UI to the *grouping* itself).
+    lens_provenance = f"<p>Lens grouping: <strong>{escape(report.lens_source)}</strong>.</p>"
+    lens_warning = (
+        f'<p class="lens-warning" role="alert">Warning: {escape(report.lens_warning)}</p>'
+        if report.lens_warning
+        else ""
+    )
+
     if report.dimensions:
         dim_rows = "".join(
             f'<tr><th scope="row">{escape(d.name)}</th>'
@@ -269,6 +305,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
             for d in report.dimensions
         )
         dimensions = (
+            f"{lens_provenance}{lens_warning}"
             "<table><caption>Representation lenses, as a share of your described "
             "books (a grouping of sourced descriptors — never an author's identity)"
             '</caption><thead><tr><th scope="col">Lens</th>'
@@ -277,19 +314,57 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
             f"<tbody>{dim_rows}</tbody></table>"
         )
     else:
-        dimensions = "<p>No grouped representation lenses populated yet.</p>"
+        dimensions = (
+            f"{lens_provenance}{lens_warning}<p>No grouped representation lenses populated yet.</p>"
+        )
 
     prov_rows = "".join(
         f'<tr><th scope="row">{escape(kind)}</th><td>{count}</td></tr>'
         for kind, count in report.source_provenance
     )
     provenance = (
-        "<table><caption>Where these descriptors came from (provenance of every "
-        'sourced tag)</caption><thead><tr><th scope="col">Source</th>'
+        "<table><caption>Where these descriptors came from (count of sourced tags "
+        'by source)</caption><thead><tr><th scope="col">Source</th>'
         f'<th scope="col">Descriptors</th></tr></thead><tbody>{prov_rows}</tbody></table>'
         if prov_rows
         else "<p>No descriptor provenance recorded yet.</p>"
     )
+
+    # R4: every diverse-shelf descriptor with the source that asserted it + when.
+    # The sensitive marker is text (never colour-only) for the a11y contract.
+    if report.descriptor_provenance:
+        desc_rows = "".join(
+            f'<tr><th scope="row">{escape(d.label)}'
+            f"{' (sensitive)' if d.sensitive else ''}</th>"
+            f"<td>{d.books}</td>"
+            f"<td>{escape(', '.join(d.source_kinds) or '—')}</td>"
+            f"<td>{escape(d.latest_retrieved_at or '—')}</td></tr>"
+            for d in report.descriptor_provenance
+        )
+        descriptor_table = (
+            "<table><caption>Per-descriptor provenance — every diverse-shelf tag, the "
+            "source that asserted it, and when it was fetched (sourced, never inferred)"
+            '</caption><thead><tr><th scope="col">Descriptor</th>'
+            '<th scope="col">Books</th><th scope="col">Source(s)</th>'
+            '<th scope="col">Retrieved</th></tr></thead>'
+            f"<tbody>{desc_rows}</tbody></table>"
+        )
+    else:
+        descriptor_table = "<p>No per-descriptor provenance recorded yet.</p>"
+
+    if report.hide_sensitive:
+        privacy_note = (
+            "<p><strong>Privacy:</strong> identity-adjacent descriptors are aggregated "
+            "and hidden in this view (the coarse lens counts remain). Unset the privacy "
+            "toggle to see every sourced descriptor individually.</p>"
+        )
+    else:
+        privacy_note = (
+            "<p>Every sourced descriptor is shown individually below. To aggregate the "
+            "identity-adjacent ones (handy when screen-sharing a queer/trans reading "
+            "history), set <code>STACKS_HIDE_SENSITIVE=1</code> or load "
+            "<code>?hide_sensitive=1</code>.</p>"
+        )
 
     return (
         "<h2>Reading diversity</h2>"
@@ -298,7 +373,39 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
         "never infer an author's identity and never auto-label a person; a book "
         "with no sourced descriptor is reported as unknown, not as &ldquo;not "
         "diverse&rdquo;.</p>"
-        f"{coverage}{dimensions}{provenance}"
+        f"{privacy_note}{coverage}{dimensions}{provenance}{descriptor_table}"
+    )
+
+
+def _authored_lists_section(lists: Sequence[CuratedList]) -> str:
+    """Read-only "Your lists" section: name, citation, retrieved date, book count.
+
+    Authoring itself is CLI-only (``stacks lists new/add/export``, manual
+    export, no network) — this section only ever displays what is already on
+    disk; it never edits, imports, or sends anything.
+    """
+    if not lists:
+        return (
+            "<h2>Your lists</h2>"
+            "<p>No authored lists yet — create one with "
+            "<code>stacks lists new</code> and it will show up here.</p>"
+        )
+    rows = "".join(
+        f'<tr><th scope="row">{escape(lst.name)}</th>'
+        f"<td>{escape(lst.citation)}</td>"
+        f"<td>{len(lst.book_ids)}</td>"
+        f"<td>{escape(lst.retrieved_at)}</td></tr>"
+        for lst in lists
+    )
+    return (
+        "<h2>Your lists</h2>"
+        "<p>Cited lists you've authored with <code>stacks lists</code> — "
+        "read-only here. Export stays a manual, local step "
+        "(<code>stacks lists export</code>); nothing here is sent anywhere.</p>"
+        "<table><caption>Your authored curated lists</caption>"
+        '<thead><tr><th scope="col">Name</th><th scope="col">Citation</th>'
+        '<th scope="col">Books</th><th scope="col">Retrieved</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
     )
 
 
@@ -341,6 +448,37 @@ _FILTER_JS = (
 )
 
 
+def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False) -> str:
+    """Say what the dashboard knows and how old it is — never silently stale.
+
+    Degrades gracefully: per-source ``RefreshResult`` rows land with FIX-08;
+    until then this shows the one honest thing the store already persists —
+    the ``refreshed_at`` stamp — plus a text (not colour-only) staleness banner.
+    """
+    if refreshed_at is None:
+        as_of = "never refreshed — run `stacks refresh`"
+    else:
+        # datetime.utcfromtimestamp is deprecated; fromtimestamp(..., UTC) is the
+        # non-deprecated equivalent and yields the identical ISO-8601 UTC string.
+        as_of = datetime.datetime.fromtimestamp(refreshed_at, datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+    banner = (
+        '<p role="status">Stale: this data is more than the freshness threshold old — '
+        "run <code>stacks refresh</code> to update it.</p>"
+        if stale
+        else ""
+    )
+    rows = f'<tr><th scope="row">Data as of</th><td>{escape(as_of)}</td></tr>'
+    return (
+        f"{banner}"
+        "<h2>Data status</h2>"
+        "<table><caption>How current the data on this page is</caption>"
+        '<thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def render_dashboard(
     currently_reading: Sequence[ReadingState],
     finished: Sequence[ReadingState],
@@ -353,7 +491,10 @@ def render_dashboard(
     library: Sequence[ReadingState] = (),
     goals: Sequence[Goal] = (),
     diversity: Optional[DiversityReport] = None,
+    authored_lists: Sequence[CuratedList] = (),
     user: str = "demo",
+    refreshed_at: Optional[int] = None,
+    stale: bool = False,
 ) -> str:
     """Render the complete, accessible dashboard document."""
     reading_items = "".join(_reading_item(s) for s in currently_reading) or (
@@ -380,6 +521,7 @@ def render_dashboard(
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
         "catalogs. Reading data never leaves this instance.</p></header>"
         '<main id="main">'
+        f"{_data_status_section(refreshed_at, stale)}"
         "<h2>Currently reading</h2>"
         f'<ul class="books">{reading_items}</ul>'
         "<h2>Reading stats</h2>"
@@ -404,6 +546,7 @@ def render_dashboard(
         f"{rec_cards}"
         "<h2>Recently finished</h2>"
         f'<ul class="books">{finished_items}</ul>'
+        f"{_authored_lists_section(authored_lists)}"
         "<h2>Browse your library</h2>"
         '<p><label for="lib-filter">Filter the table below '
         "(works without JavaScript via the /browse route):</label> "

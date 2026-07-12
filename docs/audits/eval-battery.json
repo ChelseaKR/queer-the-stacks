@@ -1,0 +1,129 @@
+{
+  "k": 5,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "n_seeds": 10,
+  "rows": [
+    {
+      "seed": 0,
+      "content_map": 0.71,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.1,
+      "uplift": 0.61,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.13
+    },
+    {
+      "seed": 1,
+      "content_map": 0.6,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.6,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.2,
+      "ablation_shuffled_content_map": 0.4833
+    },
+    {
+      "seed": 2,
+      "content_map": 0.8,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.8,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.8
+    },
+    {
+      "seed": 3,
+      "content_map": 0.8,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.8,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.8
+    },
+    {
+      "seed": 4,
+      "content_map": 0.71,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.71,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.52,
+      "ablation_shuffled_content_map": 0.71
+    },
+    {
+      "seed": 5,
+      "content_map": 0.8,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.8,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.8
+    },
+    {
+      "seed": 6,
+      "content_map": 0.71,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0667,
+      "uplift": 0.6433,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.71
+    },
+    {
+      "seed": 7,
+      "content_map": 0.2,
+      "hybrid_map": 0.4833,
+      "popularity_map": 0.0667,
+      "uplift": 0.1333,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.1667,
+      "ablation_shuffled_content_map": 0.1467
+    },
+    {
+      "seed": 8,
+      "content_map": 0.8,
+      "hybrid_map": 0.8,
+      "popularity_map": 0.0,
+      "uplift": 0.8,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.4,
+      "ablation_shuffled_content_map": 0.8
+    },
+    {
+      "seed": 9,
+      "content_map": 0.3333,
+      "hybrid_map": 0.76,
+      "popularity_map": 0.04,
+      "uplift": 0.2933,
+      "content_wins": true,
+      "ablation_no_lists_content_map": 0.3333,
+      "ablation_shuffled_content_map": 0.1467
+    }
+  ],
+  "median_content_map": 0.71,
+  "median_hybrid_map": 0.8,
+  "median_popularity_map": 0.0,
+  "median_uplift": 0.6766,
+  "min_uplift": 0.1333,
+  "max_uplift": 0.8,
+  "margin": 0.5,
+  "no_losing_seed": true,
+  "ablation_drop_lists_median_delta": 0.355,
+  "ablation_shuffle_tags_median_delta": 0.0,
+  "passed": true
+}

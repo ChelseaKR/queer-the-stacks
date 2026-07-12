@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
+import pytest
 from ingest.config import Config, load_config
 from ingest.demo import build_demo_dbs
-from ingest.refresh import doctor, ingest_states, refresh, source_mtimes
+from ingest.kosync import FixtureKosync
+from ingest.models import DeviceProgress, ReadingStat
+from ingest.refresh import (
+    _resolve_progress,
+    _stat_signature,
+    doctor,
+    fetch_progress,
+    ingest_states,
+    refresh,
+    source_mtimes,
+)
 from ingest.store import Store
 
 
@@ -17,6 +29,45 @@ def _real_config(tmp_path: Path) -> Config:
         env={
             "STACKS_CALIBRE_DB": str(metadata_db),
             "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+
+
+def _make_kobo_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE content (
+            ContentID TEXT PRIMARY KEY, ContentType INTEGER, MimeType TEXT,
+            BookID TEXT, Title TEXT, Attribution TEXT, ___PercentRead INTEGER,
+            ReadStatus INTEGER, TimeSpentReading INTEGER, ___NumPages INTEGER,
+            DateLastRead TEXT
+        );
+        INSERT INTO content (
+            ContentID, ContentType, MimeType, BookID, Title, Attribution,
+            ___PercentRead, ReadStatus, TimeSpentReading, ___NumPages, DateLastRead
+        ) VALUES (
+            'file:///kobo-only.epub', 6, 'application/x-kobo-epub+zip', NULL,
+            'Kobo Only Book', 'Kobo Author', 30, 1, 900, 100, '2026-06-01T00:00:00.000'
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _real_config_with_kobo(tmp_path: Path) -> Config:
+    """A non-demo config with Calibre + KOReader + a Kobo native DB configured."""
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    kobo_db = tmp_path / "lib" / "KoboReader.sqlite"
+    _make_kobo_db(kobo_db)
+    return load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_KOBO_DB": str(kobo_db),
             "STACKS_DATA_DIR": str(tmp_path / "data"),
         },
         config_path=tmp_path / "absent.toml",
@@ -60,6 +111,38 @@ def test_mtime_guard_skips_unchanged(tmp_path: Path) -> None:
         forced = refresh(cfg, store, now=300, force=True)
         assert forced.refreshed is True
         assert store.refreshed_at() == 300
+
+
+def test_real_refresh_merges_kobo_stats_through_unify(tmp_path: Path) -> None:
+    """Kobo stats flow through the same `unify` join, surfacing an unmatched book."""
+    cfg = _real_config_with_kobo(tmp_path)
+    states, _ = ingest_states(cfg)
+    kobo_state = next(s for s in states if s.title == "Kobo Only Book")
+    assert kobo_state.book is None  # not in the Calibre catalog
+    assert kobo_state.stat is not None
+    assert kobo_state.stat.read_time_seconds == 900
+    # Existing Calibre + KOReader books are unaffected.
+    assert any(s.title == "Kindred" for s in states)
+
+
+def test_source_mtimes_includes_kobo(tmp_path: Path) -> None:
+    cfg = _real_config_with_kobo(tmp_path)
+    mtimes = source_mtimes(cfg)
+    assert "kobo" in mtimes
+
+
+def test_doctor_reports_kobo_when_configured(tmp_path: Path) -> None:
+    cfg = _real_config_with_kobo(tmp_path)
+    checks = doctor(cfg)
+    by_name = {c.name: c for c in checks}
+    assert by_name["Kobo file"].ok
+    assert by_name["Kobo read-only access"].ok
+
+
+def test_doctor_omits_kobo_when_unconfigured(tmp_path: Path) -> None:
+    cfg = _real_config(tmp_path)
+    checks = doctor(cfg)
+    assert not any(c.name.startswith("Kobo") for c in checks)
 
 
 def test_source_mtimes_only_existing(tmp_path: Path) -> None:
@@ -114,6 +197,44 @@ def test_doctor_runs_without_writing_to_calibre(tmp_path: Path) -> None:
     assert before == after
 
 
+def test_doctor_flags_unknown_stacks_env(tmp_path: Path) -> None:
+    cfg = load_config(env={"STACKS_DEMO": "1"}, config_path=tmp_path / "absent.toml")
+    checks = doctor(cfg, env={"STACKS_CALIBER_DB": "/x", "STACKS_DATA_DIR": "/y"})
+    failing = {c.name: c for c in checks if not c.ok}
+    assert any("STACKS_CALIBER_DB" in name for name in failing)
+    assert not any("STACKS_DATA_DIR" in name for name in failing)  # known key, no warning
+
+
+def test_known_stacks_env_covers_every_var_the_code_reads() -> None:
+    """KNOWN_STACKS_ENV must never drift from the STACKS_* vars the code reads.
+
+    Otherwise `stacks doctor` would false-flag a *legitimate* variable as a typo
+    the moment a new one ships (e.g. a future STACKS_HIDE_SENSITIVE) — the exact
+    failure mode this allowlist exists to prevent. Scans the real source of the
+    three packages so the list and the code cannot diverge silently.
+    """
+    import re
+
+    import app
+    import ingest
+    import recommender
+    from ingest.config import KNOWN_STACKS_ENV
+
+    # Only quoted literals count: identifiers (KNOWN_STACKS_ENV) and prose
+    # examples of typos in comments (STACKS_CALIBER_DB) must not match.
+    pattern = re.compile(r"[\"'](STACKS_[A-Z][A-Z_]*)[\"']")
+    read_in_code: set[str] = set()
+    for pkg in (app, ingest, recommender):
+        pkg_dir = Path(pkg.__file__).parent  # type: ignore[arg-type]
+        for py in pkg_dir.rglob("*.py"):
+            read_in_code |= set(pattern.findall(py.read_text(encoding="utf-8")))
+    assert read_in_code == set(KNOWN_STACKS_ENV), (
+        "STACKS_* variables in code and KNOWN_STACKS_ENV have drifted; "
+        f"only in code: {sorted(read_in_code - set(KNOWN_STACKS_ENV))}, "
+        f"only in allowlist: {sorted(set(KNOWN_STACKS_ENV) - read_in_code)}"
+    )
+
+
 def test_view_from_store_renders(tmp_path: Path) -> None:
     from app.render import render_dashboard
     from app.view import view_from_store
@@ -136,3 +257,150 @@ def test_view_from_store_renders(tmp_path: Path) -> None:
         user=view.user,
     )
     assert "Recommended for you" in html
+
+
+# --- fetch_progress: batched, bounded-concurrency kosync fetch (FIX-08) -----
+
+
+class _FlakySource:
+    """A fake ProgressSource that raises for some keys and succeeds for others."""
+
+    def __init__(self, fail_keys: set[str]) -> None:
+        self._fail = fail_keys
+
+    def progress_for(self, document: str) -> DeviceProgress:
+        if document in self._fail:
+            raise RuntimeError(f"boom:{document}")
+        return DeviceProgress(document=document, percentage=0.5, device="Kobo", timestamp=1)
+
+
+def test_fetch_progress_batches_and_records_error_outcomes() -> None:
+    source = _FlakySource(fail_keys={"b"})
+    result = fetch_progress(source, ["a", "b", "c", ""], max_workers=4)
+
+    # Empty keys are dropped before dispatch; the rest are all attempted.
+    assert set(result.progress) == {"a", "c"}
+    assert result.fetched == 2
+    assert result.errors == 1
+
+    by_key = {o.key: o for o in result.outcomes}
+    assert by_key["a"].ok is True and by_key["a"].found is True
+    assert by_key["c"].ok is True and by_key["c"].found is True
+    assert by_key["b"].ok is False and by_key["b"].found is False
+    assert "boom:b" in by_key["b"].error
+    assert "" not in by_key
+
+    # Deterministic ordering regardless of which fetch finishes first.
+    assert [o.key for o in result.outcomes] == sorted(by_key)
+
+
+def test_fetch_progress_no_progress_is_not_an_error() -> None:
+    result = fetch_progress(FixtureKosync({}), ["missing"])
+    assert result.progress == {}
+    assert result.fetched == 0
+    assert result.errors == 0
+    outcome = result.outcomes[0]
+    assert outcome.key == "missing"
+    assert outcome.ok is True
+    assert outcome.found is False
+
+
+def test_fetch_progress_handles_no_source_or_no_keys() -> None:
+    assert fetch_progress(None, ["a"]).progress == {}
+    assert fetch_progress(FixtureKosync({}), []).progress == {}
+
+
+def test_errored_fetch_stays_stale_and_is_retried(tmp_path: Path) -> None:
+    """A transport error must not be cached as "checked, no progress".
+
+    If the sync server is down during one refresh, the affected key must be
+    re-fetched on the next refresh even though the local stat is unchanged —
+    otherwise one transient outage silently suppresses that book's progress
+    until the user next reads it on-device (the exact failure mode FIX-08
+    exists to kill).
+    """
+    stat = ReadingStat("k1", "Nevada", ("Imogen Binnie",), 50, 250, 3600, 1_700_000_000, 2)
+    with Store(tmp_path / "progress.sqlite") as store:
+        # First refresh: the source errors for k1 -> visible error outcome.
+        down = _resolve_progress(_FlakySource(fail_keys={"k1"}), [stat], store, now=1)
+        assert down.errors == 1
+        assert down.progress == {}
+        # The errored key must still be stale — not persisted as "checked".
+        assert "k1" in store.stale_progress_keys({"k1": _stat_signature(stat)})
+
+        # Second refresh with the server back up and the *same* local stat:
+        # the key is re-fetched and resolves instead of being skipped.
+        up = _resolve_progress(_FlakySource(fail_keys=set()), [stat], store, now=2)
+        assert up.errors == 0
+        assert "k1" in up.progress
+        assert store.cached_progress()["k1"].device == "Kobo"
+        # And now that it succeeded, an unchanged stat is no longer stale.
+        assert store.stale_progress_keys({"k1": _stat_signature(stat)}) == set()
+
+
+# --- RefreshResult surfaces per-source progress outcomes (FIX-08 -> FIX-09) -
+
+
+def test_refresh_result_exposes_progress_counts(tmp_path: Path) -> None:
+    cfg = load_config(
+        env={"STACKS_DEMO": "1", "STACKS_DATA_DIR": str(tmp_path / "data")},
+        config_path=tmp_path / "absent.toml",
+    )
+    with Store(cfg.store_path) as store:
+        result = refresh(cfg, store, now=1_700_000_000)
+    assert result.progress_fetched > 0
+    assert result.progress_errors == 0
+    assert len(result.progress_outcomes) >= result.progress_fetched
+
+
+# --- store-backed cache: unchanged stats skip re-fetch (FIX-08) ------------
+
+
+def test_store_progress_cache_skips_unchanged_stats(tmp_path: Path) -> None:
+    with Store(tmp_path / "progress.sqlite") as store:
+        signatures = {"k1": "sig-a", "k2": "sig-b"}
+        assert store.stale_progress_keys(signatures) == {"k1", "k2"}
+
+        dp = DeviceProgress(document="k1", percentage=0.3, device="Kobo", timestamp=10)
+        store.save_progress({"k1": dp}, signatures, fetched_at=100)
+
+        assert store.cached_progress() == {"k1": dp}
+        # k2 had no progress found, but it was checked — not stale if unchanged.
+        assert store.stale_progress_keys(signatures) == set()
+
+        # Only the key whose signature actually changed is reported stale.
+        changed = {"k1": "sig-a", "k2": "sig-c"}
+        assert store.stale_progress_keys(changed) == {"k2"}
+
+
+def test_refresh_reuses_cached_progress_when_stats_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second refresh with unchanged local stats must not re-fetch kosync."""
+    import ingest.refresh as refresh_mod
+
+    real_fetch_progress = refresh_mod.fetch_progress
+    calls: list[tuple[str, ...]] = []
+
+    def counting_fetch_progress(source: object, keys: object, *, max_workers: int = 8):
+        keys = list(keys)  # type: ignore[arg-type]
+        calls.append(tuple(sorted(keys)))
+        return real_fetch_progress(source, keys, max_workers=max_workers)
+
+    monkeypatch.setattr(refresh_mod, "fetch_progress", counting_fetch_progress)
+
+    cfg = load_config(
+        env={"STACKS_DEMO": "1", "STACKS_DATA_DIR": str(tmp_path / "data")},
+        config_path=tmp_path / "absent.toml",
+    )
+    with Store(cfg.store_path) as store:
+        first = refresh(cfg, store, now=1, force=True)
+        assert len(calls) == 1
+        assert calls[0]  # first refresh has nothing cached, fetches every key
+        assert first.progress_fetched > 0
+
+        second = refresh(cfg, store, now=2, force=True)
+        # Local stats are unchanged (same demo world) -> cache fully covers it,
+        # so fetch_progress is never called a second time.
+        assert len(calls) == 1
+        assert second.progress_fetched == first.progress_fetched

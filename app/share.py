@@ -28,6 +28,21 @@ from app.wrapped import Wrapped
 #: is kept well under this so it posts cleanly without truncation.
 MAX_POST_CHARS = 500
 
+# --- Share-card SVG palette ---------------------------------------------------
+# Named (not inline-literal) so a test can assert WCAG AA contrast against the
+# background — see tests/test_share.py::test_share_svg_palette_meets_aa and
+# app/color_contrast.py. Body text is normal-size (>=4.5:1 required); the
+# heading/border color is only ever used at large text sizes (>=18pt / 44px
+# and 26px here), so it only needs the large-text AA threshold (>=3.0:1).
+SVG_BG = "#fdf6fb"
+SVG_BORDER = "#7a2e63"
+SVG_HEADING = "#7a2e63"
+SVG_BODY = "#222"
+
+#: Longest a card title is rendered before truncation, so the heading never
+#: overflows the fixed-width SVG canvas.
+MAX_SVG_TITLE_CHARS = 60
+
 
 @dataclass(frozen=True)
 class ShareCard:
@@ -125,8 +140,11 @@ def render_share_svg(card: ShareCard) -> str:
     post by hand.
     """
     width, height = 1000, 420
+    title = card.title
+    if len(title) > MAX_SVG_TITLE_CHARS:
+        title = title[: MAX_SVG_TITLE_CHARS - 1].rstrip() + "…"
     body = "".join(
-        f'<text x="60" y="{180 + i * 52}" font-size="32" fill="#222">{escape(line)}</text>'
+        f'<text x="60" y="{180 + i * 52}" font-size="32" fill="{SVG_BODY}">{escape(line)}</text>'
         for i, line in enumerate(card.lines)
     )
     tags = " ".join(f"#{t}" for t in card.hashtags)
@@ -134,12 +152,12 @@ def render_share_svg(card: ShareCard) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-label="{escape(card.alt_text)}">'
         f"<title>{escape(card.alt_text)}</title>"
-        f'<rect width="{width}" height="{height}" fill="#fdf6fb" stroke="#7a2e63" '
+        f'<rect width="{width}" height="{height}" fill="{SVG_BG}" stroke="{SVG_BORDER}" '
         'stroke-width="6"/>'
-        f'<text x="60" y="110" font-size="44" font-weight="bold" fill="#7a2e63">'
-        f"{escape(card.title)}</text>"
+        f'<text x="60" y="110" font-size="44" font-weight="bold" fill="{SVG_HEADING}">'
+        f"{escape(title)}</text>"
         f"{body}"
-        f'<text x="60" y="{height - 40}" font-size="26" fill="#7a2e63">{escape(tags)}</text>'
+        f'<text x="60" y="{height - 40}" font-size="26" fill="{SVG_HEADING}">{escape(tags)}</text>'
         "</svg>"
     )
 
@@ -164,9 +182,14 @@ def _card_figure(card: ShareCard, index: int) -> str:
 
 _SHARE_STYLE = """
 :root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem; }
+/* Explicit fg/bg, same rationale as app/render.py's _STYLE: guarantees an
+   AA-contrast pair in both light and dark instead of relying on unstyled UA
+   defaults (FIX 2026-07-05). */
+html { color: CanvasText; background-color: Canvas; }
+body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
+  color: inherit; background-color: inherit; }
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-textarea.post { width: 100%; font: inherit; }
+textarea.post { width: 100%; font: inherit; color: inherit; background-color: inherit; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
 a:focus, button:focus, .skip:focus { outline: 3px solid; }

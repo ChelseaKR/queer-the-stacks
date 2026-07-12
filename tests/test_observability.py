@@ -24,13 +24,21 @@ from app.logging_config import (
 )
 
 
-def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """A TestClient in demo mode with a throwaway data dir (never touches data/)."""
+def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, populated: bool = False):
+    """A TestClient in demo mode with a throwaway data dir (never touches data/).
+
+    Data routes 503 until the store is refreshed (FIX-14) — pass
+    ``populated=True`` for tests that need a working dashboard/browse route.
+    """
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("STACKS_DEMO", "1")
     monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    if populated:
+        from tests.conftest import seed_store_from_env
+
+        seed_store_from_env()
     from app.server import create_app
 
     return TestClient(create_app())
@@ -55,6 +63,18 @@ def test_livez_is_ok_and_unauthenticated(tmp_path: Path, monkeypatch: pytest.Mon
     resp = client.get("/livez")  # no Authorization header
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+def test_version_is_reported_and_unauthenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REL-19: an unauthenticated /version route reports the installed package version."""
+    client = _make_client(tmp_path, monkeypatch)
+    resp = client.get("/version")  # no Authorization header
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["version"]
+    assert body["version"] != "unknown"
 
 
 def test_readyz_reports_ready_when_store_available(
@@ -103,7 +123,7 @@ def test_request_emits_valid_json_log_without_pii(
     logger = configure_logging()
     logger.addHandler(capture)
     try:
-        client = _make_client(tmp_path, monkeypatch)
+        client = _make_client(tmp_path, monkeypatch, populated=True)
         # A request whose query string carries would-be-sensitive reading data,
         # plus an auth token in the header — none of it may reach the log.
         resp = client.get(
