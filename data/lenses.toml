@@ -1,0 +1,50 @@
+# Diversity lenses — the "Dimensions" grouping on the diversity section of the
+# dashboard (see app/diversity.py). Each [[lenses]] entry groups *sourced book
+# descriptors* (Calibre tags, OpenLibrary subjects, curated-list labels) under a
+# single reader-legible name. This is a view over book tags, never a claim
+# about an author's identity.
+#
+# This file ships with the current built-in defaults as a template: edit the
+# names, add/remove descriptors, or add whole new lenses to match your own
+# shelf's vocabulary — no code changes required. Descriptors are matched
+# case-insensitively against a book's sourced theme tags.
+#
+# Validation (app/diversity.py::validate_dimensions): every lens needs a
+# non-empty ``name``, a non-empty ``descriptors`` list, and no two lenses may
+# share a name (case-insensitive). If this file is missing, unreadable,
+# malformed, or fails validation, the dashboard falls back to the built-in
+# defaults with a visible warning — never a blank section.
+
+[[lenses]]
+name = "Trans & nonbinary"
+descriptors = ["trans", "transgender", "nonbinary", "non-binary", "genderqueer"]
+
+[[lenses]]
+name = "Queer / LGBTQ+"
+descriptors = ["queer", "lgbtq", "lgbtq+", "lesbian", "gay", "bisexual", "sapphic"]
+
+[[lenses]]
+name = "Speculative / SFF"
+descriptors = [
+    "speculative",
+    "science fiction",
+    "sci-fi",
+    "fantasy",
+    "epic fantasy",
+    "dystopia",
+    "time travel",
+    "fabulist",
+    "horror",
+]
+
+[[lenses]]
+name = "Feminist"
+descriptors = ["feminist", "feminism", "womanist"]
+
+[[lenses]]
+name = "Literary"
+descriptors = ["literary", "short stories", "essays"]
+
+[[lenses]]
+name = "Historical"
+descriptors = ["historical", "history"]

@@ -9,9 +9,12 @@ motion.
 
 ## Automated pass (auto-gated, merge-blocking)
 
-`make a11y` renders the demo dashboard to `docs/audits/dashboard.html` and checks
-it with pa11y (axe runtime) when installed, falling back to the dependency-free
-`app.a11y_check`. **Result: 0 violations.**
+`make a11y` renders the demo dashboard to `docs/audits/dashboard.html` and runs
+**two blocking layers**: the dependency-free structural checker (`app.a11y_check`)
+and pa11y (real headless-Chrome axe runtime, including color-contrast). Both must
+report zero violations to pass; neither is advisory. **Result: 0 violations on
+both** (graduated from pa11y-advisory to pa11y-blocking on 2026-07-05, after
+fixing a real color-contrast gap — see "2026-07-05 update" below).
 
 Mechanically verified properties:
 
@@ -44,3 +47,18 @@ The following manual walkthroughs are required before the first release and are
 This dashboard targets WCAG 2.2 AA. Charts have data-table equivalents; theme
 tags are never colour-only; the interface respects reduced-motion. Report issues
 via the project tracker.
+
+## 2026-07-05 update
+
+pa11y previously ran advisory-only (`|| echo`, `Makefile:59-63`) while the
+committed ledger (`docs/ROADMAP.md` §7) claimed it was merge-blocking — an
+honesty defect flagged by the 2026-07-05 conformance audit (A11Y-03). Running
+pa11y locally to graduate it surfaced a real, previously-undetected
+color-contrast defect (384 `color-contrast` findings): the dashboard set no
+explicit `color`/`background-color` anywhere, relying only on
+`color-scheme: light dark`, which left some elements without a guaranteed
+AA-contrast pair. Fixed in `app/render.py`/`app/share.py` (explicit
+`CanvasText`/`Canvas` fg/bg, inherited down through tables) and re-verified:
+pa11y now reports **0 issues** on three consecutive local runs. The `||` swallow
+was removed from `Makefile:52-58`; pa11y is now genuinely merge-blocking
+alongside the structural checker, closing A11Y-03.

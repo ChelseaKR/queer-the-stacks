@@ -102,6 +102,14 @@ your real library" before adding features.
    an opt-in local PNG/PDF export (nothing auto-published).
 3. **Search & browse** by sourced theme/genre, author, series, status.
 4. **Goal tracking** — pages/books/streak goals, computed locally.
+5. **EXP-01 — OPDS feed of your own shelves. Shipped 2026-07-03.** An
+   auth-gated, read-only OPDS 1.2 catalog (`app/opds.py`, wired at `/opds` and
+   `/opds/{to-read,currently-reading,series-next,recommendations}` in
+   `app/server.py`) rendered from the same `DashboardView` the dashboard uses,
+   so it's browsable straight from KOReader/Readest. Recommendation entries
+   carry the sourced why/explanation, never an inferred label; a Calibre-Web
+   alternate link is config-driven (`STACKS_CALIBRE_WEB_URL`) and omitted when
+   unset. GET-only, no new write surface. See `tests/test_opds.py`.
 
 ## E. Hardening, ops, distribution
 
@@ -110,10 +118,17 @@ your real library" before adding features.
 2. **Auth upgrade path** — bearer token → optional OIDC/forward-auth; rate-limit
    the auth endpoint.
 3. **Backups** of `data/` app state + a restore drill.
-4. **Observability without telemetry** — local structured logs with a hard
+4. **Preservation-grade export — done.** `stacks export --archive` /
+   `stacks import --archive` round-trip the full derived state (states +
+   activity + count-only highlight Web Annotations) through a versioned,
+   self-describing, stdlib-only JSON bundle for decades-scale, tool-independent
+   preservation. See `docs/ideation/03-expansions.md` (EXP-13).
+5. **Observability without telemetry** — local structured logs with a hard
    "no reading-content in logs" lint (extend the no-egress test family).
-5. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
-   parsers must handle.
+6. **Schema-drift CI** — a matrix of recorded Calibre/KOReader schema versions the
+   parsers must handle. *(Done: `tests/schemas/{calibre,koreader}/*.sql` fixtures
+   + `tests/schemas/MATRIX.md`, parametrized in `tests/test_schema_drift.py`,
+   run by `make test` in CI.)*
 
 ---
 

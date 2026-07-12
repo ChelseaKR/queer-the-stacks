@@ -20,7 +20,12 @@ from typing import Any
 import pytest
 from ingest.kosync import KosyncClient
 from ingest.models import DeviceProgress
-from recommender.catalogs import BookwyrmClient, OpenLibraryClient, ResponseCache
+from recommender.catalogs import (
+    BookwyrmClient,
+    OpenLibraryClient,
+    ResponseCache,
+    etiquette_headers,
+)
 
 CASSETTES = Path(__file__).parent / "cassettes"
 
@@ -89,7 +94,8 @@ def test_openlibrary_client_subject_and_cache(
 ) -> None:
     calls: list[str] = []
 
-    def fake_get(url: str, timeout: int) -> _FakeResponse:
+    def fake_get(url: str, timeout: int, headers: dict[str, str]) -> _FakeResponse:
+        assert headers == etiquette_headers()
         calls.append(url)
         return _FakeResponse(_load("openlibrary_subject.json"))
 
@@ -122,7 +128,7 @@ def test_openlibrary_client_subject_and_cache(
 
 def test_bookwyrm_client_fetch_list(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_get(url: str, timeout: int, headers: dict[str, str]) -> _FakeResponse:
-        assert headers == {"accept": "application/json"}
+        assert headers == etiquette_headers()
         return _FakeResponse(_load("bookwyrm_list.json"))
 
     monkeypatch.setattr("requests.get", fake_get)
