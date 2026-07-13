@@ -36,6 +36,21 @@ def test_real_mode_token_from_env() -> None:
     assert check_credentials("nope", env) is False
 
 
+def test_non_ascii_token_is_rejected_not_a_crash() -> None:
+    """A latin-1/unicode bearer token must yield False (-> 401), never TypeError.
+
+    ``hmac.compare_digest`` raises TypeError on non-ASCII *strings*; HTTP header
+    values may legally carry latin-1 bytes, so a crafted token used to turn every
+    such request into an unhandled 500.
+    """
+    env = {"STACKS_AUTH_TOKEN": "s3cr3t-token-value"}
+    assert check_credentials("caf\xe9", env) is False
+    assert check_credentials("caf\xe9", {"STACKS_DEMO": "1"}) is False
+    # A correct token that itself contains non-ASCII still matches.
+    env_unicode = {"STACKS_AUTH_TOKEN": "tok\xe9n"}
+    assert check_credentials("tok\xe9n", env_unicode) is True
+
+
 def test_server_rejects_unauthenticated_requests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
