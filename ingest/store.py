@@ -56,12 +56,14 @@ class Store:
         self.close()
 
     # --- low-level kv -------------------------------------------------------
+    _UPSERT = (
+        "INSERT INTO app_state (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+
     def _put(self, key: str, value: object) -> None:
-        self._conn.execute(
-            "INSERT INTO app_state (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, json.dumps(value)),
-        )
+        """Persist one independent value and commit it immediately."""
+        self._conn.execute(self._UPSERT, (key, json.dumps(value)))
         self._conn.commit()
 
     def _get(self, key: str) -> object:
@@ -76,11 +78,21 @@ class Store:
         refreshed_at: int,
         source_mtimes: Optional[dict[str, int]] = None,
     ) -> None:
-        """Persist a full refresh of derived state atomically."""
-        self._put(_STATES_KEY, [state_to_dict(s) for s in states])
-        self._put(_ACTIVITY_KEY, [activity_to_dict(a) for a in daily_activity])
-        self._put(_REFRESHED_KEY, int(refreshed_at))
-        self._put(_MTIMES_KEY, source_mtimes or {})
+        """Persist a full refresh of derived state atomically.
+
+        All four rows are written in ONE transaction: a crash (or concurrent
+        reader) can never observe new states paired with a stale
+        ``refreshed_at``/``source_mtimes`` — it sees the whole refresh or none
+        of it.
+        """
+        rows: list[tuple[str, object]] = [
+            (_STATES_KEY, [state_to_dict(s) for s in states]),
+            (_ACTIVITY_KEY, [activity_to_dict(a) for a in daily_activity]),
+            (_REFRESHED_KEY, int(refreshed_at)),
+            (_MTIMES_KEY, source_mtimes or {}),
+        ]
+        with self._conn:  # commits on success, rolls back on error
+            self._conn.executemany(self._UPSERT, [(k, json.dumps(v)) for k, v in rows])
 
     def load_states(self) -> list[ReadingState]:
         raw = self._get(_STATES_KEY)
