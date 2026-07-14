@@ -20,9 +20,12 @@ from __future__ import annotations
 import datetime
 from collections.abc import Sequence
 from html import escape
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from ingest.models import ReadingState, Recommendation
+
+if TYPE_CHECKING:
+    from app.view import BookForecast
 from recommender.lists import CuratedList
 
 from app.diversity import DiversityReport
@@ -209,6 +212,30 @@ th, td { border: 1px solid; padding: 0.4rem; text-align: left; color: inherit;
   * { animation: none !important; transition: none !important; }
 }
 """
+
+
+def _forecast_table(forecasts: Sequence[BookForecast]) -> str:
+    if not forecasts:
+        return "<p>Nothing in progress to forecast right now.</p>"
+    rows = ""
+    for f in forecasts:
+        fc = f.forecast
+        # Estimable books show an hour range (never a single number); the rest
+        # honestly show no estimate, with the reason in the "Based on" column.
+        estimate = f"{fc.low_hours:g}–{fc.high_hours:g} hours" if fc.estimable else "—"
+        rows += (
+            f'<tr><th scope="row">{escape(f.title)}</th>'
+            f"<td>{escape(', '.join(f.authors) or 'unknown')}</td>"
+            f"<td>{escape(estimate)}</td>"
+            f"<td>{escape(fc.basis)}</td></tr>"
+        )
+    return (
+        "<table><caption>Time to finish, at your recent reading pace — a range, "
+        "never a single number, computed locally from your own page timing</caption>"
+        '<thead><tr><th scope="col">Title</th><th scope="col">Author</th>'
+        '<th scope="col">Estimate</th><th scope="col">Based on</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>"
+    )
 
 
 def _series_table(series_next: Sequence[SeriesNext]) -> str:
@@ -486,6 +513,7 @@ def render_dashboard(
     wrapped: Wrapped,
     recommendations: Sequence[Recommendation],
     *,
+    forecasts: Sequence[BookForecast] = (),
     series_next: Sequence[SeriesNext] = (),
     to_read: Sequence[ReadingState] = (),
     library: Sequence[ReadingState] = (),
@@ -524,6 +552,8 @@ def render_dashboard(
         f"{_data_status_section(refreshed_at, stale)}"
         "<h2>Currently reading</h2>"
         f'<ul class="books">{reading_items}</ul>'
+        "<h2>Time to finish</h2>"
+        f"{_forecast_table(forecasts)}"
         "<h2>Reading stats</h2>"
         f"{_stats_table(stats)}"
         f"{_theme_mix_table(stats)}"
