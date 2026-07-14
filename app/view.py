@@ -19,6 +19,7 @@ from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 
 from app.diversity import DEFAULT_DIMENSIONS, DiversityReport, compute_diversity, load_lens_config
+from app.forecast import Forecast, forecast_book
 from app.goals import Goal, compute_goals
 from app.shelf import SeriesNext, series_continuations, to_read
 from app.stats import ReadingStats, compute_stats
@@ -31,6 +32,15 @@ STALE_AFTER_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
 @dataclass(frozen=True)
+class BookForecast:
+    """A currently-reading book paired with its time-to-finish forecast."""
+
+    title: str
+    authors: tuple[str, ...]
+    forecast: Forecast
+
+
+@dataclass(frozen=True)
 class DashboardView:
     """Everything the dashboard renders, assembled once."""
 
@@ -39,6 +49,7 @@ class DashboardView:
     stats: ReadingStats
     wrapped: Wrapped
     recommendations: tuple[Recommendation, ...]
+    forecasts: tuple[BookForecast, ...] = ()
     series_next: tuple[SeriesNext, ...] = ()
     to_read: tuple[ReadingState, ...] = ()
     library: tuple[ReadingState, ...] = ()
@@ -60,6 +71,19 @@ def _infer_today_and_year(
     epoch = datetime.date(1970, 1, 1).toordinal()
     year = datetime.date.fromordinal(epoch + today_ordinal).year if today_ordinal else 1970
     return today_ordinal, year
+
+
+def _remaining_pages(state: ReadingState) -> int:
+    """Pages left in a book from its reading stat; 0 when it can't be known.
+
+    ``forecast_book`` treats a non-positive remaining count as unestimable, so a
+    book with no page stat honestly reports "not enough recent reading to
+    estimate" rather than a guessed range.
+    """
+    stat = state.stat
+    if stat is None or stat.total_pages <= 0:
+        return 0
+    return max(0, stat.total_pages - stat.pages_read)
 
 
 def build_view(
@@ -121,16 +145,26 @@ def build_view(
         dnf_signals=dnf_signals,
     )
     library = sorted(states, key=lambda s: (s.title.lower(), s.authors))
+    reading_now = tuple(currently_reading(states))
+    forecasts = tuple(
+        BookForecast(
+            title=s.title,
+            authors=s.authors,
+            forecast=forecast_book(_remaining_pages(s), daily_activity),
+        )
+        for s in reading_now
+    )
     stale = False
     if refreshed_at is not None:
         current = int(time.time()) if now is None else now
         stale = (current - refreshed_at) > STALE_AFTER_SECONDS
     return DashboardView(
-        currently_reading=tuple(currently_reading(states)),
+        currently_reading=reading_now,
         finished=tuple(finished(states)),
         stats=stats,
         wrapped=wrapped,
         recommendations=tuple(recs),
+        forecasts=forecasts,
         series_next=tuple(series_continuations(states)),
         to_read=tuple(to_read(states)),
         library=tuple(library),
@@ -153,6 +187,7 @@ def render_view(view: DashboardView) -> str:
         view.stats,
         view.wrapped,
         view.recommendations,
+        forecasts=view.forecasts,
         series_next=view.series_next,
         to_read=view.to_read,
         library=view.library,

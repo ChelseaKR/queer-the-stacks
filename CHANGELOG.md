@@ -13,6 +13,11 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Added
+- A "Time to finish" dashboard section: for each currently-reading book, an
+  accessible table shows a ranged time-to-finish estimate from your recent
+  reading pace (never a single number), computed locally by the existing
+  `app.forecast` module; books without enough recent reading say so plainly
+  rather than guess (EXP-04 dashboard wiring).
 - Structured JSON request logging, `/livez`, and fail-closed `/readyz` (#13).
 - `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (#12).
 - Trivy container CVE scan, blocking on HIGH/CRITICAL (#11).

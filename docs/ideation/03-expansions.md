@@ -80,8 +80,10 @@ combined remaining-pages total and adds a weeks-ish gloss to the basis when
 the high end is large. `tests/test_forecast.py` pins the p25/p75 math against
 a hand-computable fixture and covers the thin-data and zero/negative-pages
 fallbacks. Not wired into `render.py`/`app/server.py` — the spec scoped this
-item to the pure module + fixture test; wiring into the dashboard view is a
-natural, still-open follow-up.
+item to the pure module + fixture test. The dashboard wiring is now done: the
+view builds a per-book `BookForecast` for every currently-reading title and the
+renderer shows an accessible "Time to finish" section (a range, never a single
+number; unestimable books say so).
 **Pitch:** "at your recent pace, this 384-page book ≈ 8–10 hours; this series
 ≈ 6 weeks" — locally, from KOReader page timing.
 **Impact:** turns data the system already has

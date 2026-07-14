@@ -41,6 +41,7 @@ def test_render_contains_all_sections(tmp_path: Path) -> None:
     )
     for heading in (
         "Currently reading",
+        "Time to finish",
         "Reading stats",
         "Reading Wrapped",
         "Recommended for you",
@@ -171,3 +172,55 @@ def test_hide_sensitive_redacts_diversity_section(states: list, candidates: tupl
     assert "Privacy:" in section
     # The redacted page is still fully accessible (the a11y contract holds).
     assert check_html(html) == []
+
+
+def test_forecasts_render_a_ranged_estimate() -> None:
+    from ingest.models import ReadingStat
+
+    stat = ReadingStat(
+        key="k",
+        title="Pace Book",
+        authors=("Author One",),
+        pages_read=100,
+        total_pages=300,
+        read_time_seconds=3600,
+        last_read_ts=1_700_000_000,
+        sessions=6,
+    )
+    state = ReadingState(
+        title="Pace Book",
+        authors=("Author One",),
+        status=ReadingStatus.READING,
+        stat=stat,
+    )
+    # Six recent days with pages read give a solid per-page pace sample
+    # (>= MIN_DAYS_FOR_ESTIMATE), so the forecast is estimable.
+    daily = [DailyActivity(day_ordinal=d, seconds=600, pages=10) for d in range(1, 7)]
+    view = build_view([state], daily, ())
+
+    assert len(view.forecasts) == 1
+    forecast = view.forecasts[0].forecast
+    assert forecast.estimable
+    assert forecast.low_hours > 0
+    assert forecast.high_hours >= forecast.low_hours
+
+    html = render_view(view)
+    assert "Time to finish" in html
+    assert "hours" in html
+    assert "from your last" in html  # the window basis is disclosed, never hidden
+    assert check_html(html) == []  # the new section is accessible
+
+
+def test_forecast_without_page_stat_is_honestly_unestimated() -> None:
+    # A currently-reading book with no reading stat can't be forecast; it must
+    # say so rather than guess (unknown stays first-class).
+    state = ReadingState(
+        title="No Stats Yet",
+        authors=("Author Two",),
+        status=ReadingStatus.READING,
+    )
+    view = build_view([state], [DailyActivity(1, 600, 10)], ())
+    assert len(view.forecasts) == 1
+    assert not view.forecasts[0].forecast.estimable
+    html = render_view(view)
+    assert "not enough recent reading to estimate" in html
