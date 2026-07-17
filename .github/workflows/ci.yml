@@ -17,9 +17,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref — PRs and main alike; a newer push
+# always carries its own full run (CI-CD-STANDARD §11c).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -44,6 +46,7 @@ jobs:
         uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
           version: "0.11.26"
+          enable-cache: true # CI job only — release.yml keeps caching off (§8c)
 
       # `--frozen` fails the build on any drift between pyproject.toml and the
       # committed uv.lock, instead of silently re-resolving (CQ-09, SEC-13).
