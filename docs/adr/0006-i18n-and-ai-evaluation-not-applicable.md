@@ -34,6 +34,6 @@ Chosen: the third option, matching CQ-45's ask.
 
 ## Links
 
-* [`README.md` §Standards](../../README.md#standards)
+* [`README.md` §Standards Conformance](../../README.md#standards-conformance)
 * [`docs/RESPONSIBLE-TECH-AUDITS.md` §Applicability](../RESPONSIBLE-TECH-AUDITS.md)
 * [`docs/I18N.md`](../I18N.md)
