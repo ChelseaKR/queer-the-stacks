@@ -83,9 +83,7 @@ docs/
 - **M6 — Polish.** To-read shelf, goals, export. *Done when all §7 gates pass.*
 - **Claude Code approach.** Treat the real libraries as sacred (read-only, snapshot first); allowlist outbound hosts (no Goodreads, no analytics); explain and source every recommendation.
 
-## 9. Go-to-market & community
-- **Positioning.** "Your reading life, unified and private — with recs that respect your taste and values."
-- **Marketing/comms.** A clean self-hosting + responsible-recommender story; pairs naturally with the music engine as a "values-aware discovery" theme.
+## 9. Community
 - **Community.** Self-hosting guide; a documented, reusable "ethical book-data sources" list; contribution guide.
 
 ## 10. Legal & compliance

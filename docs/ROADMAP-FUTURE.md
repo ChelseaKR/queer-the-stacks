@@ -103,7 +103,7 @@ your real library" before adding features.
 1. **Hardened live adapters** — OpenLibrary, Hardcover (GraphQL), Bookwyrm
    federation behind the allowlist, with caching, rate-limit respect, and
    provenance on every field. *(N2)*
-2. **Reusable "ethical book-data sources" list** — ship the GTM-promised,
+2. **Reusable "ethical book-data sources" list** — ship the roadmap-promised,
    versioned data file others can reuse. *(N2)*
 3. **Curated-list ingestion pipeline** — import named community lists (citation +
    `retrieved_at`); a refresh job flags rotted links. *(N2)*
