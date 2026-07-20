@@ -316,7 +316,7 @@ dataset — source compliance cards, cited-list registry, descriptor-lens
 vocabulary — with governance and branch E8's author-correction path as its
 intake.
 **Impact:** every values-aligned reading tool needs exactly this and each
-rebuilds it badly; it is ROADMAP §9's GTM promise at full size. Contains zero
+rebuilds it badly; it is ROADMAP §9's community promise at full size. Contains zero
 reading data by construction — ethics metadata, not anyone's shelf.
 **Shape:** a separate repo (private until decided otherwise) generated
 from/feeding this repo's registry; JSON + rendered docs; a governance file
