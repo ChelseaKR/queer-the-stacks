@@ -37,22 +37,49 @@ history to a hosted analytics or recommendation service.
 - **Every pick explained:** why + which source, with diverse/small-press surfacing rather than bestseller bias.
 - **Self-hosted & private:** runs on your seedbox; reading data never leaves it.
 
-## For Claude Code
-- **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
-- **Hard guardrails:** **open Calibre's `metadata.db` and KOReader's `statistics.sqlite` strictly read-only** (never write to or risk corrupting the real libraries — copy/snapshot before reading); **reading data is sensitive and never leaves the self-hosted instance** (no third-party analytics, no telemetry, behind auth on the seedbox); **do not scrape Goodreads** (Amazon ToS + gatekeeping) — source recommendations from OpenLibrary/Hardcover/Bookwyrm/curated lists with provenance; books and authors are described via *sourced* theme/genre tags, never reductive auto-assigned identity labels; every recommendation shows why + source.
-- **Commands:** `make dev` · `make verify` · `make a11y` · `make eval`.
-- **Run it on your library:** point it at your real, read-only sources and ingest into the local app-state store —
-  ```sh
-  export STACKS_CALIBRE_DB=/path/to/Calibre/metadata.db
-  export STACKS_KOREADER_DB=/path/to/koreader/statistics.sqlite
-  # optional cross-device progress (key from the env, never a file):
-  export STACKS_KOSYNC_HOST=https://sync.koreader.rocks STACKS_KOSYNC_USER=you STACKS_KOSYNC_KEY=…
-  stacks doctor     # validate paths + confirm read-only access (mutates nothing)
-  stacks refresh    # snapshot-first ingest into data/app-state.sqlite
-  uvicorn app.server:app   # serve the dashboard behind auth (set STACKS_AUTH_TOKEN)
-  ```
-  Config can also live in `stacks.toml` (`[calibre] path=…`); env vars win. See [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
-- **Definition of done:** a single self-hosted dashboard shows cross-device reading state and stats from Calibre + KOReader, plus explainable recommendations from ethical sources — read-only against source libraries, private to its host, with every repository gate green.
+## Quickstart
+
+Try it in demo mode first — no real library needed:
+
+```sh
+make dev    # installs, then serves a demo dashboard at http://127.0.0.1:8765
+```
+
+To run it on your library, point it at your real, read-only sources and ingest
+into the local app-state store:
+
+```sh
+export STACKS_CALIBRE_DB=/path/to/Calibre/metadata.db
+export STACKS_KOREADER_DB=/path/to/koreader/statistics.sqlite
+# optional cross-device progress (key from the env, never a file):
+export STACKS_KOSYNC_HOST=https://sync.koreader.rocks STACKS_KOSYNC_USER=you STACKS_KOSYNC_KEY=…
+stacks doctor     # validate paths + confirm read-only access (mutates nothing)
+stacks refresh    # snapshot-first ingest into data/app-state.sqlite
+uvicorn app.server:app   # serve the dashboard behind auth (set STACKS_AUTH_TOKEN)
+```
+
+Config can also live in `stacks.toml` (`[calibre] path=…`); env vars win.
+`make verify` runs every checkable gate (CI parity). See
+[`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
+
+## Guardrails
+
+- **Source libraries are opened strictly read-only.** Calibre's `metadata.db`
+  and KOReader's `statistics.sqlite` are never written to or put at risk of
+  corruption; ingest snapshots/copies before reading.
+- **Reading data is sensitive and never leaves the self-hosted instance:** no
+  third-party analytics, no telemetry, and the dashboard sits behind auth on
+  its host.
+- **No Goodreads scraping** (Amazon ToS + gatekeeping). Recommendations are
+  sourced from OpenLibrary, Hardcover, Bookwyrm, and curated community lists,
+  with provenance.
+- **Books and authors are described via *sourced* theme/genre tags,** never
+  reductive auto-assigned identity labels.
+- **Every recommendation shows why it was picked and which source it came
+  from.**
+
+Agent-facing build instructions (entrypoint, commands, definition of done) live
+in [`CLAUDE.md`](./CLAUDE.md).
 
 ## Standards Conformance
 
