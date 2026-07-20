@@ -7,7 +7,7 @@ recommendations sourced from ethical, non-gatekept catalogs. The service is
 designed for a single reader and can run on a home server or seedbox beside
 Calibre-Web.
 
-**Status:** `Beta` · **Track:** Personal (self-hosted web app + recommender) · **License:** MIT · **Data:** self-hosted/private
+**Status:** `Beta` · **Track:** Personal (self-hosted web app + recommender) · **License:** AGPL-3.0-or-later · **Data:** self-hosted/private
 
 > **Build:** M0–M6 **plus expansion phases N1–N6** implemented on **Python
 > 3.14**. `make verify` runs lint, strict typing, tests with coverage,
