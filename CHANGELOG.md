@@ -32,6 +32,10 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   ethical-catalog recommender with explanations, auth-gated self-hosted dashboard).
 
 ### Changed
+- Reconciled the contradictory internationalization dispositions: the standard
+  now applies, deferred to backlog #17's fork/audience decision; `docs/I18N.md`
+  defines both decision paths and ADR 0007 supersedes only the i18n portion of
+  ADR 0006. No catalog or translation is claimed.
 - Dependency security refresh: raised `starlette`/`msgpack` floors above known advisories (#10).
 - Pinned all GitHub Actions `uses:` to full commit SHAs (#5).
 - CI quick wins: least-privilege `permissions:`, SHA-pinning, blocking security gates (#4).
