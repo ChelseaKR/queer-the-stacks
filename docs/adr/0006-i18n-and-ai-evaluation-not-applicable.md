@@ -3,6 +3,9 @@
 * Status: accepted
 * Date: 2026-07-05
 
+> **Partially superseded:** ADR 0007 supersedes the internationalization
+> decision. The AI Evaluation decision below remains accepted.
+
 ## Context and Problem Statement
 
 `STANDARDS/CODE-QUALITY-STANDARD.md` (CQ-45) asks for an ADR-style record backing any
