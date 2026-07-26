@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ingest.models import DailyActivity, ReadingState, Recommendation
+from ingest.models import Book, DailyActivity, ReadingState, Recommendation
+from ingest.store import CatalogPoolStatus
 from ingest.unify import currently_reading, finished
 from recommender.eval import PopCandidate
 from recommender.hybrid import recommend_hybrid
@@ -59,6 +60,12 @@ class DashboardView:
     user: str = "demo"
     refreshed_at: Optional[int] = None
     stale: bool = False
+    catalog_status: CatalogPoolStatus = CatalogPoolStatus()
+    browse_query: str = ""
+    browse_theme: str = ""
+    browse_author: str = ""
+    browse_series: str = ""
+    browse_status: str = ""
 
 
 def _infer_today_and_year(
@@ -107,6 +114,7 @@ def build_view(
     hide_sensitive_descriptors: bool = False,
     refreshed_at: Optional[int] = None,
     now: Optional[int] = None,
+    catalog_status: Optional[CatalogPoolStatus] = None,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure).
 
@@ -134,7 +142,10 @@ def build_view(
         lens_warning=lens_warning,
         hide_sensitive=hide_sensitive_descriptors,
     )
-    candidate_books = tuple(c.book for c in candidates)  # type: ignore[attr-defined]
+    candidate_books = tuple(
+        candidate if isinstance(candidate, Book) else candidate.book  # type: ignore[attr-defined]
+        for candidate in candidates
+    )
     recs = recommend_hybrid(
         states,
         candidate_books,
@@ -174,6 +185,7 @@ def build_view(
         user=user,
         refreshed_at=refreshed_at,
         stale=stale,
+        catalog_status=catalog_status or CatalogPoolStatus(),
     )
 
 
@@ -197,6 +209,12 @@ def render_view(view: DashboardView) -> str:
         user=view.user,
         refreshed_at=view.refreshed_at,
         stale=view.stale,
+        catalog_status=view.catalog_status,
+        browse_query=view.browse_query,
+        browse_theme=view.browse_theme,
+        browse_author=view.browse_author,
+        browse_series=view.browse_series,
+        browse_status=view.browse_status,
     )
 
 
@@ -214,12 +232,13 @@ def view_from_store(
     lens_config: Optional[Path] = None,
     hide_sensitive_descriptors: bool = False,
     authored_lists: tuple[CuratedList, ...] = (),
+    demo_mode: bool = False,
 ) -> DashboardView:
     """Build the dashboard view from persisted derived state in the store.
 
-    Recommendations draw on the built-in curated seed catalog (real books on cited
-    community lists) plus the hybrid signals; live catalog candidate pools land
-    when configured (phase N2 adapters).
+    Recommendations draw on the last successfully persisted public catalog pool.
+    Demo candidates are used only for an explicitly requested demo-mode fallback
+    (primarily backward compatibility with stores created before pool persistence).
 
     ``lens_config``, if given, points at a validated ``[[lenses]]`` TOML file
     (see :func:`app.diversity.load_lens_config`) that overrides the built-in
@@ -232,13 +251,17 @@ def view_from_store(
 
     states = store.load_states()  # type: ignore[attr-defined]
     activity = store.load_daily_activity()  # type: ignore[attr-defined]
+    candidates = store.load_catalog_candidates()  # type: ignore[attr-defined]
+    if not candidates and demo_mode:
+        candidates = tuple(candidate.book for candidate in demo_candidates())
+    lists = DEMO_LISTS if demo_mode else ()
     lenses = load_lens_config(lens_config)
     refreshed_at = store.refreshed_at()  # type: ignore[attr-defined]
     return build_view(
         states,
         activity,
-        demo_candidates(),
-        lists=DEMO_LISTS,
+        candidates,
+        lists=lists,
         authored_lists=authored_lists,
         user=user,
         aperture_strength=aperture_strength,
@@ -253,6 +276,7 @@ def view_from_store(
         lens_warning=lenses.warning,
         hide_sensitive_descriptors=hide_sensitive_descriptors,
         refreshed_at=refreshed_at,
+        catalog_status=store.catalog_pool_status(),  # type: ignore[attr-defined]
     )
 
 

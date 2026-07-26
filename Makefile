@@ -7,6 +7,7 @@ PIP     ?= .venv/bin/pip
 # Interpreter used to create the venv — Python 3.14 is the project floor.
 PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
+A11Y_LOGIN_HTML := docs/audits/login.html
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev verify format lint marker-hygiene typecheck test security a11y eval perf perf-load lighthouse perf-gates audit clean
@@ -73,15 +74,19 @@ security: ## Stage 4 — dependency vulnerability + secret scan + lockfile CVE s
 		echo "osv-scanner not installed locally — CI installs a pinned binary and runs this blocking (ci.yml); install it (https://google.github.io/osv-scanner) to match CI locally"; \
 	fi
 
-a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations, blocking)
+a11y: ## Stage 5 — audit dashboard + login at desktop/mobile/light/dark (blocking)
 	$(PYTHON) -m app.build_static
-	# Two blocking layers: the built-in static checker (deterministic, no browser
-	# needed — structural: lang/viewport/headings/landmarks/tables/links) PLUS
-	# pa11y (axe runtime, real browser-engine checks incl. color-contrast). Both
-	# must be zero-violation to pass; neither is advisory (graduated 2026-07-05 —
-	# see docs/ROADMAP.md §7 and A11Y-03).
+	# Layer 1: deterministic structural checks on both user-facing entry points.
 	$(PYTHON) -m app.a11y_check $(A11Y_HTML)
+	$(PYTHON) -m app.a11y_check $(A11Y_LOGIN_HTML)
+	# Layer 2a: pa11y/axe in a real browser at default desktop and 320px viewports.
 	pa11y --runner axe --config .pa11y.json $(A11Y_HTML)
+	pa11y --runner axe --config .pa11y.mobile.json $(A11Y_HTML)
+	pa11y --runner axe --config .pa11y.json $(A11Y_LOGIN_HTML)
+	pa11y --runner axe --config .pa11y.mobile.json $(A11Y_LOGIN_HTML)
+	# Layer 2b: explicit light/dark axe scans plus an actual document-width
+	# assertion at 320px (axe alone does not implement WCAG 1.4.10 reflow).
+	node scripts/a11y-browser-check.js $(A11Y_HTML) $(A11Y_LOGIN_HTML)
 
 eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 	$(PYTHON) -m ingest.cli eval --k 5 --out docs/audits/eval-report.json

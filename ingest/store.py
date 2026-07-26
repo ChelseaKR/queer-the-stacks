@@ -16,13 +16,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ingest.models import DailyActivity, DeviceProgress, ReadingState
+from ingest.models import Book, DailyActivity, DeviceProgress, ReadingState
 from ingest.serde import (
     activity_from_dict,
     activity_to_dict,
+    book_from_dict,
+    book_to_dict,
     state_from_dict,
     state_to_dict,
 )
@@ -32,6 +36,41 @@ _ACTIVITY_KEY = "daily_activity"
 _REFRESHED_KEY = "refreshed_at"
 _MTIMES_KEY = "source_mtimes"
 _PROGRESS_KEY = "kosync_progress"
+_CATALOG_KEY = "catalog_pool"
+_VIEW_REVISION_KEY = "view_revision"
+
+
+@dataclass(frozen=True)
+class CatalogSourceUpdate:
+    """One catalog source's result from the current refresh attempt."""
+
+    source_id: str
+    books: tuple[Book, ...] = ()
+    ok: bool = True
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class CatalogSourceStatus:
+    """Persisted operational status for one configured public catalog source."""
+
+    source_id: str
+    status: str
+    attempted_at: int
+    fetched_at: Optional[int]
+    candidate_count: int
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class CatalogPoolStatus:
+    """Aggregate catalog freshness/egress state suitable for the dashboard."""
+
+    outbound_mode: str = "off"
+    state: str = "off"
+    attempted_at: Optional[int] = None
+    candidate_count: int = 0
+    sources: tuple[CatalogSourceStatus, ...] = ()
 
 
 class Store:
@@ -60,11 +99,22 @@ class Store:
         "INSERT INTO app_state (key, value) VALUES (?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
     )
+    _BUMP_VIEW_REVISION = (
+        "INSERT INTO app_state (key, value) VALUES (?, '1') "
+        "ON CONFLICT(key) DO UPDATE SET "
+        "value = CAST(CAST(app_state.value AS INTEGER) + 1 AS TEXT)"
+    )
 
     def _put(self, key: str, value: object) -> None:
         """Persist one independent value and commit it immediately."""
         self._conn.execute(self._UPSERT, (key, json.dumps(value)))
         self._conn.commit()
+
+    def _put_view_state(self, key: str, value: object) -> None:
+        """Atomically persist one view input and advance its cache revision."""
+        with self._conn:
+            self._conn.execute(self._UPSERT, (key, json.dumps(value)))
+            self._conn.execute(self._BUMP_VIEW_REVISION, (_VIEW_REVISION_KEY,))
 
     def _get(self, key: str) -> object:
         row = self._conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
@@ -80,10 +130,10 @@ class Store:
     ) -> None:
         """Persist a full refresh of derived state atomically.
 
-        All four rows are written in ONE transaction: a crash (or concurrent
+        All view rows are written in ONE transaction: a crash (or concurrent
         reader) can never observe new states paired with a stale
-        ``refreshed_at``/``source_mtimes`` — it sees the whole refresh or none
-        of it.
+        ``refreshed_at``/``source_mtimes``/cache revision — it sees the whole
+        refresh or none of it.
         """
         rows: list[tuple[str, object]] = [
             (_STATES_KEY, [state_to_dict(s) for s in states]),
@@ -93,6 +143,7 @@ class Store:
         ]
         with self._conn:  # commits on success, rolls back on error
             self._conn.executemany(self._UPSERT, [(k, json.dumps(v)) for k, v in rows])
+            self._conn.execute(self._BUMP_VIEW_REVISION, (_VIEW_REVISION_KEY,))
 
     def load_states(self) -> list[ReadingState]:
         raw = self._get(_STATES_KEY)
@@ -109,6 +160,11 @@ class Store:
     def refreshed_at(self) -> Optional[int]:
         raw = self._get(_REFRESHED_KEY)
         return int(raw) if isinstance(raw, int) else None
+
+    def view_revision(self) -> int:
+        """Monotonic cache key for every persisted input rendered by the app."""
+        raw = self._get(_VIEW_REVISION_KEY)
+        return int(raw) if isinstance(raw, int) else 0
 
     def source_mtimes(self) -> dict[str, int]:
         raw = self._get(_MTIMES_KEY)
@@ -150,43 +206,98 @@ class Store:
             )
         return out
 
-    def stale_progress_keys(self, signatures: dict[str, str]) -> set[str]:
+    def stale_progress_keys(
+        self,
+        signatures: dict[str, str],
+        *,
+        now: Optional[int] = None,
+        ttl_seconds: Optional[int] = None,
+    ) -> set[str]:
         """Keys in ``signatures`` that need a fresh kosync fetch.
 
         ``signatures`` maps a stat key to a cheap fingerprint of its current
         local reading state. A key is stale (needs re-fetching) if it has no
-        cached entry yet, or if its stored fingerprint no longer matches —
-        everything else can safely reuse :meth:`cached_progress`.
+        cached entry yet, if its stored fingerprint no longer matches, or if
+        the bounded remote-progress TTL has expired. The TTL matters because a
+        different device can advance kosync without changing any local source
+        database mtime or ``ReadingStat``.
         """
         raw = self._get(_PROGRESS_KEY)
         cached = raw if isinstance(raw, dict) else {}
         stale: set[str] = set()
         for key, sig in signatures.items():
             entry = cached.get(key)
-            if not isinstance(entry, dict) or entry.get("signature") != sig:
+            expired = False
+            if isinstance(entry, dict) and now is not None and ttl_seconds is not None:
+                fetched_at = entry.get("fetched_at")
+                expired = not isinstance(fetched_at, int) or now - fetched_at >= ttl_seconds
+            if (
+                not isinstance(entry, dict)
+                or entry.get("signature") != sig
+                or entry.get("error") is True
+                or expired
+            ):
                 stale.add(key)
         return stale
+
+    def progress_refresh_due(self, now: int, ttl_seconds: int) -> bool:
+        """Whether any cached kosync key has reached its remote freshness bound."""
+        raw = self._get(_PROGRESS_KEY)
+        if not isinstance(raw, dict):
+            return True
+        if not raw:
+            return False
+        return any(
+            not isinstance(entry, dict)
+            or entry.get("error") is True
+            or not isinstance(entry.get("fetched_at"), int)
+            or now - int(entry["fetched_at"]) >= ttl_seconds
+            for entry in raw.values()
+        )
 
     def save_progress(
         self,
         progress: dict[str, DeviceProgress],
         signatures: dict[str, str],
         fetched_at: int,
+        *,
+        fetched_keys: Optional[set[str]] = None,
+        failed_keys: Optional[set[str]] = None,
     ) -> None:
         """Persist resolved kosync progress, replacing the prior cache.
 
         ``signatures`` should cover every stat key considered this refresh
         (whether or not it resolved to progress) so the next refresh's
         :meth:`stale_progress_keys` call has a complete picture; ``progress``
-        need only carry the keys that actually resolved.
+        need only carry resolved or retained last-good values. ``failed_keys``
+        stay explicit and immediately retryable without advancing their
+        remote-freshness clock.
         """
+        raw = self._get(_PROGRESS_KEY)
+        previous = raw if isinstance(raw, dict) else {}
         entries: dict[str, dict[str, object]] = {}
+        failures = failed_keys or set()
         for key, sig in signatures.items():
             dp = progress.get(key)
+            old = previous.get(key)
+            old = old if isinstance(old, dict) else {}
+            fetched_this_time = fetched_keys is None or key in fetched_keys
+            failed_this_time = key in failures
             entry: dict[str, object] = {
                 "signature": sig,
-                "fetched_at": int(fetched_at),
+                # Reusing a cached result must not reset its remote-freshness
+                # clock; otherwise frequent local refreshes could postpone the
+                # bounded TTL forever.
+                "fetched_at": (
+                    old.get("fetched_at")
+                    if failed_this_time or not fetched_this_time
+                    else int(fetched_at)
+                ),
                 "found": dp is not None,
+                # Failed keys stay explicit and immediately retryable. Keeping
+                # the marker also avoids the all-errors -> empty-cache case
+                # suppressing top-level refreshes behind unchanged mtimes.
+                "error": failed_this_time,
             }
             if dp is not None:
                 entry.update(
@@ -197,3 +308,153 @@ class Store:
                 )
             entries[key] = entry
         self._put(_PROGRESS_KEY, entries)
+
+    # --- persisted public catalog candidate pool ----------------------------
+
+    def load_catalog_candidates(self) -> tuple[Book, ...]:
+        """Load the merged last-good candidate pool from configured sources."""
+        raw = self._get(_CATALOG_KEY)
+        if not isinstance(raw, dict):
+            return ()
+        sources = raw.get("sources")
+        if not isinstance(sources, dict):
+            return ()
+        books: list[Book] = []
+        for source_id in sorted(sources):
+            entry = sources[source_id]
+            if not isinstance(entry, dict) or not isinstance(entry.get("books"), list):
+                continue
+            for item in entry["books"]:
+                if isinstance(item, dict):
+                    try:
+                        books.append(book_from_dict(item))
+                    except KeyError, TypeError, ValueError:
+                        continue
+        from recommender.catalogs import merge_candidates
+
+        return merge_candidates(tuple(books))
+
+    def catalog_source_statuses(self) -> tuple[CatalogSourceStatus, ...]:
+        raw = self._get(_CATALOG_KEY)
+        sources = raw.get("sources") if isinstance(raw, dict) else None
+        if not isinstance(sources, dict):
+            return ()
+        statuses: list[CatalogSourceStatus] = []
+        for source_id in sorted(sources):
+            entry = sources[source_id]
+            if not isinstance(entry, dict):
+                continue
+            books = entry.get("books")
+            statuses.append(
+                CatalogSourceStatus(
+                    source_id=source_id,
+                    status=str(entry.get("status", "unknown")),
+                    attempted_at=int(entry.get("attempted_at", 0)),
+                    fetched_at=(
+                        int(entry["fetched_at"])
+                        if isinstance(entry.get("fetched_at"), int)
+                        else None
+                    ),
+                    candidate_count=len(books) if isinstance(books, list) else 0,
+                    error=str(entry.get("error", "")),
+                )
+            )
+        return tuple(statuses)
+
+    def catalog_attempted_at(self) -> Optional[int]:
+        raw = self._get(_CATALOG_KEY)
+        attempted = raw.get("attempted_at") if isinstance(raw, dict) else None
+        return int(attempted) if isinstance(attempted, int) else None
+
+    def catalog_pool_status(self) -> CatalogPoolStatus:
+        raw = self._get(_CATALOG_KEY)
+        mode = str(raw.get("outbound_mode", "off")) if isinstance(raw, dict) else "off"
+        statuses = self.catalog_source_statuses()
+        if mode != "public-metadata":
+            state = "off"
+        elif not statuses:
+            state = "unconfigured"
+        elif any(source.status == "error" for source in statuses):
+            state = "degraded"
+        else:
+            state = "fresh"
+        return CatalogPoolStatus(
+            outbound_mode=mode,
+            state=state,
+            attempted_at=self.catalog_attempted_at(),
+            candidate_count=len(self.load_catalog_candidates()),
+            sources=statuses,
+        )
+
+    def catalog_refresh_due(self, now: int, ttl_seconds: int) -> bool:
+        attempted = self.catalog_attempted_at()
+        return attempted is None or now - attempted >= ttl_seconds
+
+    def save_catalog_refresh(
+        self,
+        updates: tuple[CatalogSourceUpdate, ...],
+        *,
+        active_source_ids: set[str],
+        attempted_at: int,
+        outbound_mode: str,
+    ) -> None:
+        """Merge source results, retaining last-good books on source failure.
+
+        Sources removed from configuration are removed from the active pool.
+        A failed active source keeps its previously fetched public metadata and
+        ``fetched_at`` while exposing the latest attempt/error in status.
+        """
+        previous = self._get(_CATALOG_KEY)
+        old_sources = previous.get("sources") if isinstance(previous, dict) else {}
+        old_sources = old_sources if isinstance(old_sources, dict) else {}
+        by_id: Mapping[str, CatalogSourceUpdate] = {u.source_id: u for u in updates}
+        sources: dict[str, object] = {}
+        for source_id in sorted(active_source_ids):
+            update = by_id.get(source_id)
+            old = old_sources.get(source_id)
+            old = old if isinstance(old, dict) else {}
+            if update is None:
+                sources[source_id] = old
+                continue
+            if update.ok:
+                sources[source_id] = {
+                    "status": "ok",
+                    "attempted_at": attempted_at,
+                    "fetched_at": attempted_at,
+                    "error": "",
+                    "books": [book_to_dict(book) for book in update.books],
+                }
+            else:
+                sources[source_id] = {
+                    "status": "error",
+                    "attempted_at": attempted_at,
+                    "fetched_at": old.get("fetched_at"),
+                    "error": update.error,
+                    "books": old.get("books", []),
+                }
+        self._put_view_state(
+            _CATALOG_KEY,
+            {
+                "attempted_at": attempted_at,
+                "outbound_mode": outbound_mode,
+                "sources": sources,
+            },
+        )
+
+    def save_catalog_mode(self, outbound_mode: str, active_source_ids: set[str]) -> None:
+        """Record consent mode/configuration without making a fetch look attempted."""
+        previous = self._get(_CATALOG_KEY)
+        old = previous if isinstance(previous, dict) else {}
+        old_sources = old.get("sources")
+        old_sources = old_sources if isinstance(old_sources, dict) else {}
+        updated = {
+            "attempted_at": old.get("attempted_at"),
+            "outbound_mode": outbound_mode,
+            "sources": {
+                source_id: old_sources[source_id]
+                for source_id in sorted(active_source_ids)
+                if source_id in old_sources
+            },
+        }
+        if updated != old:
+            self._put_view_state(_CATALOG_KEY, updated)

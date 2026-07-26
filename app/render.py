@@ -23,6 +23,7 @@ from html import escape
 from typing import TYPE_CHECKING, Optional
 
 from ingest.models import ReadingState, Recommendation
+from ingest.store import CatalogPoolStatus
 
 if TYPE_CHECKING:
     from app.view import BookForecast
@@ -33,6 +34,8 @@ from app.goals import Goal
 from app.shelf import SeriesNext
 from app.stats import ReadingStats
 from app.wrapped import Wrapped
+
+LIBRARY_PREVIEW_LIMIT = 100
 
 
 def _pct(value: float) -> str:
@@ -49,13 +52,19 @@ def _theme_chips(state: ReadingState) -> str:
 def _reading_item(state: ReadingState) -> str:
     authors = escape(", ".join(state.authors) or "unknown author")
     device = escape(state.latest_device or "—")
+    title = escape(state.title)
+    progress = max(0, min(100, round(state.percent_complete * 100)))
     return (
         '<li class="reading">'
-        f"<h3>{escape(state.title)}</h3>"
+        '<div class="shelfmark" aria-hidden="true"><span>IN CIRCULATION</span></div>'
+        '<div class="reading-copy">'
+        f"<h3>{title}</h3>"
         f'<p class="byline">by {authors}</p>'
-        f'<p class="progress">Progress: {_pct(state.percent_complete)} '
-        f"· last on {device}</p>"
-        f"{_theme_chips(state)}"
+        f'<p class="progress-label"><strong>{progress}% complete</strong>'
+        f" · last on {device}</p>"
+        f'<progress max="100" value="{progress}" '
+        f'aria-label="Reading progress for {title}">{progress}%</progress>'
+        f"{_theme_chips(state)}</div>"
         "</li>"
     )
 
@@ -119,29 +128,29 @@ def _wrapped_table(wrapped: Wrapped) -> str:
 _EXTERNAL_REL = "noopener noreferrer external"
 
 
+def _source_item(kind: object, citation: str, retrieved_at: str) -> str:
+    """Render external citations as links and local citations as honest text.
+
+    Local ``curated-list:...`` citations used to point at in-page fragments
+    that did not exist. They remain visible provenance, but are no longer
+    presented as broken links.
+    """
+    label = escape(citation)
+    if citation.startswith(("http://", "https://")):
+        source = f'<a href="{label}" rel="{_EXTERNAL_REL}">{label}</a>'
+    else:
+        source = f'<span class="local-citation">{label}</span>'
+    return (
+        f"<li>{escape(str(kind))}: {source} "
+        f'<span class="retrieved">(retrieved {escape(retrieved_at)})</span></li>'
+    )
+
+
 def _sources_html(rec: Recommendation) -> str:
     items = "".join(
-        f"<li>{escape(str(s.kind))}: "
-        f'<a href="{escape(_as_url(s.citation))}"{_link_rel_attr(s.citation)}>'
-        f"{escape(s.citation)}</a> "
-        f'<span class="retrieved">(retrieved {escape(s.retrieved_at)})</span></li>'
-        for s in rec.explanation.sources
+        _source_item(s.kind, s.citation, s.retrieved_at) for s in rec.explanation.sources
     )
     return f"<h4>Sources</h4><ul>{items}</ul>"
-
-
-def _as_url(citation: str) -> str:
-    """Make a non-URL citation (e.g. ``curated-list:…``) a safe in-page anchor."""
-    if citation.startswith(("http://", "https://")):
-        return citation
-    return f"#source-{citation.replace(':', '-').replace(' ', '-')}"
-
-
-def _link_rel_attr(citation: str) -> str:
-    """A ``rel`` attribute for a citation link — only external links get it."""
-    if citation.startswith(("http://", "https://")):
-        return f' rel="{_EXTERNAL_REL}"'
-    return ""
 
 
 def _signals_html(rec: Recommendation) -> str:
@@ -166,50 +175,209 @@ def _rec_card(rec: Recommendation) -> str:
     )
 
 
-def _rec_table(recs: Sequence[Recommendation]) -> str:
-    rows = "".join(
-        f"<tr><td>{r.rank}</td>"
-        f'<th scope="row">{escape(r.book.title)}</th>'
-        f"<td>{escape(', '.join(r.book.author_names) or 'unknown')}</td>"
-        f"<td>{r.score:.3f}</td></tr>"
-        for r in recs
-    )
-    return (
-        "<table><caption>Recommendation fit scores (data-table equivalent of the cards)"
-        '</caption><thead><tr><th scope="col">Rank</th>'
-        '<th scope="col">Title</th><th scope="col">Author</th>'
-        f'<th scope="col">Fit</th></tr></thead><tbody>{rows}</tbody></table>'
-    )
-
-
 _STYLE = """
-:root { color-scheme: light dark; }
-/* Explicit fg/bg (system Canvas/CanvasText, not just the color-scheme hint) so
-   every element inherits a guaranteed-AA-contrast pair in both light and dark —
-   without this, unstyled table cells can inherit mismatched UA default colors
-   in some browsers/OSes and fail the axe color-contrast check (FIX 2026-07-05,
-   closes the pa11y-graduation blocker — see docs/ROADMAP.md §7). */
-html { color: CanvasText; background-color: Canvas; }
-body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
-  color: inherit; background-color: inherit; }
-a { color: LinkText; }
-a:visited { color: VisitedText; }
-.card, li.reading { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0;
-  list-style: none; }
-ul.books { padding: 0; }
-.tag { border: 1px solid; border-radius: 999px; padding: 0.1rem 0.5rem; margin-right: 0.25rem;
-  white-space: nowrap; }
-.tag::before { content: "# "; }  /* glyph paired with text, never colour-only */
-a:focus, .skip:focus { outline: 3px solid; }
-.skip { position: absolute; left: -999px; }
-.skip:focus { left: 1rem; top: 1rem; }
-table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; color: inherit;
-  background-color: inherit; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; color: inherit;
-  background-color: inherit; }
-.lens-warning { border: 2px dashed; border-radius: 8px; padding: 0.5rem 0.75rem; }
+:root {
+  color-scheme: light dark;
+  --paper: #fdf6fb;
+  --wash: #f2e5f0;
+  --plum: #7a2e63;
+  --plum-dark: #542044;
+  --ink: #241c22;
+  --muted: #665660;
+  --line: #d8bfd1;
+  --white: #fffafd;
+  --display: Georgia, "Times New Roman", serif;
+  --body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --utility: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { color: var(--ink); background: var(--paper); scroll-behavior: smooth; }
+body {
+  position: relative;
+  margin: 0;
+  color: var(--ink);
+  background-color: var(--paper);
+  font-family: var(--body);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+body::before {
+  position: fixed;
+  z-index: 8;
+  inset: 0 auto 0 0;
+  width: .35rem;
+  background: var(--plum);
+  content: "";
+  pointer-events: none;
+}
+body > header, body > nav, main { width: min(72rem, calc(100% - 2rem)); margin-inline: auto; }
+body > header { padding: clamp(2.5rem, 7vw, 6rem) 0 1.75rem; }
+.kicker, .eyebrow, .shelfmark, summary, caption {
+  font-family: var(--utility);
+  font-size: .78rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.kicker { color: var(--plum); font-weight: 750; margin: 0 0 .75rem; }
+h1, h2, h3, h4, p { margin-top: 0; }
+h1 {
+  max-width: 12ch;
+  margin-bottom: .75rem;
+  font: 700 clamp(2.7rem, 9vw, 6.6rem)/.92 var(--display);
+  letter-spacing: -.055em;
+  color: var(--plum-dark);
+}
+h2 { font: 700 clamp(1.65rem, 4vw, 2.5rem)/1.08 var(--display); color: var(--plum-dark); }
+h3 { font: 700 1.22rem/1.25 var(--display); margin-bottom: .3rem; }
+h4 { margin-bottom: .25rem; }
+.intro { max-width: 62ch; font-size: 1.08rem; color: var(--muted); }
+a { color: var(--plum-dark); text-underline-offset: .18em; }
+a:hover { text-decoration-thickness: .16em; }
+a:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: .2rem solid var(--plum);
+  outline-offset: .2rem;
+}
+.skip { position: fixed; z-index: 10; left: 1rem; top: -6rem; padding: .75rem 1rem;
+  background: var(--ink); color: var(--white); }
+.skip:focus { top: 1rem; }
+.section-nav {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  padding: .5rem 0;
+  background-color: var(--paper);
+  border-block: 1px solid var(--line);
+}
+.section-nav ul {
+  display: flex; gap: .35rem; margin: 0; padding: 0; list-style: none; overflow-x: auto;
+}
+.section-nav a {
+  display: inline-flex; align-items: center; min-height: 44px; padding: .45rem .8rem;
+  border-radius: 999px; white-space: nowrap; font-weight: 700; text-decoration: none;
+}
+.section-nav a:hover { background: var(--wash); }
+main { padding: 2.5rem 0 5rem; }
+.home-section { padding: clamp(2.5rem, 7vw, 5.5rem) 0; border-bottom: 1px solid var(--line); }
+.section-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(14rem, 28rem);
+  gap: 1rem 3rem; align-items: end; margin-bottom: 1.5rem; }
+.section-heading > * { margin-bottom: 0; }
+.section-heading p { color: var(--muted); }
+ul.books { display: grid; gap: 1rem; padding: 0; list-style: none; }
+.reading {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+  min-height: 10rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: .7rem;
+  background: var(--white);
+  box-shadow: 0 .3rem 1.2rem rgb(84 32 68 / .07);
+}
+.shelfmark {
+  display: flex; justify-content: center; padding: 1rem .3rem;
+  color: var(--white); background: var(--plum);
+}
+.shelfmark span { writing-mode: vertical-rl; transform: rotate(180deg); }
+.reading-copy { min-width: 0; padding: 1.15rem clamp(1rem, 3vw, 1.6rem); }
+.byline, .progress-label, .themes, .summary { color: var(--muted); }
+.byline, .progress-label { margin-bottom: .45rem; }
+progress {
+  display: block; width: 100%; height: .55rem; margin: .85rem 0 1rem;
+  border: 0; border-radius: 999px; overflow: hidden; background: var(--wash);
+}
+progress::-webkit-progress-bar { background: var(--wash); }
+progress::-webkit-progress-value { background: var(--plum); }
+progress::-moz-progress-bar { background: var(--plum); }
+.tag { display: inline-block; margin: .2rem .15rem .2rem 0; padding: .08rem .5rem;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--plum-dark);
+  background: var(--paper); white-space: nowrap; }
+.tag::before { content: "# "; }
+.recommendation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.card {
+  min-width: 0;
+  padding: clamp(1.2rem, 3vw, 1.8rem);
+  border: 1px solid var(--line);
+  border-radius: .7rem;
+  background: var(--white);
+}
+.card a, .card li, .local-citation { overflow-wrap: anywhere; }
+.card h3 { padding-right: 2rem; }
+.score { display: inline-block; padding: .15rem .55rem; border-radius: .25rem;
+  color: var(--white); background: var(--plum); font-family: var(--utility); font-size: .82rem; }
+.card ul { padding-left: 1.2rem; }
+.next-shelves { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+.shelf-block { min-width: 0; padding: 1rem; overflow-x: auto; border: 1px solid var(--line);
+  border-radius: .7rem; }
+.disclosures { display: grid; gap: .75rem; }
+details { border: 1px solid var(--line); border-radius: .7rem; background: var(--white); }
+summary {
+  min-height: 44px; padding: 1rem 1.2rem; color: var(--plum-dark);
+  cursor: pointer; font-weight: 750;
+}
+.details-inner { padding: .4rem 1.2rem 1.5rem; overflow-x: auto; }
+.details-inner > :first-child { margin-top: .5rem; }
+.browse-form {
+  display: flex; align-items: end; gap: .65rem; max-width: 45rem; margin-bottom: 1.5rem;
+  padding: 1rem; border-radius: .7rem; background: var(--wash);
+}
+.browse-form label { display: grid; flex: 1; gap: .25rem; font-weight: 700; }
+input, button {
+  min-height: 44px; border: 1px solid var(--plum); border-radius: .4rem;
+  font: inherit;
+}
+input { width: 100%; padding: .55rem .7rem; color: var(--ink); background: var(--white); }
+button { padding: .55rem 1rem; color: var(--white); background: var(--plum); font-weight: 750; }
+.table-wrap { width: 100%; overflow-x: auto; margin: .75rem 0 1.5rem; }
+table {
+  width: 100%; max-width: 100%; border-collapse: collapse; color: var(--ink);
+  background-color: var(--white);
+}
+caption {
+  padding: .5rem 0; color: var(--muted); text-align: left;
+  text-transform: none; letter-spacing: 0;
+}
+th, td {
+  padding: .65rem .75rem; border-bottom: 1px solid var(--line);
+  text-align: left; vertical-align: top; overflow-wrap: anywhere;
+}
+thead th { color: var(--plum-dark); background: var(--wash); }
+.lens-warning, .status-note { padding: .75rem 1rem; border-left: .3rem solid var(--plum);
+  background: var(--wash); }
+@media (max-width: 48rem) {
+  .section-heading, .recommendation-grid, .next-shelves {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .section-nav ul { flex-wrap: wrap; overflow-x: visible; }
+  .browse-form { align-items: stretch; flex-direction: column; }
+  .browse-form button { width: 100%; }
+}
+@media (max-width: 24rem) {
+  body > header, body > nav, main { width: min(100% - 1rem, 72rem); }
+  .reading { grid-template-columns: 2.5rem minmax(0, 1fr); }
+  .reading-copy, .card, .details-inner { padding-inline: .8rem; }
+  th, td { padding: .55rem; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #18121a;
+    --wash: #2b1d29;
+    --plum: #dfa0c8;
+    --plum-dark: #f4cce5;
+    --ink: #fff7fc;
+    --muted: #dfcbd8;
+    --line: #69475f;
+    --white: #211821;
+  }
+}
+@media (forced-colors: active) {
+  body::before { background: Highlight; }
+  a:focus-visible, input:focus-visible, button:focus-visible, summary:focus-visible {
+    outline-color: Highlight;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 """
 
@@ -230,11 +398,12 @@ def _forecast_table(forecasts: Sequence[BookForecast]) -> str:
             f"<td>{escape(fc.basis)}</td></tr>"
         )
     return (
-        "<table><caption>Time to finish, at your recent reading pace — a range, "
+        '<div class="table-wrap"><table><caption>Time to finish, at your recent '
+        "reading pace — a range, "
         "never a single number, computed locally from your own page timing</caption>"
         '<thead><tr><th scope="col">Title</th><th scope="col">Author</th>'
         '<th scope="col">Estimate</th><th scope="col">Based on</th></tr></thead>'
-        f"<tbody>{rows}</tbody></table>"
+        f"<tbody>{rows}</tbody></table></div>"
     )
 
 
@@ -282,7 +451,7 @@ def _goals_section(goals: Sequence[Goal]) -> str:
         for g in goals
     )
     return (
-        "<h2>Goals</h2>"
+        "<h3>Goals</h3>"
         "<table><caption>Your reading goals (set locally, shared with no one)</caption>"
         '<thead><tr><th scope="col">Goal</th><th scope="col">Progress</th>'
         f'<th scope="col">%</th></tr></thead><tbody>{rows}</tbody></table>'
@@ -315,7 +484,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     )
 
     # Lens provenance: which grouping produced the numbers below, so a renamed
-    # lens in data/lenses.toml appears verbatim and a degraded config is never
+    # lens in a local lenses.toml appears verbatim and a degraded config is never
     # silent (extends the tag-provenance UI to the *grouping* itself).
     lens_provenance = f"<p>Lens grouping: <strong>{escape(report.lens_source)}</strong>.</p>"
     lens_warning = (
@@ -394,7 +563,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
         )
 
     return (
-        "<h2>Reading diversity</h2>"
+        "<h3>Reading diversity</h3>"
         "<p>Built <strong>only</strong> from sourced descriptors of the books "
         "themselves — Calibre tags, OpenLibrary subjects, and curated lists. We "
         "never infer an author's identity and never auto-label a person; a book "
@@ -413,7 +582,7 @@ def _authored_lists_section(lists: Sequence[CuratedList]) -> str:
     """
     if not lists:
         return (
-            "<h2>Your lists</h2>"
+            "<h3>Your lists</h3>"
             "<p>No authored lists yet — create one with "
             "<code>stacks lists new</code> and it will show up here.</p>"
         )
@@ -425,7 +594,7 @@ def _authored_lists_section(lists: Sequence[CuratedList]) -> str:
         for lst in lists
     )
     return (
-        "<h2>Your lists</h2>"
+        "<h3>Your lists</h3>"
         "<p>Cited lists you've authored with <code>stacks lists</code> — "
         "read-only here. Export stays a manual, local step "
         "(<code>stacks lists export</code>); nothing here is sent anywhere.</p>"
@@ -447,11 +616,11 @@ def _library_table(library: Sequence[ReadingState]) -> str:
         for s in library
     )
     return (
-        '<table id="lib-table"><caption>Your library — browse by reading the rows, or '
-        "filter via the box above (or the /browse route)</caption><thead><tr>"
+        '<div class="table-wrap"><table id="lib-table"><caption>Your library — browse by '
+        "reading the rows, or filter with the form above</caption><thead><tr>"
         '<th scope="col">Title</th><th scope="col">Author</th>'
         '<th scope="col">Status</th><th scope="col">Themes (sourced)</th>'
-        f"</tr></thead><tbody>{rows}</tbody></table>"
+        f"</tr></thead><tbody>{rows}</tbody></table></div>"
     )
 
 
@@ -463,16 +632,84 @@ _FILTER_JS = (
     "(function(){"
     "var i=document.getElementById('lib-filter');"
     "var t=document.getElementById('lib-table');"
-    "if(!i||!t||!t.tBodies.length){return;}"
+    "var s=document.getElementById('lib-filter-status');"
+    "if(!i||!t||!s||!t.tBodies.length){return;}"
+    "if(s.dataset.complete!=='true'){return;}"
     "i.addEventListener('input',function(){"
-    "var q=i.value.toLowerCase();var rows=t.tBodies[0].rows;"
+    "var q=i.value.toLowerCase();var rows=t.tBodies[0].rows;var shown=0;"
     "for(var r=0;r!==rows.length;r++){"
     "var hay=rows[r].textContent.toLowerCase();"
     "rows[r].hidden=(q!==''&&hay.indexOf(q)===-1);"
-    "}});"
+    "if(!rows[r].hidden){shown++;}"
+    "}"
+    "s.textContent='Showing '+shown+' of '+rows.length+' books.';"
+    "});"
     "})();"
     "</script>"
 )
+
+
+def _utc_timestamp(value: Optional[int], *, empty: str = "never") -> str:
+    if value is None or value <= 0:
+        return empty
+    return datetime.datetime.fromtimestamp(value, datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _catalog_status_section(status: CatalogPoolStatus) -> str:
+    """Explain catalog consent, freshness, and last-good fallback in plain text."""
+    mode = (
+        "Off — no public catalog requests are permitted"
+        if status.outbound_mode != "public-metadata"
+        else "Public metadata — explicitly enabled"
+    )
+    state = {
+        "off": "Networking off; any candidates shown are already stored locally.",
+        "unconfigured": "Enabled, but no broad subjects or public lists are configured.",
+        "fresh": "The most recent configured-source refresh succeeded.",
+        "degraded": "A source failed; last-good candidates are retained where available.",
+    }.get(status.state, status.state)
+    rows = (
+        f'<tr><th scope="row">Outbound mode</th><td>{escape(mode)}</td></tr>'
+        f'<tr><th scope="row">Pool state</th><td>{escape(state)}</td></tr>'
+        f'<tr><th scope="row">Candidates stored locally</th>'
+        f"<td>{status.candidate_count}</td></tr>"
+        f'<tr><th scope="row">Last attempted</th>'
+        f"<td>{escape(_utc_timestamp(status.attempted_at))}</td></tr>"
+    )
+    source_table = ""
+    if status.sources:
+        source_rows = []
+        for source in status.sources:
+            if source.status == "error":
+                fallback = (
+                    "Last attempt failed; using last-good candidates."
+                    if source.candidate_count
+                    else "Last attempt failed; no candidates are available."
+                )
+                note = f"{fallback} {source.error}".strip()
+            else:
+                note = "Last attempt succeeded."
+            source_rows.append(
+                f'<tr><th scope="row">{escape(source.source_id)}</th>'
+                f"<td>{escape(source.status)}</td>"
+                f"<td>{escape(_utc_timestamp(source.fetched_at))}</td>"
+                f"<td>{source.candidate_count}</td><td>{escape(note)}</td></tr>"
+            )
+        source_table = (
+            "<table><caption>Configured public catalog sources and their last-good "
+            'state</caption><thead><tr><th scope="col">Source</th>'
+            '<th scope="col">Latest attempt</th><th scope="col">Last success</th>'
+            '<th scope="col">Candidates</th><th scope="col">Note</th></tr></thead>'
+            f"<tbody>{''.join(source_rows)}</tbody></table>"
+        )
+    return (
+        "<h3>Recommendation sources</h3>"
+        "<p>Catalog requests use only broad subjects or explicit public lists. "
+        "They are never generated from reading history, authors, or taste weights.</p>"
+        "<table><caption>Catalog networking and candidate-pool status</caption>"
+        '<thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table>{source_table}"
+    )
 
 
 def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False) -> str:
@@ -485,21 +722,17 @@ def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False
     if refreshed_at is None:
         as_of = "never refreshed — run `stacks refresh`"
     else:
-        # datetime.utcfromtimestamp is deprecated; fromtimestamp(..., UTC) is the
-        # non-deprecated equivalent and yields the identical ISO-8601 UTC string.
-        as_of = datetime.datetime.fromtimestamp(refreshed_at, datetime.UTC).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        as_of = _utc_timestamp(refreshed_at)
     banner = (
-        '<p role="status">Stale: this data is more than the freshness threshold old — '
-        "run <code>stacks refresh</code> to update it.</p>"
+        '<p class="status-note" role="status">Stale: this data is more than the '
+        "freshness threshold old — run <code>stacks refresh</code> to update it.</p>"
         if stale
         else ""
     )
     rows = f'<tr><th scope="row">Data as of</th><td>{escape(as_of)}</td></tr>'
     return (
         f"{banner}"
-        "<h2>Data status</h2>"
+        "<h3>Data status</h3>"
         "<table><caption>How current the data on this page is</caption>"
         '<thead><tr><th scope="col">Measure</th><th scope="col">Value</th></tr></thead>'
         f"<tbody>{rows}</tbody></table>"
@@ -523,19 +756,54 @@ def render_dashboard(
     user: str = "demo",
     refreshed_at: Optional[int] = None,
     stale: bool = False,
+    catalog_status: Optional[CatalogPoolStatus] = None,
+    browse_query: str = "",
+    browse_theme: str = "",
+    browse_author: str = "",
+    browse_series: str = "",
+    browse_status: str = "",
 ) -> str:
     """Render the complete, accessible dashboard document."""
+    catalog = catalog_status or CatalogPoolStatus()
     reading_items = "".join(_reading_item(s) for s in currently_reading) or (
         "<li>Nothing in progress right now.</li>"
     )
     finished_items = "".join(_reading_item(s) for s in finished[:10]) or (
         "<li>No finished books recorded yet.</li>"
     )
-    rec_cards = "".join(_rec_card(r) for r in recommendations) or (
-        "<p>No recommendations yet — read a few books to seed your taste.</p>"
-    )
+    if recommendations:
+        rec_cards = "".join(_rec_card(r) for r in recommendations)
+    elif catalog.state == "off" and catalog.candidate_count == 0:
+        rec_cards = (
+            '<p class="empty-state">No recommendation candidates are stored yet. '
+            "Catalog networking is off; explicitly configure broad public-metadata "
+            "sources and run <code>stacks refresh</code> to populate this shelf.</p>"
+        )
+    else:
+        rec_cards = (
+            '<p class="empty-state">No recommendations fit yet. Check source status '
+            "below, then read or tag a few books to provide local matching signals.</p>"
+        )
     tbr_items = "".join(_reading_item(s) for s in to_read[:10]) or (
         "<li>Nothing on your to-read shelf.</li>"
+    )
+    library_preview = library[:LIBRARY_PREVIEW_LIMIT]
+    library_complete = len(library_preview) == len(library)
+    library_status = (
+        f"Showing {len(library)} books."
+        if library_complete
+        else f"Showing the first {len(library_preview)} of {len(library)} books. "
+        "Submit the search form to filter the full library."
+    )
+    structured_filters = "".join(
+        f'<input type="hidden" name="{name}" value="{escape(value)}">'
+        for name, value in (
+            ("theme", browse_theme),
+            ("author", browse_author),
+            ("series", browse_series),
+            ("status", browse_status),
+        )
+        if value
     )
     return (
         "<!doctype html>"
@@ -544,45 +812,85 @@ def render_dashboard(
         "<title>Queer the Stacks — your reading dashboard</title>"
         f"<style>{_STYLE}</style></head><body>"
         '<a class="skip" href="#main">Skip to your reading dashboard</a>'
-        "<header><h1>Queer the Stacks</h1>"
-        f"<p>Your private reading dashboard, {escape(user)} — unified read-only from "
+        '<header><p class="kicker">Private circulation desk · '
+        f"{escape(user)}</p><h1>Queer the Stacks</h1>"
+        f'<p class="intro">Your private reading dashboard, {escape(user)} — unified read-only from '
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
         "catalogs. Reading data never leaves this instance.</p></header>"
+        '<nav class="section-nav" aria-label="Dashboard sections"><ul>'
+        '<li><a href="#continue">Continue</a></li>'
+        '<li><a href="#next">Next</a></li>'
+        '<li><a href="#finished">Finished</a></li>'
+        '<li><a href="#browse">Browse</a></li>'
+        '<li><a href="#record">Reading record</a></li>'
+        "</ul></nav>"
         '<main id="main">'
-        f"{_data_status_section(refreshed_at, stale)}"
-        "<h2>Currently reading</h2>"
+        '<section id="continue" class="home-section">'
+        '<div class="section-heading"><h2>Continue reading</h2>'
+        "<p>Books checked out to you now, joined across Calibre and KOReader.</p></div>"
+        '<p class="eyebrow">Currently reading</p>'
         f'<ul class="books">{reading_items}</ul>'
-        "<h2>Time to finish</h2>"
+        "<h3>Time to finish</h3>"
         f"{_forecast_table(forecasts)}"
-        "<h2>Reading stats</h2>"
-        f"{_stats_table(stats)}"
-        f"{_theme_mix_table(stats)}"
-        f"{_diversity_section(diversity)}"
-        f"<h2>Reading Wrapped {wrapped.year}</h2>"
+        "</section>"
+        '<section id="next" class="home-section">'
+        '<div class="section-heading"><h2>What next</h2>'
+        "<p>Explained possibilities for the next open slot on your reading shelf.</p></div>"
+        "<h3>Recommended for you</h3>"
+        "<p>Every pick shows why it surfaced and the source it came from.</p>"
+        f'<div class="recommendation-grid">{rec_cards}</div>'
+        '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
+        f"{_series_table(series_next)}</div>"
+        '<div class="shelf-block"><h3>To-read shelf</h3>'
+        f'<ul class="books">{tbr_items}</ul></div></div>'
+        "</section>"
+        '<section id="finished" class="home-section">'
+        '<div class="section-heading"><h2>Recently finished</h2>'
+        "<p>Your latest returns, kept close enough to revisit.</p></div>"
+        f'<ul class="books">{finished_items}</ul>'
+        "</section>"
+        '<section id="browse" class="home-section">'
+        '<div class="section-heading"><h2>Browse your library</h2>'
+        "<p>Search the full catalogue by title, author, status, or sourced theme.</p></div>"
+        '<form class="browse-form" action="/browse" method="get" role="search">'
+        f"{structured_filters}"
+        '<label for="lib-filter">Find a book'
+        '<input id="lib-filter" name="q" type="search" autocomplete="off" '
+        f'placeholder="Title, author, status, or theme" value="{escape(browse_query)}"></label>'
+        '<button type="submit">Search library</button></form>'
+        f'<p id="lib-filter-status" role="status" aria-live="polite" '
+        f'data-complete="{str(library_complete).lower()}">{escape(library_status)}</p>'
+        f"{_library_table(library_preview)}"
+        f"{_FILTER_JS}"
+        "</section>"
+        '<section id="record" class="home-section">'
+        '<div class="section-heading"><h2>Reading record</h2>'
+        "<p>Your patterns, provenance, lists, and data health—available when you need them.</p>"
+        '</div><div class="disclosures">'
+        '<details><summary>Stats, goals &amp; yearly history</summary><div class="details-inner">'
+        "<h3>Reading stats</h3>"
+        f"{_stats_table(stats)}{_theme_mix_table(stats)}"
+        f"<h3>Reading Wrapped {wrapped.year}</h3>"
         f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
         f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"
-        f"{_wrapped_table(wrapped)}"
-        f"{_monthly_table(wrapped)}"
-        f"{_goals_section(goals)}"
+        f"{_wrapped_table(wrapped)}{_monthly_table(wrapped)}{_goals_section(goals)}"
         '<p><a href="/share">Make a share card for Bookwyrm or Mastodon</a> — '
         "composed locally; nothing is posted until you copy and share it yourself.</p>"
-        "<h2>Up next in your series</h2>"
-        f"{_series_table(series_next)}"
-        "<h2>To-read shelf</h2>"
-        f'<ul class="books">{tbr_items}</ul>'
-        "<h2>Recommended for you</h2>"
-        "<p>Every pick shows why it surfaced and the source it came from.</p>"
-        f"{_rec_table(recommendations)}"
-        f"{rec_cards}"
-        "<h2>Recently finished</h2>"
-        f'<ul class="books">{finished_items}</ul>'
+        "</div></details>"
+        f"<details{' open' if diversity and diversity.lens_warning else ''}>"
+        "<summary>Diversity &amp; descriptor provenance"
+        f"{' — attention needed' if diversity and diversity.lens_warning else ''}</summary>"
+        f'<div class="details-inner">{_diversity_section(diversity)}</div></details>'
+        '<details><summary>Your curated lists</summary><div class="details-inner">'
         f"{_authored_lists_section(authored_lists)}"
-        "<h2>Browse your library</h2>"
-        '<p><label for="lib-filter">Filter the table below '
-        "(works without JavaScript via the /browse route):</label> "
-        '<input id="lib-filter" type="text" autocomplete="off" '
-        'placeholder="type a title, author, or theme"></p>'
-        f"{_library_table(library)}"
-        f"{_FILTER_JS}"
+        "</div></details>"
+        f'<details class="source-status"'
+        f"{' open' if stale or catalog.state == 'degraded' else ''}>"
+        "<summary>Data &amp; source status"
+        f"{' — attention needed' if stale or catalog.state == 'degraded' else ''}</summary>"
+        '<div class="details-inner">'
+        f"{_data_status_section(refreshed_at, stale)}"
+        f"{_catalog_status_section(catalog)}"
+        "</div></details></div></section>"
         "</main></body></html>"
     )

@@ -1,6 +1,6 @@
 # Accessibility Audit — 2026-06-05
 
-**Last verified: 2026-06-05 · Recheck cadence: per WCAG revision / UI change.**
+**Last verified: 2026-07-25 · Recheck cadence: per WCAG revision / UI change.**
 
 Instantiates `RESPONSIBLE-TECH-FRAMEWORK.md` §E. Target: WCAG 2.2 AA as the
 floor. The primary task — reading your unified dashboard and recommendations —
@@ -9,38 +9,50 @@ motion.
 
 ## Automated pass (auto-gated, merge-blocking)
 
-`make a11y` renders the demo dashboard to `docs/audits/dashboard.html` and runs
-**two blocking layers**: the dependency-free structural checker (`app.a11y_check`)
-and pa11y (real headless-Chrome axe runtime, including color-contrast). Both must
-report zero violations to pass; neither is advisory. **Result: 0 violations on
-both** (graduated from pa11y-advisory to pa11y-blocking on 2026-07-05, after
-fixing a real color-contrast gap — see "2026-07-05 update" below).
+`make a11y` renders both the demo dashboard and the login entry point, then runs
+two blocking layers: the dependency-free structural checker (`app.a11y_check`)
+and a real Chromium/axe layer. Pa11y scans both documents at desktop and
+320 × 800 mobile viewports; the browser contract additionally forces light and
+dark preferences and asserts that document width never exceeds 320 CSS pixels.
+All checks must pass; none is advisory. **Result: 0 violations.**
 
 Mechanically verified properties:
 
-- `<html lang>` + viewport meta (zoom + 320 px reflow),
+- `<html lang>` + viewport meta on dashboard and login,
+- page-level reflow at 320 CSS pixels, enforced with a browser width assertion,
 - exactly one `<h1>`, no skipped heading levels,
 - a `<main>` landmark and a skip link to it,
 - every data table has a `<caption>` and `<th scope>`,
 - every link has discernible text,
-- theme tags and progress are conveyed as **text** (a `#` glyph + label), never
-  colour alone,
-- every "chart" (stats, Wrapped, recommendation scores) ships a real `<table>`
-  data-equivalent,
+- theme tags include a visible `#` glyph and label; progress has visible text
+  plus a named native `<progress>` element, so neither relies on colour,
+- chart-like stats, Wrapped, and diversity summaries ship real `<table>`
+  equivalents; recommendations are semantic articles with visible fit,
+  explanation, and source text rather than a duplicate table,
+- light and dark preference modes both pass axe color-contrast checks,
 - `prefers-reduced-motion` disables animation/transition.
 
-Tests: `tests/test_a11y.py` (zero-violation gate + checker unit tests).
+Tests: `tests/test_a11y.py` (structural contracts + checker unit tests) and
+`scripts/a11y-browser-check.js` (explicit light/dark axe + 320 px reflow).
 
 ## Manual pass (review-gated)
 
-The following manual walkthroughs are required before the first release and are
-**not yet signed off**:
+Completed engineering evidence (useful, but not a substitute for a human
+assistive-technology sign-off):
 
-- [ ] Keyboard-only walkthrough of the dashboard (tab order, visible focus, skip link).
+- [x] Technical keyboard walkthrough of sign-in and the dashboard in a real
+      browser (focus order, skip link, same-origin login submission).
+- [x] Dashboard and login reflow at 320 px, with a blocking browser assertion.
+- [x] Automated contrast check for the explicit light and dark palettes.
+
+The following human walkthroughs remain required before the first release and
+are **not yet signed off**:
+
+- [ ] Keyboard-only walkthrough of the dashboard (tab order, visible focus,
+      skip link).
 - [ ] Screen-reader walkthrough (VoiceOver/NVDA) of currently-reading, stats,
       Wrapped, and a recommendation card.
-- [ ] 200% zoom and 320 px reflow visual check.
-- [ ] Contrast check in both light and dark `color-scheme`.
+- [ ] Human 200% zoom walkthrough using the participant's normal browser.
 
 ## Accessibility statement
 
@@ -62,3 +74,22 @@ AA-contrast pair. Fixed in `app/render.py`/`app/share.py` (explicit
 pa11y now reports **0 issues** on three consecutive local runs. The `||` swallow
 was removed from `Makefile:52-58`; pa11y is now genuinely merge-blocking
 alongside the structural checker, closing A11Y-03.
+
+## 2026-07-25 update
+
+The redesigned daily homepage and login entry point are checked at desktop and
+320 × 800 viewports with the structural checker and pa11y/axe. A separate
+browser contract makes light/dark preference deterministic and tests real
+document width because axe alone does not implement WCAG 1.4.10 reflow. The
+review caught and fixed low-contrast text, horizontal overflow, unnamed
+progress elements, unassociated login errors, broken local-source anchors, and
+a table presentation that could have damaged native table semantics. The final
+automated result is zero violations for both documents in all gated modes.
+
+Technical dogfood against 1,907 real Calibre states also passed the structural,
+desktop pa11y, and mobile pa11y checks; see
+[`real-library-dogfood-2026-07-25.md`](real-library-dogfood-2026-07-25.md).
+This evidence does **not** sign off the remaining human screen-reader or
+magnification walkthroughs. Those stay release-blocking and are included in the
+consent-based study protocol at
+[`../research/real-user-study-plan.md`](../research/real-user-study-plan.md).

@@ -245,6 +245,8 @@ def test_login_success_sets_cookie_and_grants_access(
     assert form.status_code == 200
     assert '<label for="token">' in form.text
     assert '<input id="token" name="token"' in form.text
+    assert 'aria-invalid="true"' not in form.text
+    assert 'aria-describedby="login-error"' not in form.text
 
     resp = client.post("/login", data={"token": "demo-token"}, follow_redirects=False)
     assert resp.status_code == 303
@@ -270,6 +272,9 @@ def test_login_failure_does_not_grant_access(
 
     resp = client.post("/login", data={"token": "wrong"})
     assert resp.status_code == 401
+    assert '<p id="login-error" role="alert" class="error">Incorrect token.</p>' in resp.text
+    assert 'aria-invalid="true"' in resp.text
+    assert 'aria-describedby="login-error"' in resp.text
     assert "set-cookie" not in {k.lower() for k in resp.headers}
     assert client.get("/").status_code == 401
 

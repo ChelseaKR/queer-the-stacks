@@ -14,7 +14,8 @@ Calibre-Web.
 > dependency and secret scans, accessibility checks, and the offline
 > recommender evaluation. Beyond the core dashboard, the project includes a
 > persisted app-state store with `stacks doctor`/`refresh`, ethical catalog
-> adapters behind a hard allowlist, a hybrid recommender, series/TBR browsing,
+> adapters behind a hard allowlist, an opt-in persisted candidate pool, a hybrid
+> recommender, series/TBR browsing,
 > container support, backups, local goals, and export. The dashboard fails
 > closed without authentication. Human accessibility and representation review
 > remain release gates; see [`docs/audits/`](./docs/audits/) and the
@@ -33,7 +34,10 @@ history to a hosted analytics or recommendation service.
 - **Diverse-shelf analytics:** a "how diverse is my reading" view — coverage, representation lenses, and provenance — built *only* from sourced book descriptors, never inferred author identity, with accessible chart + table equivalents.
 - **Goals & streaks:** set local reading goals (books / pages / hours / streak) and track progress on the dashboard; computed on-device, shared with no one.
 - **Share cards:** generate Bookwyrm/Mastodon-ready cards ("my year in books", a finished book) — composed locally and posted only when *you* copy and share them (no auto-egress).
-- **Recommender:** tuned to the local reader's library, sourced from OpenLibrary, Hardcover, and Bookwyrm plus curated community lists — not Goodreads.
+- **Recommender:** tuned locally to the reader's library, using a persisted
+  candidate pool from opt-in broad Open Library subjects and explicit public
+  Bookwyrm lists — not Goodreads. Hardcover parsing is tested, but a live
+  Hardcover refresh client is not yet wired.
 - **Every pick explained:** why + which source, with diverse/small-press surfacing rather than bestseller bias.
 - **Self-hosted & private:** runs on your seedbox; reading data never leaves it.
 
@@ -58,7 +62,24 @@ stacks refresh    # snapshot-first ingest into data/app-state.sqlite
 uvicorn app.server:app   # serve the dashboard behind auth (set STACKS_AUTH_TOKEN)
 ```
 
-Config can also live in `stacks.toml` (`[calibre] path=…`); env vars win.
+Public catalog networking is fail-closed. It remains off unless you explicitly
+enable public metadata and predeclare broad sources; queries are never generated
+from your reading history, authors, or recommender weights:
+
+```sh
+export STACKS_CATALOG_OUTBOUND=public-metadata
+export STACKS_OPENLIBRARY_SUBJECTS=speculative_fiction,queer_fiction
+# Optional: explicit public list URLs on the allowlisted BookWyrm instance.
+export STACKS_BOOKWYRM_LISTS=https://bookwyrm.social/list/1234/s/example-list
+stacks refresh
+```
+
+The dashboard and `stacks doctor` show whether catalog egress is off, fresh, or
+degraded, including last-success timestamps and last-good fallback counts.
+Config can also live in the ignored runtime file `stacks.toml`
+(`[calibre] path=…`; `[catalogs] outbound_mode="public-metadata"`); env vars
+win. Copy [`examples/lenses.example.toml`](examples/lenses.example.toml) to the
+ignored `data/lenses.toml` before personalizing diversity lenses.
 `make verify` runs every checkable gate (CI parity). See
 [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
 
@@ -68,11 +89,13 @@ Config can also live in `stacks.toml` (`[calibre] path=…`); env vars win.
   and KOReader's `statistics.sqlite` are never written to or put at risk of
   corruption; ingest snapshots/copies before reading.
 - **Reading data is sensitive and never leaves the self-hosted instance:** no
-  third-party analytics, no telemetry, and the dashboard sits behind auth on
-  its host.
+  third-party analytics or telemetry, and the dashboard sits behind auth.
+  Opt-in catalog requests contain only operator-predeclared public subjects or
+  list URLs—never titles, authors, reading history, or learned taste signals.
 - **No Goodreads scraping** (Amazon ToS + gatekeeping). Recommendations are
-  sourced from OpenLibrary, Hardcover, Bookwyrm, and curated community lists,
-  with provenance.
+  drawn from allowlisted ethical sources and local curated lists, with
+  provenance. The currently wired live sources are Open Library and explicit
+  public Bookwyrm lists.
 - **Books and authors are described via *sourced* theme/genre tags,** never
   reductive auto-assigned identity labels.
 - **Every recommendation shows why it was picked and which source it came
@@ -97,7 +120,7 @@ verified: 2026-07-16.*
 | Security & Supply-Chain | **Applies** | `pip-audit` (empty ignore list) + gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) + Trivy container CVE scan, all merge-blocking; see `docs/audits/residual-risk.md`. |
 | CI/CD | **Applies** | 3 workflows, all least-privilege (`permissions: contents: read`), all `uses:` SHA-pinned. |
 | Release & Versioning | **Applies — automated lifecycle shipped; first release pending** | Pre-1.0 (`0.1.x` is the current, unreleased line per `SECURITY.md`). Signed annotated `v*` tags trigger exact-commit verification, package/SBOM and GHCR builds, keyless signing/provenance, GitHub Release publication, and post-publication verification. |
-| Accessibility | **Applies** | Zero-violation gate from **two** blocking layers — a structural checker and pa11y/axe (browser-engine, incl. color-contrast; graduated from advisory 2026-07-05). Manual review-gate walkthroughs (keyboard, screen-reader, zoom/reflow, contrast) are still pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
+| Accessibility | **Applies** | Two blocking layers cover dashboard + login: structural checks and Chromium/axe at desktop/mobile, explicit light/dark preferences, and asserted 320px reflow. Human screen-reader and magnification sign-offs remain pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
 | Observability | **Applies — Tier C** | Local-only, single-user, no network surface. Structured JSON logs, `/livez`, fail-closed `/readyz`, `/version` — see [`docs/ROADMAP.md` §Observability](docs/ROADMAP.md#observability) for the full per-signal N/A-with-reason declaration. |
 | Internationalization | **Applies (declaration under review)** | [`docs/I18N.md`](docs/I18N.md) records an English-only, single-user opt-out, but the portfolio applicability manifest keeps I18N *applies* pending fork reconciliation with `queer-specfic-reader` (backlog #17); the final declaration lands with that reconciliation. |
 | AI Evaluation | N/A — no LLM/GenAI SDK anywhere; the recommender is a classic content/co-occurrence model | Has its own merge-blocking offline eval regardless (`make eval` — beats the popularity baseline); see [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md#applicability--ai-evaluation-and-internationalization). |

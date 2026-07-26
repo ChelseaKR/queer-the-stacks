@@ -92,7 +92,9 @@ def test_filter_by_theme_author_status() -> None:
     assert [s.title for s in filter_states(states, theme="trans")] == ["A"]
     assert [s.title for s in filter_states(states, author="butler")] == ["B"]
     assert [s.title for s in filter_states(states, status="unread")] == ["B"]
-    assert [s.title for s in filter_states(states, q="a")] == ["A"]  # matches title
+    assert [s.title for s in filter_states(states, q="plett")] == ["A"]  # free-text author
+    assert [s.title for s in filter_states(states, q="trans")] == ["A"]  # sourced theme
+    assert [s.title for s in filter_states(states, q="unread")] == ["B"]  # status
 
 
 def test_filter_and_semantics() -> None:
