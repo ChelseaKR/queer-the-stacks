@@ -140,6 +140,56 @@ def test_view_cache_reuses_the_built_view_until_the_store_is_refreshed_again(
         assert calls["n"] == 2, "a new refreshed_at stamp must invalidate the cache"
 
 
+def test_view_cache_invalidates_when_catalog_changes_without_new_refresh_stamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catalog persistence advances a revision even within the same second."""
+    pytest.importorskip("fastapi")
+    from app import server
+    from fastapi.testclient import TestClient
+    from ingest.config import load_config
+    from ingest.models import Book
+    from ingest.store import CatalogSourceUpdate, Store
+
+    from tests.conftest import seed_store_from_env
+
+    _demo_env(monkeypatch, tmp_path)
+    seed_store_from_env()
+
+    calls = {"n": 0}
+    real_view_from_store = server.view_from_store
+
+    def counting_view_from_store(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        return real_view_from_store(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "view_from_store", counting_view_from_store)
+
+    with TestClient(server.create_app()) as client:
+        first = client.get("/", headers=AUTH)
+        config = load_config()
+        with Store(config.store_path) as store:
+            stamp = store.refreshed_at()
+            store.save_catalog_refresh(
+                (
+                    CatalogSourceUpdate(
+                        source_id="demo:changed",
+                        books=(Book(book_id="new", title="Changed Pool"),),
+                    ),
+                ),
+                active_source_ids={"demo:changed"},
+                attempted_at=stamp or 0,
+                outbound_mode="off",
+            )
+            assert store.refreshed_at() == stamp
+
+        changed = client.get("/", headers=AUTH)
+
+    assert first.status_code == changed.status_code == 200
+    assert calls["n"] == 2
+    assert "demo:changed" in changed.text
+
+
 def test_view_cache_key_changes_with_view_relevant_config(tmp_path: Path) -> None:
     import dataclasses
 
@@ -159,6 +209,156 @@ def test_view_cache_key_changes_with_view_relevant_config(tmp_path: Path) -> Non
     assert server._cache_key(base, 100) != server._cache_key(varied, 100)
     assert server._cache_key(base, 100) == server._cache_key(base, 100)
     assert server._cache_key(base, 100) != server._cache_key(base, 200)
+    assert server._cache_key(base, 100) != server._cache_key(base, 100, hide_sensitive=True)
+
+
+def test_view_cache_keeps_alternating_privacy_requests_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A redacted request must never receive a previously cached full view."""
+    pytest.importorskip("fastapi")
+    from app import server
+    from fastapi.testclient import TestClient
+
+    from tests.conftest import seed_store_from_env
+
+    _demo_env(monkeypatch, tmp_path)
+    seed_store_from_env()
+
+    calls = {"n": 0}
+    real_view_from_store = server.view_from_store
+
+    def counting_view_from_store(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        return real_view_from_store(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "view_from_store", counting_view_from_store)
+
+    with TestClient(server.create_app()) as client:
+        full = client.get("/", headers=AUTH)
+        redacted = client.get("/", headers=AUTH, params={"hide_sensitive": "true"})
+        full_again = client.get("/", headers=AUTH)
+
+    assert full.status_code == redacted.status_code == full_again.status_code == 200
+    assert "(hidden for privacy)" not in full.text
+    assert "(hidden for privacy)" in redacted.text
+    assert "(hidden for privacy)" not in full_again.text
+    assert calls["n"] == 3
+
+
+def test_browse_preserves_structured_filters_in_search_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fastapi")
+    from app import server
+    from fastapi.testclient import TestClient
+
+    from tests.conftest import seed_store_from_env
+
+    _demo_env(monkeypatch, tmp_path)
+    seed_store_from_env()
+
+    with TestClient(server.create_app()) as client:
+        response = client.get(
+            "/browse",
+            headers=AUTH,
+            params={
+                "q": "stone",
+                "theme": 'trans "history"',
+                "author": "Leslie",
+                "series": "Series A",
+                "status": "unread",
+            },
+        )
+
+    assert response.status_code == 200
+    assert 'value="stone"' in response.text
+    assert 'name="theme" value="trans &quot;history&quot;"' in response.text
+    assert 'name="author" value="Leslie"' in response.text
+    assert 'name="series" value="Series A"' in response.text
+    assert 'name="status" value="unread"' in response.text
+
+
+def test_view_cache_invalidates_when_lens_file_content_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fastapi")
+    from app import server
+    from fastapi.testclient import TestClient
+
+    from tests.conftest import seed_store_from_env
+
+    lens_path = tmp_path / "lenses.toml"
+    lens_path.write_text(
+        '[[lenses]]\nname = "First lens"\nlabels = ["queer"]\n',
+        encoding="utf-8",
+    )
+    _demo_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("STACKS_LENS_CONFIG", str(lens_path))
+    seed_store_from_env()
+
+    calls = {"n": 0}
+    real_view_from_store = server.view_from_store
+
+    def counting_view_from_store(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        return real_view_from_store(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "view_from_store", counting_view_from_store)
+
+    with TestClient(server.create_app()) as client:
+        assert client.get("/", headers=AUTH).status_code == 200
+        lens_path.write_text(
+            '[[lenses]]\nname = "Other lens"\nlabels = ["fantasy"]\n',
+            encoding="utf-8",
+        )
+        changed = client.get("/", headers=AUTH)
+
+    assert changed.status_code == 200
+    assert calls["n"] == 2
+    assert "Other lens" in changed.text
+
+
+def test_view_cache_invalidates_when_authored_lists_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fastapi")
+    from app import server
+    from fastapi.testclient import TestClient
+    from recommender.lists import CuratedList
+    from recommender.lists_store import save_lists
+
+    from tests.conftest import seed_store_from_env
+
+    _demo_env(monkeypatch, tmp_path)
+    seed_store_from_env()
+
+    calls = {"n": 0}
+    real_view_from_store = server.view_from_store
+
+    def counting_view_from_store(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        return real_view_from_store(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(server, "view_from_store", counting_view_from_store)
+
+    with TestClient(server.create_app()) as client:
+        first = client.get("/", headers=AUTH)
+        save_lists(
+            tmp_path / "lists.json",
+            (
+                CuratedList(
+                    name="My local list",
+                    citation="local-list:mine",
+                    book_ids=("calibre:1",),
+                ),
+            ),
+        )
+        changed = client.get("/", headers=AUTH)
+
+    assert first.status_code == changed.status_code == 200
+    assert calls["n"] == 2
+    assert "My local list" in changed.text
 
 
 # --- (d) lifespan validation fails closed -------------------------------------

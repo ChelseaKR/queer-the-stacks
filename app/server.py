@@ -31,13 +31,16 @@ TestClient.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from html import escape
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Cookie, Depends, FastAPI, Form, Header, HTTPException, Request
@@ -55,13 +58,25 @@ from app.auth import (
     verify_session,
 )
 from app.logging_config import RequestLoggingMiddleware, configure_logging, get_logger
-from app.security_headers import SECURITY_HEADERS
+from app.security_headers import LOGIN_STYLE, SECURITY_HEADERS
 from app.view import DashboardView, render_view, view_from_store
 
 SESSION_COOKIE = "stacks_session"  # noqa: S105 - cookie name, not a secret
 
-# (store_path, refreshed_at stamp, hash of view-relevant config fields)
-_ViewCacheKey = tuple[str, Optional[int], int]
+
+@dataclass(frozen=True)
+class _ViewCacheKey:
+    """Every input that can change the process-local ``DashboardView``."""
+
+    store_path: str
+    refreshed_at: Optional[int]
+    view_revision: int
+    config_fields: tuple[object, ...]
+    hide_sensitive: bool
+    lens_fingerprint: tuple[str, Optional[str]]
+    authored_lists: tuple[object, ...]
+
+
 _ViewCacheEntry = tuple[_ViewCacheKey, DashboardView]
 
 
@@ -122,24 +137,16 @@ def _render_login_page(error: Optional[str] = None) -> str:
     dashboard renderer: lang, viewport, one h1, a main landmark, a skip link,
     and a label linked to its input).
     """
-    error_html = f'<p role="alert" class="error">{escape(error)}</p>' if error else ""
+    error_html = (
+        f'<p id="login-error" role="alert" class="error">{escape(error)}</p>' if error else ""
+    )
+    error_attrs = ' aria-invalid="true" aria-describedby="login-error"' if error else ""
     return (
         "<!doctype html>"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>Queer the Stacks — sign in</title>"
-        "<style>"
-        ":root { color-scheme: light dark; }"
-        "body { font-family: system-ui, sans-serif; max-width: 40ch; margin: 3rem auto; "
-        "padding: 1rem; }"
-        "a:focus, .skip:focus, input:focus, button:focus { outline: 3px solid; }"
-        ".skip { position: absolute; left: -999px; }"
-        ".skip:focus { left: 1rem; top: 1rem; }"
-        "label { display: block; margin: 1rem 0 0.25rem; }"
-        "input { width: 100%; padding: 0.5rem; font-size: 1rem; }"
-        "button { margin-top: 1rem; padding: 0.5rem 1rem; font-size: 1rem; }"
-        ".error { border: 1px solid; border-radius: 4px; padding: 0.5rem; }"
-        "</style></head><body>"
+        f"<style>{LOGIN_STYLE}</style></head><body>"
         '<a class="skip" href="#main">Skip to the sign-in form</a>'
         '<main id="main">'
         "<h1>Queer the Stacks</h1>"
@@ -149,15 +156,44 @@ def _render_login_page(error: Optional[str] = None) -> str:
         '<form method="post" action="/login">'
         '<label for="token">Access token</label>'
         '<input id="token" name="token" type="password" autocomplete="current-password" '
-        "required autofocus>"
+        f"required autofocus{error_attrs}>"
         '<button type="submit">Sign in</button>'
         "</form>"
         "</main></body></html>"
     )
 
 
-def _cache_key(config: Config, stamp: Optional[int]) -> _ViewCacheKey:
-    return (str(config.store_path), stamp, hash(config.view_cache_fields()))
+def _file_fingerprint(path: Optional[Path]) -> tuple[str, Optional[str]]:
+    """Return a content-based cache stamp, including missing/error state."""
+    if path is None:
+        return ("", None)
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        digest = "missing"
+    except OSError as exc:
+        digest = f"unreadable:{type(exc).__name__}"
+    return (str(path), digest)
+
+
+def _cache_key(
+    config: Config,
+    stamp: Optional[int],
+    *,
+    view_revision: int = 0,
+    hide_sensitive: bool = False,
+    authored_lists: tuple[object, ...] = (),
+) -> _ViewCacheKey:
+    """Key a view by persisted state, presentation config, and local inputs."""
+    return _ViewCacheKey(
+        store_path=str(config.store_path),
+        refreshed_at=stamp,
+        view_revision=view_revision,
+        config_fields=config.view_cache_fields(),
+        hide_sensitive=config.hide_sensitive_descriptors or hide_sensitive,
+        lens_fingerprint=_file_fingerprint(config.lens_config),
+        authored_lists=authored_lists,
+    )
 
 
 def _load_view(app: FastAPI, *, hide_sensitive: bool = False) -> DashboardView:
@@ -173,7 +209,14 @@ def _load_view(app: FastAPI, *, hide_sensitive: bool = False) -> DashboardView:
                 status_code=503,
                 detail="dashboard not yet populated — run `stacks refresh` first",
             )
-        key = _cache_key(config, stamp)
+        authored_lists = load_stored_lists(list_store_path(config))
+        key = _cache_key(
+            config,
+            stamp,
+            view_revision=store.view_revision(),
+            hide_sensitive=hide_sensitive,
+            authored_lists=authored_lists,
+        )
         cached: Optional[_ViewCacheEntry] = app.state.view_cache
         if cached is not None and cached[0] == key:
             return cached[1]
@@ -189,7 +232,8 @@ def _load_view(app: FastAPI, *, hide_sensitive: bool = False) -> DashboardView:
             goal_streak_days=config.goal_streak_days,
             lens_config=config.lens_config,
             hide_sensitive_descriptors=config.hide_sensitive_descriptors or hide_sensitive,
-            authored_lists=load_stored_lists(list_store_path(config)),
+            authored_lists=authored_lists,
+            demo_mode=config.demo,
         )
         app.state.view_cache = (key, view)
         return view
@@ -357,7 +401,19 @@ def _browse(
         status=status,
         q=q,
     )
-    return HTMLResponse(content=render_view(dataclasses.replace(view, library=tuple(filtered))))
+    return HTMLResponse(
+        content=render_view(
+            dataclasses.replace(
+                view,
+                library=tuple(filtered),
+                browse_query=q or "",
+                browse_theme=theme or "",
+                browse_author=author or "",
+                browse_series=series or "",
+                browse_status=status or "",
+            )
+        )
+    )
 
 
 def _share(request: Request) -> HTMLResponse:

@@ -89,8 +89,9 @@ def test_render_includes_monthly_and_filter(full_view: object) -> None:
     assert 'id="lib-filter"' in html
     assert 'id="lib-table"' in html
     assert "<script>" in html
-    # No-JS safety: filtering is also offered via the /browse route.
-    assert "/browse route" in html
+    # No-JS safety: filtering submits a GET form to the /browse route.
+    assert 'action="/browse" method="get"' in html
+    assert 'name="q"' in html
 
 
 def test_goals_section_renders_and_is_accessible() -> None:
@@ -99,7 +100,7 @@ def test_goals_section_renders_and_is_accessible() -> None:
     view = build_view(states, days, (), goal_books=10, goal_pages=1000, goal_streak_days=5)
     assert view.goals
     html = render_view(view)
-    assert "<h2>Goals</h2>" in html
+    assert "<h3>Goals</h3>" in html
     assert check_html(html) == []  # the goal-configured page is still a11y-clean
 
 

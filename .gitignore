@@ -14,8 +14,20 @@ htmlcov/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+# SQLite may keep sensitive rows in sidecars even after the main file is clean.
+data/*.db-*
+data/*.sqlite-*
+data/*.sqlite3-*
 data/demo/
+data/backups/
+data/lists.json
+data/catalog-response-cache.json
+data/lenses.toml
 snapshots/
+
+# Runtime config can expose local paths, sync topology, catalog interests, and
+# usernames. Ship examples, never the operator's active file.
+stacks.toml
 
 # Secrets — kosync keys / API tokens live in the environment / .env, never source
 .env

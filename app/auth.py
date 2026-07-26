@@ -72,7 +72,10 @@ def check_credentials(presented: Optional[str], env: Optional[Mapping[str, str]]
     """Constant-time check of a presented token against the expected one."""
     if not presented:
         return False
-    return hmac.compare_digest(presented, expected_token(env))
+    # Compare as bytes: ``hmac.compare_digest`` raises TypeError on non-ASCII
+    # *strings*, and HTTP header values may legally carry latin-1 bytes — a
+    # crafted token must yield a clean 401, never an unhandled 500.
+    return hmac.compare_digest(presented.encode("utf-8"), expected_token(env).encode("utf-8"))
 
 
 def _signing_key(env: Optional[Mapping[str, str]] = None) -> bytes:

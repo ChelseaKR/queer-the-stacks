@@ -6,7 +6,9 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive â€
 
 ## A. Ethics & responsibility
 - **Worst misuse:** the tool leaks or exposes a reading history that reveals someone's identity, or it quietly damages the user's real Calibre/KOReader libraries.
-- **Mitigations:** self-hosted + private + no egress; strictly read-only, snapshot-first access to source databases.
+- **Mitigations:** self-hosted + private; no reading-derived egress; public
+  catalog metadata is fail-closed and explicitly opt-in; strictly read-only,
+  snapshot-first access to source databases.
 - **"Works as intended" harm:** recommendations that mirror gatekept bestseller catalogs, narrowing rather than widening discovery. â†’ Ethical sources + deliberate diverse/small-press surfacing.
 - **Non-goals:** not a public reading profile; not a library editor. **Auto-gated:** read-only + no-egress tests. **Review-gated:** ethics review.
 
@@ -18,7 +20,10 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive â€
 
 ## C. Privacy & data-protection
 - **Data inventory:** your library metadata + reading stats + progress (sensitive); derived app state.
-- **Handling:** everything stays on your seedbox, behind auth; no third-party analytics; reading data never leaves the instance.
+- **Handling:** reading history, progress, tags, and taste weights stay on your
+  seedbox behind auth; no third-party analytics. Optional public-catalog
+  requests contain only predeclared broad subjects or explicit public-list
+  URLsâ€”never reading-derived values.
 - **Commitment:** self-hosted, private, minimal retention; reading history is never shared or exposed. **Auto-gated:** no-egress/no-telemetry + auth tests. **Review-gated:** privacy review.
 
 ## D. Transparency & explainability
@@ -27,7 +32,10 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive â€
 
 ## E. Accessibility (WCAG 2.2 AA)
 - **Dashboard:** keyboard-complete; charts/Wrapped have data-table equivalents; theme tags never color-only; readable typography.
-- **Commitment:** zero `axe` violations plus a committed manual walkthrough. **Auto-gated:** axe + keyboard + chart-table tests. **Review-gated:** SR walkthrough sign-off.
+- **Commitment:** zero `axe` violations plus a committed manual walkthrough.
+  **Auto-gated:** structural, axe/contrast, chart-table, dark-preference, and
+  320px-reflow tests. **Review-gated:** human keyboard, magnification, and
+  screen-reader walkthrough sign-off.
 
 ## F. Security
 - **Threat model:** unauthorized access to the self-hosted app, source-DB corruption, API-key leakage, dependency risk.
@@ -61,4 +69,6 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive â€
 - `docs/audits/source-ethics.md` (ethical catalogs, Goodreads exclusion, diverse surfacing)
 - `docs/audits/library-safety.md` (read-only + snapshot access to Calibre/KOReader)
 - `docs/audits/accessibility-YYYY-MM-DD.md`
+- `docs/audits/real-library-dogfood-YYYY-MM-DD.md`
+- `docs/research/real-user-study-plan.md`
 - `docs/audits/residual-risk.md`

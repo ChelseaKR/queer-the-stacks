@@ -60,7 +60,7 @@ alternatives lives at the links above.
 | Goodreads requests | 0 | source-allowlist test | merge-blocking |
 | "Why recommended" + source present | 100% of recs | explanation test | merge-blocking |
 | Recommendation reproducibility (seeded) | deterministic | snapshot test | merge-blocking |
-| axe violations (dashboard) | 0 | `app/a11y_check.py` (structural, blocking) **+** pa11y/axe (browser-engine, incl. contrast — graduated to blocking 2026-07-05) | merge-blocking |
+| axe violations (dashboard + login) | 0 | Structural checks **+** Chromium/axe at desktop/mobile/light/dark, with asserted 320px reflow | merge-blocking |
 | Auth on the self-hosted app | required | access test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
 

@@ -33,7 +33,7 @@ from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
 from ingest.snapshot import columns, open_readonly
-from ingest.store import Store
+from ingest.store import CatalogSourceUpdate, Store
 from ingest.unify import unify
 
 
@@ -126,6 +126,7 @@ def _resolve_progress(
     stats: list[ReadingStat],
     store: Optional[Store],
     now: int,
+    ttl_seconds: int = 15 * 60,
 ) -> ProgressFetchResult:
     """Fetch fresh kosync progress only for keys whose stat changed; reuse the rest.
 
@@ -134,27 +135,33 @@ def _resolve_progress(
     """
     signatures = {stat.key: _stat_signature(stat) for stat in stats if stat.key}
     if not signatures:
+        if store is not None:
+            store.save_progress({}, {}, fetched_at=now, fetched_keys=set())
         return ProgressFetchResult()
     if store is None:
         return fetch_progress(source, signatures.keys())
 
-    stale = store.stale_progress_keys(signatures)
+    stale = store.stale_progress_keys(signatures, now=now, ttl_seconds=ttl_seconds)
     fresh = fetch_progress(source, stale) if stale else ProgressFetchResult()
 
-    reused = {
-        key: dp
-        for key, dp in store.cached_progress().items()
-        if key in signatures and key not in stale
-    }
-    merged = {**reused, **fresh.progress}
-    # A key whose fetch *errored* must stay stale: persisting its signature
-    # would record it as "checked, no progress", silently suppressing retries
-    # until the local stat changes — exactly the down-server-looks-like-no-
-    # progress failure mode this module exists to kill. Dropping it from the
-    # persisted signatures makes the next refresh re-fetch it.
+    cached = store.cached_progress()
+    reused = {key: dp for key, dp in cached.items() if key in signatures and key not in stale}
     errored = {outcome.key for outcome in fresh.outcomes if not outcome.ok}
-    persisted = {key: sig for key, sig in signatures.items() if key not in errored}
-    store.save_progress(merged, persisted, fetched_at=now)
+    last_good_after_error = {
+        key: cached[key] for key in errored if key in cached and key in signatures
+    }
+    merged = {**reused, **last_good_after_error, **fresh.progress}
+    # A key whose fetch errored retains any last-good value but is persisted
+    # with an explicit retry marker. This prevents an all-key outage from
+    # becoming an empty cache that the top-level mtime guard treats as fresh.
+    fetched_keys = {outcome.key for outcome in fresh.outcomes if outcome.ok}
+    store.save_progress(
+        merged,
+        signatures,
+        fetched_at=now,
+        fetched_keys=fetched_keys,
+        failed_keys=errored,
+    )
 
     return ProgressFetchResult(
         progress=merged, outcomes=fresh.outcomes, fetched=len(merged), errors=fresh.errors
@@ -170,6 +177,10 @@ class RefreshResult:
     progress_fetched: int = 0
     progress_errors: int = 0
     progress_outcomes: tuple[ProgressOutcome, ...] = ()
+    catalog_attempted: int = 0
+    catalog_succeeded: int = 0
+    catalog_errors: int = 0
+    catalog_candidates: int = 0
 
 
 def source_mtimes(config: Config) -> dict[str, int]:
@@ -196,7 +207,9 @@ def _ingest_demo(
     books = load_library(metadata_db, snap, retrieved_at="2026-06-05")
     stats = load_stats(statistics_db, snap)
     activity = load_daily_activity(statistics_db, snap)
-    progress_result = _resolve_progress(demo_kosync(), stats, store, now)
+    progress_result = _resolve_progress(
+        demo_kosync(), stats, store, now, config.kosync_progress_ttl_seconds
+    )
     states = unify(books, stats, FixtureKosync(progress_result.progress))
     return states, activity, progress_result
 
@@ -209,7 +222,9 @@ def _ingest_real(
     stats = load_stats(config.koreader_db, snap) if config.koreader_db else []
     stats = stats + (load_kobo_stats(config.kobo_db, snap) if config.kobo_db else [])
     activity = load_daily_activity(config.koreader_db, snap) if config.koreader_db else []
-    progress_result = _resolve_progress(_kosync(config), stats, store, now)
+    progress_result = _resolve_progress(
+        _kosync(config), stats, store, now, config.kosync_progress_ttl_seconds
+    )
     states = unify(books, stats, FixtureKosync(progress_result.progress))
     return states, activity, progress_result
 
@@ -242,13 +257,36 @@ def ingest_states(
 
 def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> RefreshResult:
     """Re-ingest into the store, skipping when source mtimes are unchanged."""
+    from recommender.catalog_pool import (
+        clear_legacy_response_cache,
+        configured_source_ids,
+        fetch_catalog_pool,
+    )
+
     current = source_mtimes(config)
+    catalog_ids = set(configured_source_ids(config))
+    clear_legacy_response_cache(config)
+    store.save_catalog_mode(config.catalog_outbound_mode, catalog_ids)
+    progress_due = config.kosync_configured and store.progress_refresh_due(
+        now, config.kosync_progress_ttl_seconds
+    )
+    stored_catalog_ids = {status.source_id for status in store.catalog_source_statuses()}
+    catalog_due = (
+        config.catalog_egress_enabled
+        and bool(catalog_ids)
+        and (
+            catalog_ids != stored_catalog_ids
+            or store.catalog_refresh_due(now, config.catalog_refresh_ttl_seconds)
+        )
+    )
     unchanged = (
         not force
         and not config.demo
         and store.is_populated
         and bool(current)
         and current == store.source_mtimes()
+        and not progress_due
+        and not catalog_due
     )
     if unchanged:
         states = store.load_states()
@@ -257,10 +295,31 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
             n_states=len(states),
             refreshed_at=store.refreshed_at() or 0,
             reason="sources unchanged since last refresh",
+            catalog_candidates=store.catalog_pool_status().candidate_count,
         )
 
     states, activity, progress_result = _ingest_with_progress(config, store, now)
     store.save(states, activity, refreshed_at=now, source_mtimes=current)
+    catalog_result = None
+    if config.demo:
+        from ingest.demo import demo_candidates
+
+        demo_books = tuple(candidate.book for candidate in demo_candidates())
+        store.save_catalog_refresh(
+            (CatalogSourceUpdate(source_id="demo:built-in", books=demo_books),),
+            active_source_ids={"demo:built-in"},
+            attempted_at=now,
+            outbound_mode="off",
+        )
+    elif config.catalog_egress_enabled and catalog_ids and (force or catalog_due):
+        catalog_result = fetch_catalog_pool(config)
+        store.save_catalog_refresh(
+            catalog_result.updates,
+            active_source_ids=set(catalog_result.active_source_ids),
+            attempted_at=now,
+            outbound_mode=config.catalog_outbound_mode,
+        )
+    pool_status = store.catalog_pool_status()
     return RefreshResult(
         refreshed=True,
         n_states=len(states),
@@ -269,6 +328,10 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
         progress_fetched=progress_result.fetched,
         progress_errors=progress_result.errors,
         progress_outcomes=progress_result.outcomes,
+        catalog_attempted=catalog_result.attempted if catalog_result else 0,
+        catalog_succeeded=catalog_result.succeeded if catalog_result else 0,
+        catalog_errors=catalog_result.errors if catalog_result else 0,
+        catalog_candidates=pool_status.candidate_count,
     )
 
 
@@ -339,6 +402,32 @@ def doctor(
                 else "not configured — progress will use KOReader stats only",
             )
         )
+        if not config.catalog_egress_enabled:
+            checks.append(
+                Check(
+                    "catalog egress",
+                    True,
+                    "off — no public catalog requests will be made",
+                )
+            )
+        elif not config.catalog_sources_configured:
+            checks.append(
+                Check(
+                    "catalog egress",
+                    False,
+                    "public-metadata consent enabled, but no broad subjects/"
+                    "public lists configured",
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    "catalog egress",
+                    True,
+                    "public-metadata only; broad predeclared sources, "
+                    "never reading-derived queries",
+                )
+            )
     checks.append(Check("data dir", True, str(config.data_dir)))
     if store is not None:
         if store.is_populated:
@@ -347,5 +436,23 @@ def doctor(
             )
         else:
             checks.append(Check("app-state store", True, "empty — run `stacks refresh`"))
+        for status in store.catalog_source_statuses():
+            has_fallback = status.candidate_count > 0 and status.fetched_at is not None
+            if status.status == "error":
+                detail = f"last attempt failed ({status.error})"
+                if has_fallback:
+                    detail += (
+                        f"; serving {status.candidate_count} last-good candidates "
+                        f"fetched_at={status.fetched_at}"
+                    )
+                checks.append(Check(f"catalog {status.source_id}", False, detail))
+            else:
+                checks.append(
+                    Check(
+                        f"catalog {status.source_id}",
+                        True,
+                        f"{status.candidate_count} candidates; fetched_at={status.fetched_at}",
+                    )
+                )
     checks.extend(_check_env(resolved_env))
     return checks

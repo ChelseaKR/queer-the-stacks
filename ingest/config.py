@@ -24,8 +24,8 @@ DEFAULT_CONFIG_FILE = "stacks.toml"
 DEFAULT_DATA_DIR = Path("data")
 #: Personalized diversity-lens grouping, auto-loaded when present (see
 #: app/diversity.py::load_lens_config). Overridable via [lenses].path in
-#: stacks.toml or $STACKS_LENS_CONFIG; ships as a committed template with the
-#: current defaults so editing it "just works" with zero code changes.
+#: stacks.toml or $STACKS_LENS_CONFIG. The committed template lives at
+#: ``examples/lenses.example.toml``; the active personalized file is ignored.
 DEFAULT_LENS_CONFIG = Path("data/lenses.toml")
 
 # Every ``STACKS_*`` environment variable this app actually reads. Exported so
@@ -42,6 +42,11 @@ KNOWN_STACKS_ENV = frozenset(
         "STACKS_KOSYNC_HOST",
         "STACKS_KOSYNC_USER",
         "STACKS_KOSYNC_KEY",
+        "STACKS_KOSYNC_TTL",
+        "STACKS_CATALOG_OUTBOUND",
+        "STACKS_CATALOG_TTL",
+        "STACKS_OPENLIBRARY_SUBJECTS",
+        "STACKS_BOOKWYRM_LISTS",
         "STACKS_APERTURE",
         "STACKS_EMBEDDINGS",
         "STACKS_DNF_SIGNALS",
@@ -78,6 +83,14 @@ class Config:
     goal_streak_days: int = 0  # streak goal in days (0 = unset)
     lens_config: Optional[Path] = None  # diversity-lens TOML override, if any
     hide_sensitive_descriptors: bool = False  # privacy: aggregate identity-adjacent tags
+    kosync_progress_ttl_seconds: int = 15 * 60
+    # Catalog egress is fail-closed. The only enabled value is the explicit
+    # ``public-metadata`` mode; configured subjects/lists are predeclared,
+    # never derived from a reader's history or taste profile.
+    catalog_outbound_mode: str = "off"
+    catalog_refresh_ttl_seconds: int = 24 * 60 * 60
+    openlibrary_subjects: tuple[str, ...] = ()
+    bookwyrm_lists: tuple[str, ...] = ()
 
     @property
     def store_path(self) -> Path:
@@ -99,6 +112,15 @@ class Config:
             self.calibre_db is not None or self.koreader_db is not None or self.kobo_db is not None
         )
 
+    @property
+    def catalog_egress_enabled(self) -> bool:
+        """Whether explicitly consented public-catalog GETs may run."""
+        return self.catalog_outbound_mode == "public-metadata"
+
+    @property
+    def catalog_sources_configured(self) -> bool:
+        return bool(self.openlibrary_subjects or self.bookwyrm_lists)
+
     def view_cache_fields(self) -> tuple[object, ...]:
         """The subset of fields that affect a built ``DashboardView``.
 
@@ -115,6 +137,9 @@ class Config:
             self.goal_pages,
             self.goal_hours,
             self.goal_streak_days,
+            self.catalog_outbound_mode,
+            self.openlibrary_subjects,
+            self.bookwyrm_lists,
         )
 
 
@@ -135,6 +160,26 @@ def _opt_path(value: Optional[str]) -> Optional[Path]:
     return Path(value) if value else None
 
 
+def _bounded_seconds(raw: Optional[str], default: int) -> int:
+    try:
+        return max(60, int(raw)) if raw else default
+    except ValueError:
+        return default
+
+
+def _catalog_mode(raw: Optional[str]) -> str:
+    mode = (raw or "off").strip().lower()
+    return mode if mode in {"off", "public-metadata"} else "off"
+
+
+def _string_list(env_value: Optional[str], raw: object) -> tuple[str, ...]:
+    if env_value:
+        return tuple(v.strip() for v in env_value.split(",") if v.strip())
+    if not isinstance(raw, list):
+        return ()
+    return tuple(str(v).strip() for v in raw if isinstance(v, str) and v.strip())
+
+
 def load_config(
     env: Optional[Mapping[str, str]] = None,
     config_path: Optional[Path] = None,
@@ -148,6 +193,7 @@ def load_config(
     koreader = _section(toml, "koreader")
     kobo = _section(toml, "kobo")
     kosync = _section(toml, "kosync")
+    catalogs = _section(toml, "catalogs")
     storage = _section(toml, "storage")
 
     def pick(env_key: str, section: Mapping[str, object], key: str) -> Optional[str]:
@@ -166,6 +212,14 @@ def load_config(
         aperture = 0.0
 
     goals = _section(toml, "goals")
+
+    kosync_ttl = _bounded_seconds(
+        pick("STACKS_KOSYNC_TTL", kosync, "progress_ttl_seconds"), 15 * 60
+    )
+    catalog_ttl = _bounded_seconds(
+        pick("STACKS_CATALOG_TTL", catalogs, "refresh_ttl_seconds"), 24 * 60 * 60
+    )
+    catalog_mode = _catalog_mode(pick("STACKS_CATALOG_OUTBOUND", catalogs, "outbound_mode"))
 
     def pick_int(env_key: str, key: str) -> int:
         raw = pick(env_key, goals, key)
@@ -201,4 +255,15 @@ def load_config(
         goal_streak_days=pick_int("STACKS_GOAL_STREAK", "streak_days"),
         lens_config=lens_config,
         hide_sensitive_descriptors=resolved_env.get("STACKS_HIDE_SENSITIVE") == "1",
+        kosync_progress_ttl_seconds=kosync_ttl,
+        catalog_outbound_mode=catalog_mode,
+        catalog_refresh_ttl_seconds=catalog_ttl,
+        openlibrary_subjects=_string_list(
+            resolved_env.get("STACKS_OPENLIBRARY_SUBJECTS"),
+            catalogs.get("openlibrary_subjects"),
+        ),
+        bookwyrm_lists=_string_list(
+            resolved_env.get("STACKS_BOOKWYRM_LISTS"),
+            catalogs.get("bookwyrm_lists"),
+        ),
     )

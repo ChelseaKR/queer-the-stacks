@@ -49,35 +49,64 @@ class SourceNotAllowed(Exception):
     """Raised when a catalog request targets a blocked or non-allowlisted host."""
 
 
+class CatalogPayloadInvalid(ValueError):
+    """Raised when a live catalog response does not match its top-level contract."""
+
+
+class _CatalogResponse(Protocol):
+    """The small ``requests.Response`` surface used by the catalog clients."""
+
+    status_code: int
+
+    @property
+    def text(self) -> str: ...
+
+    def raise_for_status(self) -> None: ...
+
+
 #: A descriptive, identifying User-Agent for every outbound catalog/federation
 #: request. Federation etiquette (EV-LICENSE): a host can see exactly who we are
-#: and that we are a read-only, caching, self-hosted consumer of *public* metadata.
+#: and that we are a read-only, TTL-caching, self-hosted consumer of *public* metadata.
 USER_AGENT: str = (
     "QueerTheStacks/1.0 (self-hosted reading dashboard; read-only public-metadata "
-    "fetch; caches responses; see docs/ethical-book-data-sources.md)"
+    "fetch; TTL-cached candidate pool; see docs/ethical-book-data-sources.md)"
 )
 
 
 def etiquette_headers(accept: str = "application/json") -> dict[str, str]:
     """Polite, identifying HTTP headers for every catalog/federation fetch.
 
-    Pairs with the on-disk :class:`ResponseCache` (don't re-hit APIs), robots /
-    rate-limit respect, and backoff in the live clients — the documented
-    federation etiquette in ``docs/ethical-book-data-sources.md``. Only public
-    catalog metadata is ever requested; reading data is never sent.
+    Pairs with the persisted, TTL-bounded candidate pool, robots/rate-limit
+    respect, and backoff policy — the documented federation etiquette in
+    ``docs/ethical-book-data-sources.md``. Only public catalog metadata is ever
+    requested; reading data is never sent.
     """
     return {"User-Agent": USER_AGENT, "Accept": accept}
 
 
 def assert_allowed(url: str) -> str:
-    """Return ``url`` iff its host is allowlisted; otherwise raise.
+    """Return ``url`` iff it is a credential-free HTTPS URL on the allowlist.
 
     A blocked host (Goodreads/Amazon) raises with an explicit message; an
-    unknown host raises too (default-deny). This runs before any request.
+    unknown host raises too (default-deny). Cleartext, URL credentials,
+    fragments, and non-standard ports are rejected before any request.
     """
-    host = (urlparse(url).hostname or "").lower()
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
     if not host:
         raise SourceNotAllowed(f"no host in URL: {url!r}")
+    if parsed.scheme.lower() != "https":
+        raise SourceNotAllowed("catalog requests require HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise SourceNotAllowed("catalog URLs must not contain credentials")
+    if parsed.fragment:
+        raise SourceNotAllowed("catalog URLs must not contain fragments")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise SourceNotAllowed("catalog URL has an invalid port") from exc
+    if port not in {None, 443}:
+        raise SourceNotAllowed("catalog URLs may use only the standard HTTPS port")
     if host in BLOCKED_HOSTS:
         raise SourceNotAllowed(
             f"{host} is a blocked source (Goodreads/Amazon excluded on ToS + values grounds)"
@@ -85,6 +114,33 @@ def assert_allowed(url: str) -> str:
     if host not in ALLOWED_HOSTS:
         raise SourceNotAllowed(f"{host} is not in the catalog allowlist (default-deny)")
     return url
+
+
+def _catalog_get(url: str, timeout: int) -> _CatalogResponse:
+    """Issue one allowlisted HTTPS GET without following redirect hops."""
+    import requests
+
+    safe_url = assert_allowed(url)
+    response = requests.get(
+        safe_url,
+        timeout=timeout,
+        headers=etiquette_headers(),
+        allow_redirects=False,
+    )
+    if 300 <= response.status_code < 400:
+        raise SourceNotAllowed("catalog redirects are disabled")
+    response.raise_for_status()
+    return response
+
+
+def _validated_collection_payload(body: str, key: str) -> object:
+    """Decode a catalog response whose required top-level field is a list."""
+    import json
+
+    payload: object = json.loads(body)
+    if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
+        raise CatalogPayloadInvalid(f"catalog response requires a top-level {key!r} list")
+    return payload
 
 
 @runtime_checkable
@@ -281,25 +337,24 @@ class OpenLibraryClient:
         self.timeout = timeout
 
     def subject(self, subject: str, limit: int = 50) -> tuple[Book, ...]:
-        import json
         import time
 
         url = assert_allowed(f"{self.SUBJECTS_ROOT}/{subject}.json?limit={limit}")
         body = self._fetch(url)
-        return parse_openlibrary_subject(json.loads(body), subject, url, time.strftime("%Y-%m-%d"))
+        payload = _validated_collection_payload(body, "works")
+        if self.cache is not None:
+            # Cache only validated responses: a transient HTML/error body or
+            # schema drift must not poison every later refresh.
+            self.cache.put(url, body)
+        return parse_openlibrary_subject(payload, subject, url, time.strftime("%Y-%m-%d"))
 
     def _fetch(self, url: str) -> str:
-        import requests
-
+        url = assert_allowed(url)
         if self.cache is not None:
             cached = self.cache.get(url)
             if cached is not None:
                 return cached
-        resp = requests.get(url, timeout=self.timeout, headers=etiquette_headers())
-        resp.raise_for_status()
-        if self.cache is not None:
-            self.cache.put(url, resp.text)
-        return resp.text
+        return _catalog_get(url, self.timeout).text
 
 
 class BookwyrmClient:
@@ -309,12 +364,9 @@ class BookwyrmClient:
         self.timeout = timeout
 
     def fetch_list(self, list_url: str) -> tuple[Book, ...]:
-        import json
         import time
 
-        import requests
-
         url = assert_allowed(list_url)
-        resp = requests.get(url, timeout=self.timeout, headers=etiquette_headers())
-        resp.raise_for_status()
-        return parse_bookwyrm_list(json.loads(resp.text), url, time.strftime("%Y-%m-%d"))
+        response = _catalog_get(url, self.timeout)
+        payload = _validated_collection_payload(response.text, "books")
+        return parse_bookwyrm_list(payload, url, time.strftime("%Y-%m-%d"))

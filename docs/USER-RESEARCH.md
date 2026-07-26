@@ -13,6 +13,10 @@
 > especially the **data stewards** (Open Library / Bookwyrm) whose terms this tool
 > depends on, and the **review-gated sign-offs** (privacy, representation, screen
 > reader) the audits list as *pending first release*.
+> A consent-based, task-oriented protocol is now recruitment-ready in
+> [`research/real-user-study-plan.md`](./research/real-user-study-plan.md).
+> It remains explicitly **planned, not completed**, until real participants take
+> part and the de-identified findings are synthesized.
 > **Last assembled: 2026-06-30.**
 
 ## Why do this at all
@@ -199,8 +203,8 @@ Accessed **2026-06-30**.
   conveyed as text (a `#` glyph + label) not color, `prefers-reduced-motion`
   respected, 0 axe violations via `make a11y`. *(matches WCAG complex-image guidance)*
 - **Gets stuck:** the audit itself flags that the **manual** passes are *not yet
-  signed off* — no real VoiceOver/NVDA walkthrough, no 320px-reflow or
-  forced-colors check, and streamed/interactive updates aren't SR-audited.
+  signed off* — no real VoiceOver/NVDA walkthrough, no human 200%-zoom or
+  forced-colors walkthrough, and streamed/interactive updates aren't SR-audited.
 - **Wants next:** a committed, dated SR-walkthrough artifact; a published live a11y
   report; and — when share cards exist — **alt text baked into the card image** so
   it's accessible after it leaves the app.

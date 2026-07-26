@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ingest.models import Book, DailyActivity
+from ingest.models import Author, Book, DailyActivity
 from ingest.serde import (
     _book_from_dict,
     _book_to_dict,
@@ -13,7 +13,7 @@ from ingest.serde import (
     state_from_dict,
     state_to_dict,
 )
-from ingest.store import Store
+from ingest.store import CatalogSourceUpdate, Store
 
 
 def test_state_round_trips_with_full_fidelity(states: list) -> None:
@@ -55,6 +55,7 @@ def test_store_save_and_load(states: list, daily_activity: list, tmp_path: Path)
         store.save(states, daily_activity, refreshed_at=1_700_000_000, source_mtimes={"calibre": 5})
         assert store.is_populated is True
         assert store.refreshed_at() == 1_700_000_000
+        assert store.view_revision() == 1
         assert store.source_mtimes() == {"calibre": 5}
         loaded = store.load_states()
         assert loaded == states
@@ -76,4 +77,50 @@ def test_store_overwrites_on_resave(states: list, tmp_path: Path) -> None:
         store.save(states, [], refreshed_at=1)
         store.save(states[:1], [], refreshed_at=2)
         assert store.refreshed_at() == 2
+        assert store.view_revision() == 2
         assert len(store.load_states()) == 1
+
+
+def test_catalog_pool_preserves_last_good_source_on_failure(tmp_path: Path) -> None:
+    book = Book(book_id="ol:1", title="A Public Book", authors=(Author("Writer"),))
+    source_id = "openlibrary:subject:queer_fiction"
+    with Store(tmp_path / "catalog.sqlite") as store:
+        store.save_catalog_refresh(
+            (CatalogSourceUpdate(source_id=source_id, books=(book,)),),
+            active_source_ids={source_id},
+            attempted_at=100,
+            outbound_mode="public-metadata",
+        )
+        assert store.view_revision() == 1
+        assert store.load_catalog_candidates() == (book,)
+        assert store.catalog_pool_status().state == "fresh"
+
+        store.save_catalog_refresh(
+            (CatalogSourceUpdate(source_id=source_id, ok=False, error="Timeout"),),
+            active_source_ids={source_id},
+            attempted_at=200,
+            outbound_mode="public-metadata",
+        )
+        assert store.view_revision() == 2
+        assert store.load_catalog_candidates() == (book,)
+        status = store.catalog_pool_status()
+        assert status.state == "degraded"
+        assert status.attempted_at == 200
+        assert status.candidate_count == 1
+        assert status.sources[0].fetched_at == 100
+        assert status.sources[0].error == "Timeout"
+
+
+def test_catalog_mode_off_is_explicit_and_keeps_cached_public_metadata(tmp_path: Path) -> None:
+    book = Book(book_id="ol:1", title="Cached")
+    source_id = "openlibrary:subject:queer_fiction"
+    with Store(tmp_path / "catalog.sqlite") as store:
+        store.save_catalog_refresh(
+            (CatalogSourceUpdate(source_id=source_id, books=(book,)),),
+            active_source_ids={source_id},
+            attempted_at=100,
+            outbound_mode="public-metadata",
+        )
+        store.save_catalog_mode("off", {source_id})
+        assert store.catalog_pool_status().state == "off"
+        assert store.load_catalog_candidates() == (book,)

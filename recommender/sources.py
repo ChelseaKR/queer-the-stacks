@@ -51,16 +51,17 @@ class ExcludedSource:
 
 #: A descriptive, identifying User-Agent string and the federation/fetch etiquette
 #: policy we hold ourselves to. Honesty note on enforcement: the User-Agent,
-#: no-reading-data, caching, and allowlist rules are enforced *in code*
-#: (:func:`recommender.catalogs.etiquette_headers`, ``ResponseCache``,
-#: ``assert_allowed``); robots.txt honouring and 429/5xx backoff are committed
+#: no-reading-data, persisted candidate caching, and allowlist rules are
+#: enforced *in code* (:func:`recommender.catalogs.etiquette_headers`,
+#: :class:`ingest.store.Store`, ``assert_allowed``); robots.txt honouring and
+#: 429/5xx backoff are committed
 #: policy the live clients must implement when the real candidate pipeline
 #: lands (ideation FIX-01, cassette tests PR #27) — until then they are
 #: enforced by review, not by code.
 FETCH_ETIQUETTE: tuple[str, ...] = (
     "Identify every request with a descriptive User-Agent (app + read-only intent).",
     "Fetch only public catalog metadata — the reader's reading history is never sent.",
-    "Cache responses on disk (recommender.catalogs.ResponseCache) so we do not re-hit APIs.",
+    "Cache parsed candidates per source and refresh them only after the configured TTL.",
     "Honour robots.txt and any published rate limits; keep request volume low.",
     "Back off (exponentially) on HTTP 429 / 5xx instead of hammering a host.",
     "Treat each Bookwyrm instance as independent; honour a per-instance opt-out for reads.",
@@ -82,8 +83,8 @@ ETHICAL_SOURCES: tuple[EthicalSource, ...] = (
         ),
         auth="No API key. Public, unauthenticated JSON (e.g. /subjects/<s>.json).",
         rate_limit=(
-            "Cache on disk; honour robots.txt; back off on 429/5xx; send a descriptive "
-            "User-Agent; keep volume modest."
+            "Persist parsed candidates with a bounded refresh TTL; honour robots.txt; "
+            "back off on 429/5xx; send a descriptive User-Agent; keep volume modest."
         ),
         contact="Internet Archive / Open Library — https://openlibrary.org/help",
         terms_url="https://openlibrary.org/developers/api",
@@ -103,8 +104,8 @@ ETHICAL_SOURCES: tuple[EthicalSource, ...] = (
             "localhost/server-side only — never ship the token to a browser."
         ),
         rate_limit=(
-            "Respect published GraphQL rate limits; cache; back off on 429/5xx; identify "
-            "via User-Agent."
+            "Respect published GraphQL rate limits; persist parsed candidates with a "
+            "bounded TTL; back off on 429/5xx; identify via User-Agent."
         ),
         contact="Hardcover — https://docs.hardcover.app (community support via their Discord)",
         terms_url="https://docs.hardcover.app/api/getting-started/",
@@ -124,8 +125,9 @@ ETHICAL_SOURCES: tuple[EthicalSource, ...] = (
             "host with its own rules and admins."
         ),
         rate_limit=(
-            "Honour a per-instance opt-out for reads; cache aggressively; respect robots.txt "
-            "and rate limits; back off on 429/5xx; descriptive User-Agent."
+            "Honour a per-instance opt-out for reads; persist parsed candidates with a "
+            "bounded TTL; respect robots.txt and rate limits; back off on 429/5xx; "
+            "descriptive User-Agent."
         ),
         contact=(
             "The individual instance admin (e.g. bookwyrm.social admins) — ask before "
@@ -178,7 +180,7 @@ def _compliance_card(s: EthicalSource) -> list[str]:
 def to_markdown() -> str:
     """Render the registry as a committable Markdown document.
 
-    Emits a quick "Used" summary table, then a per-source **compliance card**
+    Emits a quick "Vetted" summary table, then a per-source **compliance card**
     spelling out the three distinct obligations (CC0 / per-instance ToS /
     token-gated, "in-flux" API), the federation/fetch etiquette we enforce, and
     the deliberate exclusions.
@@ -188,7 +190,7 @@ def to_markdown() -> str:
         "",
         "_Generated from `recommender/sources.py` — the single source of truth._",
         "",
-        "## Used (summary)",
+        "## Vetted sources (summary)",
         "",
         "| Source | Host | Kind | License / terms | Why |",
         "|--------|------|------|-----------------|-----|",
@@ -198,6 +200,13 @@ def to_markdown() -> str:
         for s in ETHICAL_SOURCES
     ]
     lines += [
+        "",
+        "## Runtime implementation status",
+        "",
+        "The opt-in persisted candidate pipeline currently fetches broad Open Library "
+        "subjects and explicitly configured public BookWyrm lists. Hardcover has a "
+        "defensive response parser and remains allowlisted for future work, but no live "
+        "Hardcover client is wired into refresh; the app does not claim otherwise.",
         "",
         "## Per-source compliance cards",
         "",
@@ -213,10 +222,11 @@ def to_markdown() -> str:
         "## Federation & fetch etiquette",
         "",
         "Every catalog/federation request follows this policy. The User-Agent, "
-        "public-metadata-only, caching, and host-allowlist rules are enforced in code "
-        "(`recommender.catalogs.etiquette_headers`, `ResponseCache`, `assert_allowed`); "
-        "robots.txt honouring and 429/5xx backoff are committed policy, enforced by "
-        "review until the live candidate pipeline lands (FIX-01 / cassette tests):",
+        "public-metadata-only, candidate-pool caching, and host-allowlist rules are "
+        "enforced in code (`recommender.catalogs.etiquette_headers`, "
+        "`ingest.store.Store`, `assert_allowed`); "
+        "robots.txt honouring and client-specific 429/5xx backoff remain committed "
+        "review requirements:",
         "",
     ]
     lines += [f"- {rule}" for rule in FETCH_ETIQUETTE]
