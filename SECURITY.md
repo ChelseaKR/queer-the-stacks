@@ -1,6 +1,6 @@
 # Security Policy
 
-Queer the Stacks is a **single-user, self-hosted** reading dashboard and recommender (MIT). By
+Queer the Stacks is a **single-user, self-hosted** reading dashboard and recommender (AGPL-3.0-or-later). By
 design it runs **private and local-only**: your Calibre and KOReader data are read **read-only**,
 reading data never leaves the instance, there is no telemetry, and the dashboard serves **only
 behind auth** (`401` without a valid `STACKS_AUTH_TOKEN`). That posture is the first line of

@@ -32,6 +32,8 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   ethical-catalog recommender with explanations, auth-gated self-hosted dashboard).
 
 ### Changed
+- **Relicensed from MIT to AGPL-3.0-or-later** (sole-author relicense): keeps
+  derivatives and network deployments open; prior released snapshots remain MIT.
 - Dependency security refresh: raised `starlette`/`msgpack` floors above known advisories (#10).
 - Pinned all GitHub Actions `uses:` to full commit SHAs (#5).
 - CI quick wins: least-privilege `permissions:`, SHA-pinning, blocking security gates (#4).
