@@ -17,6 +17,7 @@ from ingest.models import (
     SourceKind,
     ThemeTag,
 )
+from ingest.store import CatalogPoolStatus, CatalogSourceStatus
 
 
 def test_demo_view_has_expected_shape(tmp_path: Path) -> None:
@@ -51,6 +52,11 @@ def test_render_contains_all_sections(tmp_path: Path) -> None:
     # Every rec card shows a source link and a why.
     assert "Why recommended" in html
     assert "Sources" in html
+    # Cards are the single accessible recommendation presentation.
+    assert "Recommendation fit scores" not in html
+    assert 'aria-label="Dashboard sections"' in html
+    assert 'action="/browse" method="get"' in html
+    assert 'aria-label="Reading progress for Stone Butch Blues"' in html
     # Themes are rendered as text chips, not colour-only.
     assert 'class="tag"' in html
 
@@ -94,7 +100,85 @@ def test_render_handles_empty_view() -> None:
         view.recommendations,
     )
     assert "Nothing in progress" in html
-    assert "No recommendations yet" in html
+    assert "No recommendation candidates are stored yet" in html
+
+
+def test_render_preserves_browse_query_and_exposes_live_count() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        browse_query='queer "history"',
+        browse_theme='trans "history"',
+        browse_status="unread",
+    )
+    assert 'value="queer &quot;history&quot;"' in html
+    assert 'type="hidden" name="theme" value="trans &quot;history&quot;"' in html
+    assert 'type="hidden" name="status" value="unread"' in html
+    assert 'id="lib-filter-status"' in html
+    assert 'aria-live="polite"' in html
+
+
+def test_render_caps_large_library_preview_but_reports_full_count() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    library = [
+        ReadingState(
+            title=f"Book {index:03}",
+            authors=("Reader",),
+            status=ReadingStatus.UNREAD,
+        )
+        for index in range(101)
+    ]
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        library=library,
+    )
+    assert "Showing the first 100 of 101 books" in html
+    assert 'data-complete="false"' in html
+    assert "Book 099" in html
+    assert "Book 100" not in html
+
+
+def test_render_catalog_degradation_exposes_last_good_fallback() -> None:
+    view = build_view([], [DailyActivity(0, 0, 0)], ())
+    status = CatalogPoolStatus(
+        outbound_mode="public-metadata",
+        state="degraded",
+        attempted_at=1_700_000_010,
+        candidate_count=2,
+        sources=(
+            CatalogSourceStatus(
+                source_id="openlibrary:subject/lgbt",
+                status="error",
+                attempted_at=1_700_000_010,
+                fetched_at=1_700_000_000,
+                candidate_count=2,
+                error="TimeoutError",
+            ),
+        ),
+    )
+    html = render_dashboard(
+        view.currently_reading,
+        view.finished,
+        view.stats,
+        view.wrapped,
+        view.recommendations,
+        catalog_status=status,
+    )
+    assert '<details class="source-status" open>' in html
+    assert "Public metadata — explicitly enabled" in html
+    assert "A source failed; last-good candidates are retained" in html
+    assert "Last attempt failed; using last-good candidates." in html
+    assert "2023-11-14T22:13:20Z" in html
+    assert "TimeoutError" in html
+    assert check_html(html) == []
 
 
 def test_render_data_status_never_refreshed() -> None:
@@ -109,7 +193,7 @@ def test_render_data_status_never_refreshed() -> None:
     assert "Data status" in html
     assert "never refreshed" in html
     assert "stacks refresh" in html
-    assert 'role="status"' not in html  # no stamp yet -> no staleness banner either
+    assert 'class="status-note" role="status"' not in html
 
 
 def test_render_data_status_shows_stamp_and_no_banner_when_fresh() -> None:
@@ -125,7 +209,7 @@ def test_render_data_status_shows_stamp_and_no_banner_when_fresh() -> None:
     )
     assert "Data status" in html
     assert "2023-11-14T22:13:20Z" in html  # ISO-8601 UTC of the epoch stamp
-    assert 'role="status"' not in html
+    assert 'class="status-note" role="status"' not in html
 
 
 def test_render_data_status_stale_banner_is_visible_text() -> None:
@@ -148,7 +232,7 @@ def test_render_data_status_stale_banner_is_visible_text() -> None:
 
 def _diversity_section(html: str) -> str:
     start = html.index("Reading diversity")
-    return html[start : html.index("Reading Wrapped", start)]
+    return html[start : html.index("</details>", start)]
 
 
 def test_diversity_provenance_shows_source_and_date(tmp_path: Path) -> None:

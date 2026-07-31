@@ -22,8 +22,10 @@ from ingest.kosync import KosyncClient
 from ingest.models import DeviceProgress
 from recommender.catalogs import (
     BookwyrmClient,
+    CatalogPayloadInvalid,
     OpenLibraryClient,
     ResponseCache,
+    SourceNotAllowed,
     etiquette_headers,
 )
 
@@ -94,8 +96,11 @@ def test_openlibrary_client_subject_and_cache(
 ) -> None:
     calls: list[str] = []
 
-    def fake_get(url: str, timeout: int, headers: dict[str, str]) -> _FakeResponse:
+    def fake_get(
+        url: str, timeout: int, headers: dict[str, str], allow_redirects: bool
+    ) -> _FakeResponse:
         assert headers == etiquette_headers()
+        assert allow_redirects is False
         calls.append(url)
         return _FakeResponse(_load("openlibrary_subject.json"))
 
@@ -127,8 +132,11 @@ def test_openlibrary_client_subject_and_cache(
 
 
 def test_bookwyrm_client_fetch_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_get(url: str, timeout: int, headers: dict[str, str]) -> _FakeResponse:
+    def fake_get(
+        url: str, timeout: int, headers: dict[str, str], allow_redirects: bool
+    ) -> _FakeResponse:
         assert headers == etiquette_headers()
+        assert allow_redirects is False
         return _FakeResponse(_load("bookwyrm_list.json"))
 
     monkeypatch.setattr("requests.get", fake_get)
@@ -143,3 +151,93 @@ def test_bookwyrm_client_fetch_list(monkeypatch: pytest.MonkeyPatch) -> None:
     assert books[0].tag_labels == frozenset({"trans", "speculative", "historical"})
     assert books[1].book_id == "bookwyrm:43"
     assert books[1].tag_labels == frozenset({"afrofuturism", "queer"})
+
+
+@pytest.mark.parametrize(
+    ("client_kind", "url"),
+    [
+        ("openlibrary", "https://openlibrary.org/subjects/queer.json?limit=50"),
+        ("bookwyrm", "https://bookwyrm.social/list/7"),
+    ],
+)
+def test_catalog_clients_never_follow_redirects(
+    client_kind: str,
+    url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_get(
+        requested_url: str,
+        timeout: int,
+        headers: dict[str, str],
+        allow_redirects: bool,
+    ) -> _FakeResponse:
+        del timeout, headers
+        assert allow_redirects is False
+        calls.append(requested_url)
+        return _FakeResponse("", status_code=302)
+
+    monkeypatch.setattr("requests.get", fake_get)
+
+    with pytest.raises(SourceNotAllowed, match="redirects are disabled"):
+        if client_kind == "openlibrary":
+            OpenLibraryClient().subject("queer")
+        else:
+            BookwyrmClient().fetch_list(url)
+
+    assert calls == [url]
+
+
+@pytest.mark.parametrize("body", ["{}", '{"works": {}}', '{"unexpected": []}'])
+def test_openlibrary_live_response_requires_works_list(
+    body: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "requests.get",
+        lambda url, timeout, headers, allow_redirects: _FakeResponse(body),
+    )
+
+    with pytest.raises(CatalogPayloadInvalid, match="'works' list"):
+        OpenLibraryClient().subject("queer")
+
+
+@pytest.mark.parametrize("body", ["{}", '{"books": {}}', '{"unexpected": []}'])
+def test_bookwyrm_live_response_requires_books_list(
+    body: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "requests.get",
+        lambda url, timeout, headers, allow_redirects: _FakeResponse(body),
+    )
+
+    with pytest.raises(CatalogPayloadInvalid, match="'books' list"):
+        BookwyrmClient().fetch_list("https://bookwyrm.social/list/7")
+
+
+def test_live_catalog_empty_collections_are_successful(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = iter((_FakeResponse('{"works": []}'), _FakeResponse('{"books": []}')))
+    monkeypatch.setattr(
+        "requests.get",
+        lambda url, timeout, headers, allow_redirects: next(responses),
+    )
+
+    assert OpenLibraryClient().subject("queer") == ()
+    assert BookwyrmClient().fetch_list("https://bookwyrm.social/list/7") == ()
+
+
+def test_openlibrary_does_not_cache_invalid_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_path = tmp_path / "cache.json"
+    monkeypatch.setattr(
+        "requests.get",
+        lambda url, timeout, headers, allow_redirects: _FakeResponse("{}"),
+    )
+
+    with pytest.raises(CatalogPayloadInvalid):
+        OpenLibraryClient(cache=ResponseCache(cache_path)).subject("queer")
+
+    assert not cache_path.exists()

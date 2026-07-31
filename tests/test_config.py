@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,70 @@ def test_hide_sensitive_descriptors_flag(tmp_path: Path) -> None:
     assert load_config(env={}, config_path=absent).hide_sensitive_descriptors is False
     cfg = load_config(env={"STACKS_HIDE_SENSITIVE": "1"}, config_path=absent)
     assert cfg.hide_sensitive_descriptors is True
+
+
+def test_remote_freshness_and_catalog_config_are_fail_closed(tmp_path: Path) -> None:
+    cfg = load_config(
+        env={
+            "STACKS_KOSYNC_TTL": "120",
+            "STACKS_CATALOG_TTL": "3600",
+            "STACKS_CATALOG_OUTBOUND": "public-metadata",
+            "STACKS_OPENLIBRARY_SUBJECTS": "queer_fiction,science_fiction",
+            "STACKS_BOOKWYRM_LISTS": "https://bookwyrm.social/list/7",
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    assert cfg.kosync_progress_ttl_seconds == 120
+    assert cfg.catalog_refresh_ttl_seconds == 3600
+    assert cfg.catalog_egress_enabled
+    assert cfg.catalog_sources_configured
+    assert cfg.openlibrary_subjects == ("queer_fiction", "science_fiction")
+    assert cfg.bookwyrm_lists == ("https://bookwyrm.social/list/7",)
+
+    invalid = load_config(
+        env={"STACKS_CATALOG_OUTBOUND": "yes-please"},
+        config_path=tmp_path / "absent.toml",
+    )
+    assert invalid.catalog_outbound_mode == "off"
+    assert invalid.catalog_egress_enabled is False
+
+
+def test_catalog_sources_can_be_predeclared_in_toml(tmp_path: Path) -> None:
+    toml = tmp_path / "stacks.toml"
+    toml.write_text(
+        """
+        [catalogs]
+        outbound_mode = "public-metadata"
+        refresh_ttl_seconds = 7200
+        openlibrary_subjects = ["queer_fiction"]
+        bookwyrm_lists = ["https://bookwyrm.social/list/7"]
+        """,
+        encoding="utf-8",
+    )
+    cfg = load_config(env={}, config_path=toml)
+    assert cfg.catalog_egress_enabled
+    assert cfg.catalog_refresh_ttl_seconds == 7200
+    assert cfg.openlibrary_subjects == ("queer_fiction",)
+    assert cfg.bookwyrm_lists == ("https://bookwyrm.social/list/7",)
+
+
+def test_catalog_presentation_state_participates_in_view_cache_key(tmp_path: Path) -> None:
+    base = load_config(env={}, config_path=tmp_path / "absent.toml")
+    base_fields = base.view_cache_fields()
+    assert (
+        dataclasses.replace(base, catalog_outbound_mode="public-metadata").view_cache_fields()
+        != base_fields
+    )
+    assert (
+        dataclasses.replace(base, openlibrary_subjects=("queer_fiction",)).view_cache_fields()
+        != base_fields
+    )
+    assert (
+        dataclasses.replace(
+            base, bookwyrm_lists=("https://bookwyrm.social/list/7",)
+        ).view_cache_fields()
+        != base_fields
+    )
 
 
 def test_key_only_from_env_never_file(tmp_path: Path) -> None:

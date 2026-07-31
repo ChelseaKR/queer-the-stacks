@@ -4,10 +4,10 @@
 # single reader-legible name. This is a view over book tags, never a claim
 # about an author's identity.
 #
-# This file ships with the current built-in defaults as a template: edit the
-# names, add/remove descriptors, or add whole new lenses to match your own
-# shelf's vocabulary — no code changes required. Descriptors are matched
-# case-insensitively against a book's sourced theme tags.
+# Copy this template to data/lenses.toml, then edit the names, descriptors, or
+# whole lenses to match your own shelf's vocabulary. The active file is ignored
+# by Git because a personalized lens can reveal sensitive reading interests.
+# Descriptors are matched case-insensitively against sourced book theme tags.
 #
 # Validation (app/diversity.py::validate_dimensions): every lens needs a
 # non-empty ``name``, a non-empty ``descriptors`` list, and no two lenses may

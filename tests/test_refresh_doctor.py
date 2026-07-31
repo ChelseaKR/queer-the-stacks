@@ -373,6 +373,129 @@ def test_store_progress_cache_skips_unchanged_stats(tmp_path: Path) -> None:
         assert store.stale_progress_keys(changed) == {"k2"}
 
 
+def test_remote_progress_ttl_refetches_unchanged_local_stat(tmp_path: Path) -> None:
+    """Remote-only progress changes become visible at the bounded TTL."""
+
+    class MutableProgress:
+        def __init__(self) -> None:
+            self.percentage = 0.3
+            self.calls = 0
+
+        def progress_for(self, document: str) -> DeviceProgress:
+            self.calls += 1
+            return DeviceProgress(document, self.percentage, "Kobo", 10 + self.calls)
+
+    source = MutableProgress()
+    stat = ReadingStat("k1", "Nevada", ("Imogen Binnie",), 50, 250, 3600, 100, 2)
+    with Store(tmp_path / "progress.sqlite") as store:
+        first = _resolve_progress(source, [stat], store, now=100, ttl_seconds=60)
+        assert first.progress["k1"].percentage == 0.3
+
+        source.percentage = 0.8
+        before_ttl = _resolve_progress(source, [stat], store, now=159, ttl_seconds=60)
+        assert before_ttl.progress["k1"].percentage == 0.3
+        assert source.calls == 1
+
+        after_ttl = _resolve_progress(source, [stat], store, now=160, ttl_seconds=60)
+        assert after_ttl.progress["k1"].percentage == 0.8
+        assert source.calls == 2
+
+
+def test_kosync_ttl_breaks_unchanged_source_mtime_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remote-only sync change eventually triggers a full persisted refresh."""
+
+    class MutableProgress:
+        def __init__(self) -> None:
+            self.percentage = 0.3
+            self.calls = 0
+
+        def progress_for(self, document: str) -> DeviceProgress:
+            self.calls += 1
+            return DeviceProgress(document, self.percentage, "Kobo", 10 + self.calls)
+
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    cfg = load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+            "STACKS_KOSYNC_HOST": "https://sync.example",
+            "STACKS_KOSYNC_USER": "reader",
+            "STACKS_KOSYNC_KEY": "key",
+            "STACKS_KOSYNC_TTL": "60",
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    source = MutableProgress()
+    monkeypatch.setattr("ingest.refresh._kosync", lambda _config: source)
+
+    with Store(cfg.store_path) as store:
+        first = refresh(cfg, store, now=100)
+        assert first.refreshed
+        first_calls = source.calls
+
+        source.percentage = 0.8
+        before_ttl = refresh(cfg, store, now=159)
+        assert before_ttl.refreshed is False
+        assert source.calls == first_calls
+
+        after_ttl = refresh(cfg, store, now=160)
+        assert after_ttl.refreshed is True
+        assert source.calls > first_calls
+        synced = [state for state in store.load_states() if state.progress]
+        assert synced
+        assert all(state.percent_complete == 0.8 for state in synced)
+
+
+def test_kosync_all_key_outage_retries_despite_unchanged_source_mtimes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An all-error progress cache must not let the top-level guard skip retries."""
+
+    class RecoveringProgress:
+        def __init__(self) -> None:
+            self.available = False
+            self.calls = 0
+
+        def progress_for(self, document: str) -> DeviceProgress:
+            self.calls += 1
+            if not self.available:
+                raise TimeoutError("sync unavailable")
+            return DeviceProgress(document, 0.75, "Kobo", 200)
+
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    cfg = load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+            "STACKS_KOSYNC_HOST": "https://sync.example",
+            "STACKS_KOSYNC_USER": "reader",
+            "STACKS_KOSYNC_KEY": "key",
+            "STACKS_KOSYNC_TTL": "900",
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    source = RecoveringProgress()
+    monkeypatch.setattr("ingest.refresh._kosync", lambda _config: source)
+
+    with Store(cfg.store_path) as store:
+        failed = refresh(cfg, store, now=100)
+        first_calls = source.calls
+        assert failed.progress_errors == first_calls
+        assert first_calls > 0
+        assert store.progress_refresh_due(101, 900)
+
+        source.available = True
+        recovered = refresh(cfg, store, now=101)
+        assert recovered.refreshed is True
+        assert recovered.progress_errors == 0
+        assert source.calls > first_calls
+        assert any(state.percent_complete == 0.75 for state in store.load_states())
+
+
 def test_refresh_reuses_cached_progress_when_stats_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

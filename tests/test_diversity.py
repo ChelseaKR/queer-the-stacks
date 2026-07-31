@@ -323,8 +323,8 @@ def test_load_lens_config_empty_lenses_array_degrades(tmp_path: Path) -> None:
 
 
 def test_the_committed_lenses_toml_template_is_valid() -> None:
-    """The shipped data/lenses.toml must load cleanly to defaults' equivalent."""
+    """The shipped example must load cleanly to the built-in defaults."""
     repo_root = Path(__file__).resolve().parent.parent
-    cfg = load_lens_config(repo_root / "data" / "lenses.toml")
+    cfg = load_lens_config(repo_root / "examples" / "lenses.example.toml")
     assert cfg.warning is None
     assert cfg.dimensions == DEFAULT_DIMENSIONS

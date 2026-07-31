@@ -25,6 +25,26 @@ from typing import Final
 from app.render import _FILTER_JS, _STYLE
 from app.share import _COPY_JS, _SHARE_STYLE
 
+# The login page is rendered in ``app.server`` but its inline style lives here
+# so the served source and its CSP hash cannot drift apart.
+LOGIN_STYLE: Final = (
+    ":root { color-scheme: light dark; }"
+    "* { box-sizing: border-box; }"
+    "html { color: CanvasText; background-color: Canvas; }"
+    "body { width: 100%; max-width: 40ch; margin: 3rem auto; padding: 1rem; "
+    "color: CanvasText; background-color: Canvas; font-family: system-ui, sans-serif; }"
+    "a:focus, .skip:focus, input:focus, button:focus { "
+    "outline: 3px solid LinkText; outline-offset: 3px; }"
+    ".skip { position: absolute; left: -999px; }"
+    ".skip:focus { left: 1rem; top: 1rem; color: Canvas; background-color: CanvasText; }"
+    "label { display: block; margin: 1rem 0 0.25rem; }"
+    "input, button { min-height: 44px; color: CanvasText; background-color: Canvas; "
+    "border: 1px solid CanvasText; font: inherit; }"
+    "input { width: 100%; padding: 0.5rem; }"
+    "button { margin-top: 1rem; padding: 0.5rem 1rem; }"
+    ".error { border: 1px solid; border-radius: 4px; padding: 0.5rem; }"
+)
+
 
 def _sha256_b64(text: str) -> str:
     """Base64 sha256 digest of ``text``, in the ``'sha256-...'`` CSP form."""
@@ -53,6 +73,7 @@ FILTER_JS_HASH: Final = _inline_script_hash(_FILTER_JS)
 COPY_JS_HASH: Final = _inline_script_hash(_COPY_JS)
 STYLE_HASH: Final = _inline_style_hash(_STYLE)
 SHARE_STYLE_HASH: Final = _inline_style_hash(_SHARE_STYLE)
+LOGIN_STYLE_HASH: Final = _inline_style_hash(LOGIN_STYLE)
 
 #: The full Content-Security-Policy served on every response. ``default-src
 #: 'none'`` denies everything by default; each directive below opens only the
@@ -60,10 +81,11 @@ SHARE_STYLE_HASH: Final = _inline_style_hash(_SHARE_STYLE)
 CONTENT_SECURITY_POLICY: Final = (
     "default-src 'none'; "
     f"script-src 'sha256-{FILTER_JS_HASH}' 'sha256-{COPY_JS_HASH}'; "
-    f"style-src 'sha256-{STYLE_HASH}' 'sha256-{SHARE_STYLE_HASH}'; "
+    f"style-src 'sha256-{STYLE_HASH}' 'sha256-{SHARE_STYLE_HASH}' "
+    f"'sha256-{LOGIN_STYLE_HASH}'; "
     "img-src 'self' data:; "
     "base-uri 'none'; "
-    "form-action 'none'; "
+    "form-action 'self'; "
     "frame-ancestors 'none'"
 )
 

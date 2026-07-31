@@ -13,6 +13,13 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Added
+- An explicitly opt-in public-metadata candidate pool for predeclared Open
+  Library subjects and public BookWyrm lists, persisted per source with a
+  visible last-good fallback, source age, and degraded-state reporting.
+- A consent-based five-participant usability-study protocol and a dated
+  real-library dogfood audit; no synthetic user findings are presented as
+  research.
+- Desktop and 320 px pa11y/axe gates for the daily dashboard.
 - A "Time to finish" dashboard section: for each currently-reading book, an
   accessible table shows a ranged time-to-finish estimate from your recent
   reading pace (never a single number), computed locally by the existing
@@ -36,6 +43,16 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   now applies, deferred to backlog #17's fork/audience decision; `docs/I18N.md`
   defines both decision paths and ADR 0007 supersedes only the i18n portion of
   ADR 0006. No catalog or translation is claimed.
+- **Relicensed from MIT to AGPL-3.0-or-later** (sole-author relicense): keeps
+  derivatives and network deployments open; prior released snapshots remain MIT.
+- The daily homepage now follows a focused circulation-desk flow—continue,
+  choose what is next, review recent returns, then browse—with detailed stats,
+  provenance, lists, and source health in progressive disclosures.
+- KOReader remote progress is refreshed on a bounded TTL even when the local
+  statistics database mtime is unchanged; failed keys remain immediately
+  retryable and retain last-good progress.
+- The homepage previews at most 100 library rows while server-side search still
+  covers the complete stored library.
 - Dependency security refresh: raised `starlette`/`msgpack` floors above known advisories (#10).
 - Pinned all GitHub Actions `uses:` to full commit SHAs (#5).
 - CI quick wins: least-privilege `permissions:`, SHA-pinning, blocking security gates (#4).
@@ -46,6 +63,13 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- Login form submission is now permitted by the CSP while its inline style
+  remains hash-pinned. View-cache keys now include privacy mode, content
+  fingerprints, catalog settings, and a monotonic store revision so
+  sensitive/full or newly persisted catalog views cannot collide.
+- Personalized runtime databases, SQLite sidecars, authored lists, catalog
+  caches, active lens configuration, and `stacks.toml` are ignored; the tracked
+  lens file is now a non-personalized example template.
 - Dashboard/share-page CSS: elements now inherit an explicit, guaranteed-AA-contrast
   `color`/`background-color` pair instead of relying solely on the `color-scheme` hint, which had
   been failing `axe`'s color-contrast check (2026-07-05).

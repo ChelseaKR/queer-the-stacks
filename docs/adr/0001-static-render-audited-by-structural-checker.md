@@ -6,15 +6,15 @@
 
 ## Context and Problem Statement
 
-The dashboard needs an accessibility gate that runs reliably in CI, without depending on a live
-browser being available on the runner.
+The dashboard and login entry point need an accessibility gate that runs reliably in CI without
+depending on a live application server.
 
 ## Decision Outcome
 
-`app/render.py` is the single source of truth for the dashboard's *content*. `make a11y` renders it
-to a static artifact and gates it (pa11y/axe, plus the built-in `app/a11y_check.py` structural
-checker as a second, dependency-free layer), so the mechanical WCAG checks run in CI without
-depending on a live server. `app/server.py` serves exactly the same HTML the gate checked.
+`app/render.py` is the single source of truth for the dashboard's *content*, and the login renderer
+is shared by the live route and static audit artifact. `make a11y` gates both with pa11y/axe plus
+the built-in `app/a11y_check.py` structural checker, so the mechanical WCAG checks run in CI
+without depending on a live server. `app/server.py` serves the same HTML the gate checked.
 
 ## Rejected Options
 
@@ -26,3 +26,9 @@ depending on a live server. `app/server.py` serves exactly the same HTML the gat
 Both layers are now merge-blocking (previously pa11y ran advisory-only — see the 2026-07-05
 remediation log and `docs/audits/accessibility-2026-06-05.md`). The two-layer design in this ADR is
 unchanged; only the pa11y layer's enforcement level changed.
+
+## 2026-07-25 update
+
+The static artifact set now includes the login entry point as well as the dashboard. The browser
+layer runs both documents at desktop and 320px mobile viewports, forces light and dark preferences,
+and separately asserts document width because axe does not implement WCAG 1.4.10 reflow.

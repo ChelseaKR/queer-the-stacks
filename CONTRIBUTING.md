@@ -1,7 +1,7 @@
 # Contributing to Queer the Stacks
 
 Thanks for your interest. Queer the Stacks is a self-hosted, single-user reading dashboard and
-ethical recommender (MIT) for a queer/trans/speculative reading life. It is small on purpose and
+ethical recommender (AGPL-3.0-or-later) for a queer/trans/speculative reading life. It is small on purpose and
 opinionated about a few invariants (below) that are the whole point of the project — please keep
 those intact. Everything else is fair game, and first-time contributors are genuinely welcome.
 
@@ -49,7 +49,7 @@ git commit -s -m "feat(recommender): surface small-press co-reads"
 
 `-s` appends the `Signed-off-by:` trailer matching your `git config user.name`/`user.email`. By
 signing off you certify you wrote the contribution or have the right to submit it under the
-project's MIT license.
+project's AGPL-3.0-or-later license.
 
 ## Invariants — do not regress these
 
@@ -97,4 +97,4 @@ must pass the complete local verification command before review.
 
 ---
 
-*Maintainer: Chelsea Kelly-Reif · License: MIT.*
+*Maintainer: Chelsea Kelly-Reif · License: AGPL-3.0-or-later.*

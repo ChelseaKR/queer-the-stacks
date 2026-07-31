@@ -2,7 +2,8 @@
 
 These power the dashboard's "Browse your library" section and the ``/browse``
 route. Filtering is by *sourced* theme, author, series, status, and a free-text
-title/author query — all over local data, deterministic, never inferred.
+query across those visible fields — all over local data, deterministic, never
+inferred.
 """
 
 from __future__ import annotations
@@ -68,6 +69,9 @@ def filter_states(
         out = [
             s
             for s in out
-            if needle in s.title.lower() or any(needle in a.lower() for a in s.authors)
+            if needle in s.title.lower()
+            or any(needle in a.lower() for a in s.authors)
+            or needle in s.status.value
+            or any(needle in tag.normalized for tag in s.theme_tags)
         ]
     return out

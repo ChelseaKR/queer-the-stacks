@@ -1,0 +1,16 @@
+{
+  "chromeLaunchConfig": {
+    "args": [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu"
+    ]
+  },
+  "viewport": {
+    "width": 320,
+    "height": 800,
+    "deviceScaleFactor": 1,
+    "isMobile": true
+  }
+}

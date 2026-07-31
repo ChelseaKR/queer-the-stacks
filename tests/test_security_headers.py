@@ -99,6 +99,7 @@ def test_csp_hashes_are_derived_from_the_served_inline_script_and_style_source(
     show up in the CSP header actually served on a live route.
     """
     from app.render import _FILTER_JS, _STYLE
+    from app.security_headers import LOGIN_STYLE
     from app.share import _COPY_JS, _SHARE_STYLE
 
     filter_js_inner = _FILTER_JS.removeprefix("<script>").removesuffix("</script>")
@@ -109,6 +110,7 @@ def test_csp_hashes_are_derived_from_the_served_inline_script_and_style_source(
         f"'sha256-{_sha256_b64(copy_js_inner)}'",
         f"'sha256-{_sha256_b64(_STYLE)}'",
         f"'sha256-{_sha256_b64(_SHARE_STYLE)}'",
+        f"'sha256-{_sha256_b64(LOGIN_STYLE)}'",
     }
 
     client = _make_client(tmp_path, monkeypatch)
@@ -127,7 +129,26 @@ def test_csp_denies_by_default_and_scopes_images(
     assert "default-src 'none'" in csp
     assert "img-src 'self' data:" in csp
     assert "base-uri 'none'" in csp
-    assert "form-action 'none'" in csp
+    assert "form-action 'self'" in csp
+    assert "form-action https:" not in csp
+
+
+def test_login_form_is_allowed_only_to_submit_same_origin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _make_client(tmp_path, monkeypatch)
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert '<form method="post" action="/login">' in response.text
+    assert "form-action 'self'" in response.headers["Content-Security-Policy"]
+
+
+def test_login_style_has_explicit_contrast_and_reflow_guards() -> None:
+    from app.security_headers import LOGIN_STYLE
+
+    assert "* { box-sizing: border-box; }" in LOGIN_STYLE
+    assert "color: CanvasText" in LOGIN_STYLE
+    assert "background-color: Canvas" in LOGIN_STYLE
 
 
 # --- external citation links carry safe rel attributes -----------------------

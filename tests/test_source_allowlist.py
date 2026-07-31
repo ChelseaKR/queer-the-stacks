@@ -46,6 +46,21 @@ def test_missing_host_raises() -> None:
         assert_allowed("not-a-url")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://bookwyrm.social/list/123",
+        "https://reader:secret@bookwyrm.social/list/123",
+        "https://bookwyrm.social/list/123#private-note",
+        "https://bookwyrm.social:8443/list/123",
+        "https://bookwyrm.social:not-a-port/list/123",
+    ],
+)
+def test_transport_and_url_ambiguities_are_rejected(url: str) -> None:
+    with pytest.raises(SourceNotAllowed):
+        assert_allowed(url)
+
+
 def test_goodreads_is_blocked_not_allowlisted() -> None:
     assert "goodreads.com" in BLOCKED_HOSTS
     assert not any("goodreads" in h for h in ALLOWED_HOSTS)

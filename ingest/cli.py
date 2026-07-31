@@ -135,6 +135,15 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             f"kosync progress: {result.progress_fetched} resolved, "
             f"{result.progress_errors} error(s)"
         )
+    print(
+        f"catalog egress: {config.catalog_outbound_mode}; "
+        f"{result.catalog_candidates} candidates stored locally"
+    )
+    if result.catalog_attempted:
+        print(
+            f"catalog refresh: {result.catalog_succeeded}/{result.catalog_attempted} "
+            f"source(s) succeeded, {result.catalog_errors} error(s)"
+        )
     return 0
 
 
@@ -189,11 +198,15 @@ def _cmd_export(args: argparse.Namespace) -> int:
             store,
             user="demo" if config.demo else "you",
             aperture_strength=config.aperture_strength,
+            use_embeddings=config.embeddings_enabled,
+            dnf_signals=config.dnf_signals,
             goal_books=config.goal_books,
             goal_pages=config.goal_pages,
+            goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
             lens_config=config.lens_config,
             authored_lists=load_stored_lists(list_store_path(config)),
+            demo_mode=config.demo,
         )
     finally:
         store.close()

@@ -105,8 +105,8 @@ jobs:
       - name: Security (deps + lockfile + secrets)
         run: make security
 
-      # 5. accessibility — zero violations from BOTH the structural checker and
-      #    pa11y/axe (real browser engine, incl. color-contrast) — both blocking.
+      # 5. accessibility — dashboard + login, structural and Chromium/axe,
+      #    desktop/mobile/light/dark plus asserted 320px reflow — all blocking.
       - name: Accessibility
         run: make a11y
 

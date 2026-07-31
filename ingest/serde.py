@@ -78,6 +78,16 @@ def _book_from_dict(d: dict[str, Any]) -> Book:
     )
 
 
+def book_to_dict(book: Book) -> dict[str, Any]:
+    """Public serializer for persisted catalog candidate pools."""
+    return _book_to_dict(book)
+
+
+def book_from_dict(data: dict[str, Any]) -> Book:
+    """Public deserializer for persisted catalog candidate pools."""
+    return _book_from_dict(data)
+
+
 def _stat_to_dict(s: ReadingStat) -> dict[str, Any]:
     return {
         "key": s.key,

@@ -1,4 +1,4 @@
-"""Accessibility gate — the rendered dashboard has zero mechanical violations."""
+"""Accessibility gate — dashboard and login have zero mechanical violations."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.a11y_check import check_html, main
 from app.render import render_dashboard
+from app.server import _render_login_page
 from app.view import demo_view
 
 
@@ -23,6 +24,11 @@ def _html(tmp_path: Path) -> str:
 
 def test_demo_dashboard_has_zero_violations(tmp_path: Path) -> None:
     assert check_html(_html(tmp_path)) == []
+
+
+def test_login_documents_have_zero_structural_violations() -> None:
+    assert check_html(_render_login_page()) == []
+    assert check_html(_render_login_page("Incorrect token.")) == []
 
 
 def test_checker_catches_missing_landmarks() -> None:
