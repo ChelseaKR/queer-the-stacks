@@ -205,6 +205,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             goal_hours=config.goal_hours,
             goal_streak_days=config.goal_streak_days,
             lens_config=config.lens_config,
+            hide_sensitive_descriptors=config.hide_sensitive_descriptors,
             authored_lists=load_stored_lists(list_store_path(config)),
             demo_mode=config.demo,
         )
