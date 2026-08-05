@@ -1,8 +1,10 @@
-"""Command-line entry point: ``stacks eval`` and ``stacks recommend`` (demo mode).
+"""Command-line entry point: ``stacks eval``, ``stacks recommend``, and friends.
 
 Thin argparse glue over the library; excluded from coverage. Demo mode runs the
-full offline pipeline with no real library and no network. Real mode would point
-at configured Calibre/KOReader paths.
+full offline pipeline with no real library and no network. Real mode reads the
+configured Calibre/KOReader paths through the same app-state store the
+dashboard serves, and never substitutes demo fixtures when a library is
+configured — see :func:`_cmd_recommend`.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import argparse
 import json
 import sys
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,7 +21,7 @@ if TYPE_CHECKING:
     from recommender.lists import CuratedList
 
     from ingest.demo import Candidate
-    from ingest.models import ReadingState
+    from ingest.models import ReadingState, Recommendation
 
 
 def _demo_states_and_candidates() -> tuple[
@@ -82,15 +85,57 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_recommend(args: argparse.Namespace) -> int:
-    from recommender.model import recommend
-
-    states, candidates, lists = _demo_states_and_candidates()
-    recs = recommend(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
+def _print_recommendations(recs: Iterable[Recommendation]) -> None:
     for rec in recs:
         authors = ", ".join(rec.book.author_names) or "unknown"
         print(f"{rec.rank:>2}. {rec.book.title} — {authors}  (fit {rec.score:.3f})")
         print(f"    {rec.explanation.summary}")
+
+
+def _cmd_recommend(args: argparse.Namespace) -> int:
+    """Recommend from the configured library, or from the demo world if unconfigured.
+
+    Real mode reads the same store the dashboard reads, so the two never
+    disagree. When sources are configured, demo fixtures are never a fallback:
+    a library that yields no candidates says so, because fixture titles printed
+    against a real library are indistinguishable from real output and several
+    of them are books the reader already owns.
+    """
+    from recommender.model import recommend
+
+    from ingest.config import load_config
+    from ingest.store import Store
+
+    config = load_config()
+    if config.demo:
+        states, candidates, lists = _demo_states_and_candidates()
+        print("demo mode: no library configured — these are fixture titles.\n")
+        _print_recommendations(
+            recommend(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
+        )
+        return 0
+
+    from recommender.lists_store import list_store_path, load_stored_lists
+
+    store = Store(config.store_path)
+    try:
+        states = store.load_states()
+        candidate_books = store.load_catalog_candidates()
+    finally:
+        store.close()
+    lists = load_stored_lists(list_store_path(config))
+    if not states:
+        print("no books in the app-state store — run `stacks refresh` first.", file=sys.stderr)
+        return 1
+    if not candidate_books:
+        print(
+            f"{len(states)} books in state, but no recommendation candidates are stored.\n"
+            f"catalog egress is {config.catalog_outbound_mode}; recommendations need "
+            "predeclared public sources (see the README Quickstart), then `stacks refresh`.",
+            file=sys.stderr,
+        )
+        return 1
+    _print_recommendations(recommend(states, candidate_books, lists=lists, k=args.k))
     return 0
 
 
@@ -382,7 +427,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_eval.set_defaults(func=_cmd_eval)
 
-    p_rec = sub.add_parser("recommend", help="print demo recommendations")
+    p_rec = sub.add_parser(
+        "recommend", help="recommend from the configured library (demo fixtures if unconfigured)"
+    )
     p_rec.add_argument("--k", type=int, default=10)
     p_rec.set_defaults(func=_cmd_recommend)
 

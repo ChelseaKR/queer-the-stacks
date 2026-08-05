@@ -63,6 +63,20 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- `stacks recommend` reads the configured library through the app-state store
+  instead of always printing demo fixtures. With sources configured it never
+  falls back to the demo world: an unrefreshed store and an empty candidate
+  pool are now distinct, actionable messages. Found by running the ingest
+  against a real 1,907-book library, where three of the five fixture titles it
+  printed were books already in that library.
+- Sourced Calibre tags carry the date the library was actually read. The real
+  ingest path never passed `retrieved_at`, so it silently took the
+  `1970-01-01` default and stamped every citation with the epoch — 11,233 of
+  them in the same real-library run.
+- Author names restore the commas Calibre escapes as `|` in `authors.name`, so
+  `Vine Deloria| Jr.` renders as `Vine Deloria, Jr.` (53 affected books in that
+  library). The `authors.sort` column stores the same string already
+  comma-formed, which confirms the convention rather than assuming it.
 - Login form submission is now permitted by the CSP while its inline style
   remains hash-pinned. View-cache keys now include privacy mode, content
   fingerprints, catalog settings, and a monotonic store revision so

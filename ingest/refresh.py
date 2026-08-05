@@ -20,6 +20,7 @@ outcome per key. ``unify`` now just reads the resulting in-memory map.
 from __future__ import annotations
 
 import concurrent.futures
+import datetime as dt
 import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -214,11 +215,28 @@ def _ingest_demo(
     return states, activity, progress_result
 
 
+def _retrieval_date(now: int) -> str:
+    """The UTC date stamped onto tags sourced from the real library.
+
+    Sourced descriptors carry a citation, and a citation needs the date it was
+    read. ``now`` is supplied by the caller (never read from the clock here) so
+    ingest stays deterministic under test. A caller that passes ``0`` gets the
+    epoch back, which is the honest "no retrieval time was supplied" sentinel
+    rather than a plausible-looking guess.
+    """
+    return dt.datetime.fromtimestamp(now, tz=dt.UTC).strftime("%Y-%m-%d")
+
+
 def _ingest_real(
     config: Config, store: Optional[Store] = None, now: int = 0
 ) -> tuple[list[ReadingState], list[DailyActivity], ProgressFetchResult]:
     snap = config.snapshot_dir
-    books = load_library(config.calibre_db, snap) if config.calibre_db else []
+    retrieved_at = _retrieval_date(now)
+    books = (
+        load_library(config.calibre_db, snap, retrieved_at=retrieved_at)
+        if config.calibre_db
+        else []
+    )
     stats = load_stats(config.koreader_db, snap) if config.koreader_db else []
     stats = stats + (load_kobo_stats(config.kobo_db, snap) if config.kobo_db else [])
     activity = load_daily_activity(config.koreader_db, snap) if config.koreader_db else []
