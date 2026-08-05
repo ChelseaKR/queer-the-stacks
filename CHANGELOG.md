@@ -63,6 +63,13 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
+  reading filter excludes unread books by design, but without KOReader every
+  book is unread, so a real 1,907-book library reported 0% coverage and no
+  lenses — a blank panel that reads as "your shelf isn't diverse" rather than
+  "nothing here knows what you have read". With no reading history at all the
+  report now covers the whole shelf and labels itself as doing so; one read
+  book restores the reading view.
 - `stacks recommend` reads the configured library through the app-state store
   instead of always printing demo fixtures. With sources configured it never
   falls back to the demo world: an unrefreshed store and an empty candidate

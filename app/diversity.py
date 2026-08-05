@@ -161,6 +161,7 @@ class DiversityReport:
     hide_sensitive: bool = False  # privacy toggle: sensitive descriptors aggregated/hidden
     lens_source: str = BUILTIN_LENS_SOURCE
     lens_warning: Optional[str] = None
+    shelf_fallback: bool = False  # counts describe the whole shelf, not reading history
 
     @property
     def undescribed_books(self) -> int:
@@ -195,6 +196,14 @@ def compute_diversity(
     queer/trans reading history (EV-PRIVACY) — while the coarse lens counts stay.
     """
     considered = [s for s in states if s.status is not ReadingStatus.UNREAD]
+    # A Calibre-only install has no reading status at all, so the reading filter
+    # empties the report and the panel renders blank — which reads as "your
+    # shelf isn't diverse" rather than "nothing here knows what you've read".
+    # Fall back to the whole shelf and say so, the same honesty this module
+    # already applies to books carrying no sourced descriptor.
+    shelf_fallback = not considered and bool(states)
+    if shelf_fallback:
+        considered = list(states)
     total = len(considered)
 
     theme_counter: Counter[str] = Counter()
@@ -252,6 +261,7 @@ def compute_diversity(
         hide_sensitive=hide_sensitive,
         lens_source=lens_source,
         lens_warning=lens_warning,
+        shelf_fallback=shelf_fallback,
     )
 
 

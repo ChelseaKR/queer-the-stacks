@@ -328,3 +328,40 @@ def test_the_committed_lenses_toml_template_is_valid() -> None:
     cfg = load_lens_config(repo_root / "examples" / "lenses.example.toml")
     assert cfg.warning is None
     assert cfg.dimensions == DEFAULT_DIMENSIONS
+
+
+def test_all_unread_falls_back_to_the_whole_shelf_and_says_so() -> None:
+    """A Calibre-only shelf has no reading status, so the reading filter empties it.
+
+    Ingesting a real 1,907-book Calibre library produced `coverage_pct: 0.0` and
+    `dimensions: ()` — a blank panel that reads as "your shelf isn't diverse"
+    rather than "nothing here knows what you've read". The fallback reports the
+    shelf instead, flagged, so the honesty this module applies to undescribed
+    books also covers the no-reading-history case.
+    """
+    states = [
+        _state("Owned queer", ReadingStatus.UNREAD, (_tag("queer"),)),
+        _state("Owned trans", ReadingStatus.UNREAD, (_tag("trans"),)),
+        _state("Owned untagged", ReadingStatus.UNREAD, ()),
+    ]
+    report = compute_diversity(states)
+    assert report.shelf_fallback is True
+    assert report.total_books == 3
+    assert report.described_books == 2
+    assert {d.name for d in report.dimensions} == {"Queer / LGBTQ+", "Trans & nonbinary"}
+
+
+def test_any_reading_history_keeps_the_reading_view() -> None:
+    """The fallback is strictly a last resort — one read book restores the filter."""
+    states = [
+        _state("Finished queer", ReadingStatus.FINISHED, (_tag("queer"),)),
+        _state("Owned trans", ReadingStatus.UNREAD, (_tag("trans"),)),
+    ]
+    report = compute_diversity(states)
+    assert report.shelf_fallback is False
+    assert report.total_books == 1
+    assert {d.name for d in report.dimensions} == {"Queer / LGBTQ+"}
+
+
+def test_empty_shelf_does_not_claim_a_fallback() -> None:
+    assert compute_diversity([]).shelf_fallback is False

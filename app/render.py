@@ -468,14 +468,26 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     if report is None or report.total_books == 0:
         return ""
 
+    considered_label = (
+        "Books considered (whole shelf — no reading history)"
+        if report.shelf_fallback
+        else "Books considered (reading + finished)"
+    )
     coverage_rows = "".join(
         f'<tr><th scope="row">{escape(label)}</th><td>{value}</td></tr>'
         for label, value in (
-            ("Books considered (reading + finished)", str(report.total_books)),
+            (considered_label, str(report.total_books)),
             ("With a sourced descriptor", str(report.described_books)),
             ("No sourced descriptor (unknown — not 'none')", str(report.undescribed_books)),
             ("Descriptor coverage", _pct(report.coverage_pct)),
         )
+    )
+    shelf_note = (
+        '<p class="shelf-fallback" role="note">Nothing on this shelf carries a reading '
+        "status, so these counts describe <strong>everything you own</strong>, not what "
+        "you have read. Connect KOReader to see the reading view.</p>"
+        if report.shelf_fallback
+        else ""
     )
     coverage = (
         "<table><caption>Coverage — how much of the shelf carries a sourced "
@@ -569,7 +581,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
         "never infer an author's identity and never auto-label a person; a book "
         "with no sourced descriptor is reported as unknown, not as &ldquo;not "
         "diverse&rdquo;.</p>"
-        f"{privacy_note}{coverage}{dimensions}{provenance}{descriptor_table}"
+        f"{shelf_note}{privacy_note}{coverage}{dimensions}{provenance}{descriptor_table}"
     )
 
 
