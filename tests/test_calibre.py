@@ -109,3 +109,43 @@ def test_languages_and_publisher_are_read(workdir: Path) -> None:
     unknown = next(b for b in books if b.title == "Unknown Facts")
     assert unknown.languages == ()
     assert unknown.publisher is None
+
+
+def test_author_names_unescape_calibre_pipe(workdir: Path) -> None:
+    """Calibre escapes a comma in ``authors.name`` as ``|``; ingest restores it.
+
+    Found by running the ingest against a real 1,907-book library, where 53
+    books rendered names like ``Collins| Buck`` on the dashboard. The ``sort``
+    column stores the same string already comma-formed, which is what confirms
+    the convention.
+    """
+    db = workdir / "escaped_authors.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT, series_index REAL, pubdate TEXT);
+        CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT, sort TEXT);
+        CREATE TABLE books_authors_link (id INTEGER PRIMARY KEY, book INTEGER, author INTEGER);
+        INSERT INTO books (id, title, series_index, pubdate) VALUES (1, 'Custer Died', NULL, NULL);
+        INSERT INTO books (id, title, series_index, pubdate) VALUES (2, 'Plain Name', NULL, NULL);
+        INSERT INTO authors (id, name, sort)
+            VALUES (1, 'Vine Deloria| Jr.', 'Vine Deloria, Jr.');
+        INSERT INTO authors (id, name, sort)
+            VALUES (2, 'Octavia E. Butler', 'Butler, Octavia E.');
+        INSERT INTO books_authors_link (book, author) VALUES (1, 1);
+        INSERT INTO books_authors_link (book, author) VALUES (2, 2);
+        """
+    )
+    conn.commit()
+    conn.close()
+    from ingest.snapshot import open_readonly
+
+    with open_readonly(db) as ro:
+        books = read_books(ro)
+    escaped = next(b for b in books if b.title == "Custer Died")
+    assert escaped.author_names == ("Vine Deloria, Jr.",)
+    assert "|" not in escaped.author_names[0]
+
+    # A name with no escape is passed through untouched.
+    plain = next(b for b in books if b.title == "Plain Name")
+    assert plain.author_names == ("Octavia E. Butler",)

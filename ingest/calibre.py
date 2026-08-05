@@ -22,6 +22,17 @@ from ingest.snapshot import open_snapshot, table_exists
 CALIBRE_CITATION = "calibre:metadata.db"
 
 
+def unescape_author_name(name: str) -> str:
+    """Restore commas that Calibre escapes as ``|`` in ``authors.name``.
+
+    Calibre stores author names comma-free because it joins them on commas
+    elsewhere, so ``Vine Deloria, Jr.`` is held as ``Vine Deloria| Jr.``. The
+    ``authors.sort`` column carries the same string already unescaped, which is
+    how the convention is confirmed rather than assumed.
+    """
+    return name.replace("|", ",")
+
+
 def _authors_for(conn: sqlite3.Connection, book_id: int) -> tuple[Author, ...]:
     rows = conn.execute(
         """
@@ -33,7 +44,9 @@ def _authors_for(conn: sqlite3.Connection, book_id: int) -> tuple[Author, ...]:
         """,
         (book_id,),
     ).fetchall()
-    return tuple(Author(name=str(r["name"]), sort=str(r["sort"] or "")) for r in rows)
+    return tuple(
+        Author(name=unescape_author_name(str(r["name"])), sort=str(r["sort"] or "")) for r in rows
+    )
 
 
 def _tags_for(conn: sqlite3.Connection, book_id: int, retrieved_at: str) -> tuple[ThemeTag, ...]:

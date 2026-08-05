@@ -527,3 +527,26 @@ def test_refresh_reuses_cached_progress_when_stats_unchanged(
         # so fetch_progress is never called a second time.
         assert len(calls) == 1
         assert second.progress_fetched == first.progress_fetched
+
+
+def test_real_ingest_stamps_the_retrieval_date(tmp_path: Path) -> None:
+    """Sourced tags carry the date the library was read, not the epoch.
+
+    ``load_library``'s ``retrieved_at`` defaulted to ``1970-01-01`` and the real
+    ingest path never passed it, so every citation from a real library was
+    stamped with the epoch — visible only once the ingest ran against a real
+    1,907-book library, where all 11,233 sourced tags shared that date.
+    """
+    cfg = _real_config(tmp_path)
+    states, _activity = ingest_states(cfg, now=1_785_896_978)  # 2026-08-05 UTC
+    tags = [t for s in states for t in s.book.theme_tags]
+    assert tags, "fixture library should yield sourced tags"
+    assert {t.source.retrieved_at for t in tags} == {"2026-08-05"}
+
+
+def test_real_ingest_without_a_clock_stays_at_the_epoch(tmp_path: Path) -> None:
+    """``now=0`` is the honest "no retrieval time supplied" sentinel."""
+    cfg = _real_config(tmp_path)
+    states, _activity = ingest_states(cfg)
+    tags = [t for s in states for t in s.book.theme_tags]
+    assert {t.source.retrieved_at for t in tags} == {"1970-01-01"}
