@@ -126,3 +126,8 @@ verified: 2026-07-16.*
 | AI Evaluation | N/A — no LLM/GenAI SDK anywhere; the recommender is a classic content/co-occurrence model | Has its own merge-blocking offline eval regardless (`make eval` — beats the popularity baseline); see [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md#applicability--ai-evaluation-and-internationalization). |
 | Documentation | **Applies** | This table, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, `CHANGELOG.md`, currency stamps throughout `docs/`. |
 | Responsible-Tech Framework | **Applies** | Full A–F treatment, including an ASVS level declaration, in [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md). |
+
+## Support
+
+This is independent, unpaid work. If it has been useful to you, you can
+<a href='https://ko-fi.com/T6T6GMYTU' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
