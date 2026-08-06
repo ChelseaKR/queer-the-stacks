@@ -47,8 +47,13 @@ counterfactual signals (`excluded: already on your shelf`; `no sourced tags
 overlap your taste`; `would rise if on a cited list`; `no finished-author
 match`), always non-empty with >=1 cited source. Covered by
 `tests/test_explain_absence.py`, including a pinned-kinds guardrail test.
-Deferred: the per-shelf near-miss surface in `recommend()` (out of scope for
-this pass; the pure function is the core deliverable).
+The per-shelf near-miss surface, originally deferred, has since shipped: a
+"Why not others?" dashboard section (`recommender/explain.py::near_misses`,
+`app/view.py`, `app/render.py`), ranked by `score_candidate` and excluding
+whatever the live recommender actually surfaced as picks. Candidates with
+no sourced theme tags and no curated-list hit are skipped rather than
+explained, since `explain_absence` has nothing honest to cite for them.
+Covered by `tests/test_near_misses.py`.
 
 ### EXP-03 — Explicit, reversible taste feedback (local "more/less like this")
 **Pitch:** let the reader adjust the taste profile directly — stored locally,

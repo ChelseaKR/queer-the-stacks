@@ -16,6 +16,7 @@ from ingest.models import Book, DailyActivity, ReadingState, Recommendation
 from ingest.store import CatalogPoolStatus
 from ingest.unify import currently_reading, finished
 from recommender.eval import PopCandidate
+from recommender.explain import NearMiss, near_misses
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 
@@ -50,6 +51,7 @@ class DashboardView:
     stats: ReadingStats
     wrapped: Wrapped
     recommendations: tuple[Recommendation, ...]
+    near_misses: tuple[NearMiss, ...] = ()
     forecasts: tuple[BookForecast, ...] = ()
     series_next: tuple[SeriesNext, ...] = ()
     to_read: tuple[ReadingState, ...] = ()
@@ -155,6 +157,12 @@ def build_view(
         use_embeddings=use_embeddings,
         dnf_signals=dnf_signals,
     )
+    misses = near_misses(
+        states,
+        candidate_books,
+        lists,
+        frozenset(r.book.book_id for r in recs),
+    )
     library = sorted(states, key=lambda s: (s.title.lower(), s.authors))
     reading_now = tuple(currently_reading(states))
     forecasts = tuple(
@@ -175,6 +183,7 @@ def build_view(
         stats=stats,
         wrapped=wrapped,
         recommendations=tuple(recs),
+        near_misses=tuple(misses),
         forecasts=forecasts,
         series_next=tuple(series_continuations(states)),
         to_read=tuple(to_read(states)),
@@ -199,6 +208,7 @@ def render_view(view: DashboardView) -> str:
         view.stats,
         view.wrapped,
         view.recommendations,
+        near_misses=view.near_misses,
         forecasts=view.forecasts,
         series_next=view.series_next,
         to_read=view.to_read,

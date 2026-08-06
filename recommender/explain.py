@@ -8,9 +8,10 @@ list the book appears on — with the actual citations behind each.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ingest.models import Book, Explanation, Signal, Source, SourceKind
+from ingest.models import Book, Explanation, ReadingState, Signal, Source, SourceKind
 
 from recommender.collaborative import CoAnchor
 from recommender.lists import CuratedList
@@ -216,3 +217,69 @@ def explain_absence(taste: TasteProfile, book: Book, lists: tuple[CuratedList, .
         sources=_dedup_sources(sources),
         summary=summary,
     )
+
+
+@dataclass(frozen=True)
+class NearMiss:
+    """A candidate that didn't make the recommendation shelf, sourced-explained.
+
+    Pairs a book with its :func:`explain_absence` counterfactual — the
+    per-shelf near-miss surface EXP-02 scoped as a follow-up to the pure
+    function. Deliberately has no ``rank``/``score`` field the way
+    :class:`~ingest.models.Recommendation` does: a near miss is not a pick,
+    and giving it a badge-worthy number would misrepresent it as one.
+    """
+
+    book: Book
+    explanation: Explanation
+
+
+def near_misses(
+    states: list[ReadingState],
+    candidates: tuple[Book, ...],
+    lists: tuple[CuratedList, ...],
+    exclude_ids: frozenset[str],
+    *,
+    limit: int = 5,
+) -> list[NearMiss]:
+    """The best-scoring candidates that did not land on the recommendation shelf.
+
+    ``exclude_ids`` is the set of book ids already shown as hits (from
+    whichever recommender actually renders the shelf, hybrid or otherwise),
+    so a near miss is never a book the reader already sees explained as a
+    pick. Ranked by the plain content score
+    (:func:`recommender.model.score_candidate`) descending, ties broken on
+    book id, for a fully deterministic order — the same reproducibility
+    guarantee every other shelf on the dashboard carries.
+
+    Owned/read books are excluded the same way :func:`recommender.model.recommend`
+    excludes them: by normalized key, not by id, since an owned copy and a
+    catalog candidate for the same book carry different ids.
+
+    A candidate with no sourced theme tags of its own and no curated-list hit
+    is skipped rather than explained: :func:`explain_absence` (like
+    :func:`build_explanation`) enforces the transparency guardrail that every
+    explanation cite at least one source, and an untagged, unlisted candidate
+    genuinely has none to give — an author-only match doesn't produce a
+    source. That is a fact about the candidate's catalog data, not a bug to
+    paper over by inventing a citation.
+    """
+    from ingest.unify import book_key
+
+    from recommender.model import build_taste_profile, score_candidate
+
+    taste = build_taste_profile(states)
+    ranked: list[tuple[float, Book]] = []
+    for book in candidates:
+        if book.book_id in exclude_ids or book_key(book) in taste.owned_keys:
+            continue
+        score, _overlap, _loved_author, lists_hit = score_candidate(taste, book, lists)
+        if not book.theme_tags and not lists_hit:
+            continue
+        ranked.append((score, book))
+
+    ranked.sort(key=lambda pair: (-pair[0], pair[1].book_id))
+    return [
+        NearMiss(book=book, explanation=explain_absence(taste, book, lists))
+        for _score, book in ranked[:limit]
+    ]
