@@ -351,6 +351,7 @@ def test_view_cache_invalidates_when_authored_lists_change(
                     name="My local list",
                     citation="local-list:mine",
                     book_ids=("calibre:1",),
+                    retrieved_at="2026-08-15",
                 ),
             ),
         )

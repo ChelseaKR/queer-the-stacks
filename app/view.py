@@ -286,7 +286,13 @@ def view_from_store(
 def demo_view(workdir: Path) -> DashboardView:
     """Walk the full offline demo pipeline and return a ready-to-render view."""
     from ingest.calibre import load_library
-    from ingest.demo import DEMO_USER, build_demo_dbs, demo_candidates, demo_kosync
+    from ingest.demo import (
+        DEMO_RETRIEVED_AT,
+        DEMO_USER,
+        build_demo_dbs,
+        demo_candidates,
+        demo_kosync,
+    )
     from ingest.koreader import load_daily_activity, load_stats
     from ingest.unify import unify
     from recommender.lists import DEMO_LISTS
@@ -294,7 +300,7 @@ def demo_view(workdir: Path) -> DashboardView:
     workdir = Path(workdir)
     metadata_db, statistics_db = build_demo_dbs(workdir)
     snap = workdir / "snapshots"
-    books = load_library(metadata_db, snap, retrieved_at="2026-06-05")
+    books = load_library(metadata_db, snap, retrieved_at=DEMO_RETRIEVED_AT)
     stats = load_stats(statistics_db, snap)
     activity = load_daily_activity(statistics_db, snap)
     states = unify(books, stats, demo_kosync())

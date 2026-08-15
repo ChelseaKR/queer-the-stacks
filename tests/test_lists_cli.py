@@ -77,3 +77,51 @@ def test_lists_new_duplicate_name_fails() -> None:
 def test_lists_add_to_missing_list_fails() -> None:
     with pytest.raises(Exception, match="no list named"):
         main(["lists", "add", "Does Not Exist", "--book", "ol:1"])
+
+
+def test_lists_new_stamps_today_not_a_constant() -> None:
+    """A list authored today is dated today, and never the old literal.
+
+    `CuratedList.retrieved_at` used to default to "2026-06-05", so every list
+    `stacks lists new` created claimed a June retrieval date no matter when it
+    was made — a provenance field that is a constant, which reads as evidence
+    while carrying none.
+    """
+    import datetime
+
+    from ingest.config import load_config
+    from recommender.lists_store import list_store_path
+
+    today = datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%d")
+
+    assert main(["lists", "new", "Made Today", "--citation", "c:x", "--book", "ol:1"]) == 0
+
+    stored = load_stored_lists(list_store_path(load_config()))
+    assert stored[0].retrieved_at == today
+    assert stored[0].retrieved_at != "2026-06-05"
+
+
+def test_lists_new_accepts_a_known_fetch_date() -> None:
+    """Transcribing a list fetched on a known day records that day, not today."""
+    from ingest.config import load_config
+    from recommender.lists_store import list_store_path
+
+    assert (
+        main(
+            [
+                "lists",
+                "new",
+                "Fetched Earlier",
+                "--citation",
+                "https://bookwyrm.social/list/42",
+                "--book",
+                "ol:1",
+                "--retrieved-at",
+                "2026-07-19",
+            ]
+        )
+        == 0
+    )
+
+    stored = load_stored_lists(list_store_path(load_config()))
+    assert stored[0].retrieved_at == "2026-07-19"

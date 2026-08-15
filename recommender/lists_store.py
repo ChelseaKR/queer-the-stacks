@@ -80,8 +80,18 @@ def new_list(
     name: str,
     citation: str,
     book_ids: tuple[str, ...] = (),
+    *,
+    retrieved_at: str,
 ) -> tuple[CuratedList, ...]:
     """Add a brand-new list named ``name``. Raises on a duplicate name.
+
+    ``retrieved_at`` is required and keyword-only. This module stays pure — no
+    clock, matching :func:`ingest.refresh._retrieval_date`'s discipline — so the
+    caller supplies the date; ``stacks lists new`` passes today's UTC date, or
+    the ``--retrieved-at`` the reader gave for a list they are transcribing from
+    somewhere with a known fetch date. It used to be left to
+    :class:`~recommender.lists.CuratedList`'s default, which stamped every
+    authored list ``2026-06-05`` regardless of when it was made.
 
     Immutable: returns a new tuple, does not mutate ``lists``.
     """
@@ -90,7 +100,9 @@ def new_list(
         raise ListValidationError("a curated list must have a name")
     if any(lst.name == name for lst in lists):
         raise ListValidationError(f"a list named {name!r} already exists")
-    candidate = CuratedList(name=name, citation=citation, book_ids=tuple(book_ids))
+    candidate = CuratedList(
+        name=name, citation=citation, book_ids=tuple(book_ids), retrieved_at=retrieved_at
+    )
     validate_lists((candidate,))
     return (*lists, candidate)
 

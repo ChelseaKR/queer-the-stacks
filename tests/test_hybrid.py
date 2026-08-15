@@ -148,3 +148,37 @@ def test_embeddings_change_nothing_when_off_vs_deterministic_when_on(
         for r in recommend_hybrid(states, books, lists=lists, k=10, use_embeddings=True)
     ]
     assert on1 == on2  # deterministic with embeddings on
+
+
+def test_collaborative_citation_is_dated_from_the_list_it_cites(
+    states: list, candidates: tuple
+) -> None:
+    """The co-occurrence source carries the anchoring list's own retrieval date.
+
+    It used to carry the literal "2026-06-05" while `_list_signals` dated the
+    *same* list from `as_source()`. A BookWyrm list fetched today therefore
+    appeared twice in one card's Sources block under two different dates, one of
+    them true and one of them a constant.
+    """
+    from recommender.lists import CuratedList
+
+    books = tuple(c.book for c in candidates)
+    lists = (
+        CuratedList(
+            name="Speculative Feminist Classics",
+            citation="https://bookwyrm.social/list/42",
+            book_ids=("ol:fifth-season", "ol:dawn-butler"),
+            retrieved_at="2026-08-15",
+        ),
+    )
+
+    recs = recommend_hybrid(states, books, lists=lists, k=10)
+    fifth = next(r for r in recs if r.book.book_id == "ol:fifth-season")
+    dates = {
+        s.retrieved_at
+        for s in fifth.explanation.sources
+        if s.citation == "https://bookwyrm.social/list/42"
+    }
+
+    assert "collaborative" in {s.kind for s in fifth.explanation.signals}
+    assert dates == {"2026-08-15"}, "one citation, one date"

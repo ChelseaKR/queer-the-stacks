@@ -180,6 +180,16 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   exceed the year it reconciles the two figures in place. `StandoutRead` carries
   the scope in its field name (`total_read_time_seconds`) so a future caller
   cannot re-make the assumption silently (#71).
+- Retrieval dates are dates something happened, not a constant. `CuratedList`
+  defaulted `retrieved_at` to the literal `2026-06-05`, so `stacks lists new`
+  stamped a list authored today as retrieved 71 days earlier, `load_lists`
+  filled the gap for any record that omitted it, and the collaborative
+  co-occurrence signal wrote the same literal over a list's real date —
+  winning the source de-dupe, so a BookWyrm list fetched today was cited on the
+  dashboard as fetched in June. The field is now required (no default to fall
+  through to), `load_lists` raises instead of inventing one, `stacks lists new`
+  stamps today's UTC date or an explicit `--retrieved-at`, and the co-occurrence
+  citation is dated from the list it cites (#69).
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

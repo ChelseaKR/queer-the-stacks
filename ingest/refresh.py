@@ -201,12 +201,12 @@ def source_mtimes(config: Config) -> dict[str, int]:
 def _ingest_demo(
     config: Config, store: Optional[Store] = None, now: int = 0
 ) -> tuple[list[ReadingState], list[DailyActivity], ProgressFetchResult]:
-    from ingest.demo import build_demo_dbs, demo_kosync
+    from ingest.demo import DEMO_RETRIEVED_AT, build_demo_dbs, demo_kosync
 
     demo_dir = config.data_dir / "demo"
     metadata_db, statistics_db = build_demo_dbs(demo_dir)
     snap = config.snapshot_dir
-    books = load_library(metadata_db, snap, retrieved_at="2026-06-05")
+    books = load_library(metadata_db, snap, retrieved_at=DEMO_RETRIEVED_AT)
     stats = load_stats(statistics_db, snap)
     activity = load_daily_activity(statistics_db, snap)
     progress_result = _resolve_progress(
