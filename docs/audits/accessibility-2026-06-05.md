@@ -1,6 +1,6 @@
 # Accessibility Audit — 2026-06-05
 
-**Last verified: 2026-07-25 · Recheck cadence: per WCAG revision / UI change.**
+**Last verified: 2026-08-15 · Recheck cadence: per WCAG revision / UI change.**
 
 Instantiates `RESPONSIBLE-TECH-FRAMEWORK.md` §E. Target: WCAG 2.2 AA as the
 floor. The primary task — reading your unified dashboard and recommendations —
@@ -9,16 +9,26 @@ motion.
 
 ## Automated pass (auto-gated, merge-blocking)
 
-`make a11y` renders both the demo dashboard and the login entry point, then runs
-two blocking layers: the dependency-free structural checker (`app.a11y_check`)
-and a real Chromium/axe layer. Pa11y scans both documents at desktop and
-320 × 800 mobile viewports; the browser contract additionally forces light and
-dark preferences and asserts that document width never exceeds 320 CSS pixels.
-All checks must pass; none is advisory. **Result: 0 violations.**
+`make a11y` renders every HTML document the app serves to a person — the demo
+dashboard, the login entry point, and the share-card page — then runs two
+blocking layers: the dependency-free structural checker (`app.a11y_check`) and a
+real Chromium/axe layer. Pa11y scans each document at desktop and 320 × 800
+mobile viewports; the browser contract additionally forces light and dark
+preferences and asserts that document width never exceeds 320 CSS pixels. All
+checks must pass; none is advisory. **Result: 0 violations.**
+
+The page list is itself asserted. `tests/test_a11y.py` enumerates the app's
+`HTMLResponse` routes and fails if one is not mapped to an audited document, so
+a new template cannot join the app without joining the gate. `/browse` is
+covered by `dashboard.html`: it renders the same `app.view.render_view` output
+with a filtered library. A gate cannot fail on a page it never loads, and until
+2026-08-15 the share page was such a page — its structural check ran in a unit
+test, but the browser/axe, light/dark, and 320 px reflow layers never saw it.
+It was clean when first put through them.
 
 Mechanically verified properties:
 
-- `<html lang>` + viewport meta on dashboard and login,
+- `<html lang>` + viewport meta on dashboard, login, and share,
 - page-level reflow at 320 CSS pixels, enforced with a browser width assertion,
 - exactly one `<h1>`, no skipped heading levels,
 - a `<main>` landmark and a skip link to it,

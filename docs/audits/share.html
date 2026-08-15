@@ -1,0 +1,27 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Queer the Stacks — share cards</title><style>
+:root { color-scheme: light dark; }
+/* Explicit fg/bg, same rationale as app/render.py's _STYLE: guarantees an
+   AA-contrast pair in both light and dark instead of relying on unstyled UA
+   defaults (FIX 2026-07-05). */
+html { color: CanvasText; background-color: Canvas; }
+body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
+  color: inherit; background-color: inherit; }
+.card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+textarea.post { width: 100%; font: inherit; color: inherit; background-color: inherit; }
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 1rem; top: 1rem; }
+a:focus, button:focus, .skip:focus { outline: 3px solid; }
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style></head><body><a class="skip" href="#main">Skip to your share cards</a><header><h1>Share cards</h1><p>Cards for demo, composed locally from your own dashboard. <strong>Nothing is posted automatically.</strong> Copy a card's text (or save its image from <code>/share/card.svg</code>) and post it to Bookwyrm or Mastodon yourself.</p></header><main id="main"><h2>Your cards</h2><figure class="card"><figcaption><strong>My 2024 in books</strong></figcaption><p>7 books · 2258 pages · 37.6 hours</p><p>across 16 reading days</p><p>Top themes: speculative, queer, trans</p><p class="tags">#amreading #yearinbooks #bookwyrm</p><p><label for="post-year-0">Postable text (copy and share it yourself):</label></p><textarea id="post-year-0" class="post" rows="6" readonly>My 2024 in books
+7 books · 2258 pages · 37.6 hours
+across 16 reading days
+Top themes: speculative, queer, trans
+
+#amreading #yearinbooks #bookwyrm</textarea><p><button type="button" class="copy" data-target="post-year-0">Copy post text</button></p></figure><figure class="card"><figcaption><strong>Just finished: A Safe Girl to Love</strong></figcaption><p>by Casey Plett</p><p>11.4 hours well spent</p><p>Themes (sourced): literary, queer, short stories, trans</p><p class="tags">#amreading #bookwyrm #queerlit</p><p><label for="post-finished-1">Postable text (copy and share it yourself):</label></p><textarea id="post-finished-1" class="post" rows="6" readonly>Just finished: A Safe Girl to Love
+by Casey Plett
+11.4 hours well spent
+Themes (sourced): literary, queer, short stories, trans
+
+#amreading #bookwyrm #queerlit</textarea><p><button type="button" class="copy" data-target="post-finished-1">Copy post text</button></p></figure><script>(function(){var bs=document.querySelectorAll('button.copy');for(var i=0;i!==bs.length;i++){(function(b){b.addEventListener('click',function(){var t=document.getElementById(b.getAttribute('data-target'));if(!t){return;}if(navigator.clipboard){navigator.clipboard.writeText(t.value);}b.textContent='Copied';});})(bs[i]);}})();</script></main></body></html>

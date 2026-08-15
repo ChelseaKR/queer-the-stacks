@@ -1,4 +1,4 @@
-"""Accessibility gate — dashboard and login have zero mechanical violations."""
+"""Accessibility gate — every served document has zero mechanical violations."""
 
 from __future__ import annotations
 
@@ -77,3 +77,53 @@ def test_main_fails_on_violations(tmp_path: Path) -> None:
 
 def test_main_usage_without_args() -> None:
     assert main([]) == 2
+
+
+# --- The gate's page list is itself asserted ---------------------------------
+#
+# A gate cannot fail on a page it never loads. `make a11y` scans exactly the
+# files `app.build_static.build_all()` writes, so the risk is not a broken check
+# but a template that never enters the list. These two tests make that a build
+# failure instead of a silent hole.
+
+#: Each HTML route, and the audited document that covers its template. `/browse`
+#: renders the same `app.view.render_view` output as `/` with a filtered
+#: library, so `dashboard.html` covers it; add an entry here (and a page to
+#: `build_all`) when a new HTML route appears.
+HTML_ROUTE_COVERAGE: dict[str, str] = {
+    "/": "docs/audits/dashboard.html",
+    "/browse": "docs/audits/dashboard.html",
+    "/login": "docs/audits/login.html",
+    "/share": "docs/audits/share.html",
+}
+
+
+def test_every_html_route_is_covered_by_an_audited_document() -> None:
+    from app import server
+    from fastapi.responses import HTMLResponse
+
+    app = server.create_app()
+    html_routes = {
+        route.path for route in app.routes if getattr(route, "response_class", None) is HTMLResponse
+    }
+
+    assert html_routes == set(HTML_ROUTE_COVERAGE), (
+        "an HTML route is not mapped to an audited document; add it to "
+        "app.build_static.build_all() and to HTML_ROUTE_COVERAGE"
+    )
+
+
+def test_build_all_writes_every_audited_document(tmp_path: Path) -> None:
+    from app import build_static
+
+    written = {
+        build_static.build(tmp_path / "dashboard.html"),
+        build_static.build_login(tmp_path / "login.html"),
+        build_static.build_share(tmp_path / "share.html"),
+    }
+    expected_names = {Path(p).name for p in HTML_ROUTE_COVERAGE.values()}
+
+    assert {p.name for p in written} == expected_names
+    for path in written:
+        assert path.is_file() and path.stat().st_size > 0
+        assert check_html(path.read_text(encoding="utf-8")) == [], path.name
