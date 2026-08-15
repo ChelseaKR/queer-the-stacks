@@ -12,17 +12,30 @@ Two implementations of :class:`ProgressSource`:
   Used by every test and by demo mode, so the whole system runs with no network.
 
 Privacy note: this is the *only* place reading-progress data touches the network,
-and it goes to the user's own sync endpoint. The no-egress test confines network
-imports to this module and the catalog client.
+and it goes to the user's own sync endpoint. ``tests/test_no_egress.py`` asserts
+that this module and the catalog client are the only two that can reach the
+network at all, and asserts request-by-request what this one actually sends.
+
+Redirects are refused rather than followed (:class:`SyncNotAllowed`). ``requests``
+drops an ``Authorization`` header when a redirect changes host, but it does *not*
+drop arbitrary headers — so following one would have handed ``x-auth-user``,
+``x-auth-key`` (the derived credential) and the document key to whatever host the
+sync endpoint named. A sync server has no legitimate reason to redirect, so the
+first hop is the last one.
 """
 
 from __future__ import annotations
 
 from typing import Optional, Protocol, runtime_checkable
+from urllib.parse import quote
 
 from ingest.models import DeviceProgress
 
 DEFAULT_SYNC_HOST = "https://sync.koreader.rocks"
+
+
+class SyncNotAllowed(Exception):
+    """Raised when a sync request would leave the endpoint the user configured."""
 
 
 @runtime_checkable
@@ -91,13 +104,17 @@ class KosyncClient:
 
         import requests
 
-        url = f"{self.host}/syncs/progress/{document}"
+        # One path segment, percent-encoded: a document key is opaque data from
+        # the KOReader statistics DB, never a URL fragment we let reshape the path.
+        url = f"{self.host}/syncs/progress/{quote(document, safe='')}"
         headers = {
             "x-auth-user": self.username,
             "x-auth-key": self.userkey_md5,
             "accept": "application/vnd.koreader.v1+json",
         }
-        resp = requests.get(url, headers=headers, timeout=self.timeout)
+        resp = requests.get(url, headers=headers, timeout=self.timeout, allow_redirects=False)
+        if 300 <= resp.status_code < 400:
+            raise SyncNotAllowed("kosync redirects are disabled")
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
