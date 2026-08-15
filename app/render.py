@@ -151,18 +151,38 @@ def _theme_mix_table(stats: ReadingStats, hidden: frozenset[str] = frozenset()) 
 
 
 def _wrapped_table(wrapped: Wrapped) -> str:
+    """The standout-reads table, with the scope of its hours stated in the caption.
+
+    These hours are all-time per book, while the panel around them is scoped to
+    one year (see :class:`app.wrapped.StandoutRead`). Rendered under a bare
+    "Hours" heading inside a "Reading Wrapped {year}" panel they read as the
+    year's hours, and their sum can exceed the year's total — a number a reader
+    can check in five seconds, and then stop believing the rest of the page. So
+    the column names its scope, and when the totals do exceed the year the
+    caption says why before the reader has to work it out.
+    """
     standouts = "".join(
         f'<tr><th scope="row">{escape(r.title)}</th>'
         f"<td>{escape(', '.join(r.authors) or 'unknown')}</td>"
-        f"<td>{r.read_time_hours}</td></tr>"
+        f"<td>{r.total_read_time_hours}</td></tr>"
         for r in wrapped.standout_reads
     )
     if not standouts:
         standouts = '<tr><td colspan="3">No finished books recorded this year.</td></tr>'
+    reconciliation = (
+        " These add up to more than the "
+        f"{wrapped.read_time_hours} hours above because at least one of them was "
+        f"started before {wrapped.year}; the two figures measure different things."
+        if wrapped.standouts_exceed_the_year
+        else ""
+    )
     return (
-        f"<table><caption>Standout reads of {wrapped.year} by time spent"
+        f"<table><caption>Standout reads of {wrapped.year} — the books you finished "
+        f"in {wrapped.year}, ranked by their all-time read time. KOReader keeps one "
+        "cumulative total per book and no per-year breakdown, so these hours count "
+        f"every session ever, not only {wrapped.year}.{reconciliation}"
         '</caption><thead><tr><th scope="col">Title</th>'
-        '<th scope="col">Author</th><th scope="col">Hours</th></tr></thead>'
+        '<th scope="col">Author</th><th scope="col">Hours (all time)</th></tr></thead>'
         f"<tbody>{standouts}</tbody></table>"
     )
 
@@ -984,8 +1004,9 @@ def render_dashboard(
         "<h3>Reading stats</h3>"
         f"{_stats_table(stats)}{_theme_mix_table(stats, hidden_descriptors)}"
         f"<h3>Reading Wrapped {wrapped.year}</h3>"
-        f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
-        f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"
+        f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
+        f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
+        "locally, shared with no one.</p>"
         f"{_wrapped_table(wrapped)}{_monthly_table(wrapped)}{_goals_section(goals)}"
         '<p><a href="/share">Make a share card for Bookwyrm or Mastodon</a> — '
         "composed locally; nothing is posted until you copy and share it yourself.</p>"

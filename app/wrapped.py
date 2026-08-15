@@ -2,8 +2,21 @@
 
 No third-party service ever sees this. It is computed locally from the same
 unified reading state + per-day activity the dashboard uses, scoped to a single
-year. Standout reads are chosen by read time (a sourced, honest signal), and the
-theme breakdown is built only from sourced theme tags.
+year. The theme breakdown is built only from sourced theme tags.
+
+Two scopes live in here and they are not interchangeable:
+
+* Everything summed from :class:`~ingest.models.DailyActivity` — pages, hours,
+  reading days, the monthly table — is **within the year**, because that record
+  is timestamped per day.
+* :class:`StandoutRead` hours are **all-time per book**, because KOReader keeps
+  one cumulative ``total_read_time`` per book and no per-year breakdown. The
+  year only decides *which* books qualify (those finished in it), never how many
+  of their hours to count.
+
+So the standouts do not partition the year's hours and can exceed them. Every
+name and docstring here says which scope it means; a surface that renders them
+must say so too.
 """
 
 from __future__ import annotations
@@ -27,13 +40,28 @@ def year_bounds(year: int) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class StandoutRead:
+    """A book finished in the Wrapped year, with its **all-time** read time.
+
+    The field is named for its scope on purpose. KOReader keeps one cumulative
+    ``total_read_time`` per book and no per-year breakdown, so the only per-book
+    duration this project has is a lifetime one. A book finished in March that
+    was started the previous autumn carries the autumn's hours here.
+
+    That makes these totals *not* a partition of :attr:`Wrapped.read_time_hours`,
+    which is summed from :class:`~ingest.models.DailyActivity` inside the year:
+    the standouts can, and in the demo world do, sum to more than the year holds.
+    Anything rendering this must say which number it is showing — see
+    :func:`app.render._wrapped_table`.
+    """
+
     title: str
     authors: tuple[str, ...]
-    read_time_seconds: int
+    total_read_time_seconds: int
 
     @property
-    def read_time_hours(self) -> float:
-        return round(self.read_time_seconds / 3600, 1)
+    def total_read_time_hours(self) -> float:
+        """All-time hours for this book, not the hours spent on it in the year."""
+        return round(self.total_read_time_seconds / 3600, 1)
 
 
 @dataclass(frozen=True)
@@ -46,13 +74,26 @@ class Wrapped:
     read_time_seconds: int
     days_read: int
     theme_breakdown: tuple[tuple[str, int], ...]
+    #: Books finished in :attr:`year`, carrying **all-time** hours each — not a
+    #: breakdown of :attr:`read_time_seconds`. See :class:`StandoutRead`.
     standout_reads: tuple[StandoutRead, ...]
     monthly: tuple[MonthStat, ...] = ()  # 12 entries, Jan..Dec
     pace_pages_per_day: float = 0.0  # mean pages on days you actually read
 
     @property
     def read_time_hours(self) -> float:
+        """Hours read **inside** :attr:`year`, summed from per-day activity."""
         return round(self.read_time_seconds / 3600, 1)
+
+    @property
+    def standouts_exceed_the_year(self) -> bool:
+        """True when the standouts' all-time hours add up to more than the year.
+
+        Not an error: it just means at least one standout was started before
+        :attr:`year`. The renderer uses it to name the discrepancy in place
+        rather than leaving the reader to notice it and distrust the panel.
+        """
+        return sum(r.total_read_time_seconds for r in self.standout_reads) > self.read_time_seconds
 
 
 @dataclass(frozen=True)
@@ -102,16 +143,19 @@ def compute_wrapped(
         for tag in s.theme_tags:
             theme_counter[tag.normalized] += 1
 
+    # Ranked by all-time read time, because that is the only per-book duration
+    # KOReader records. The year scoping lives in `finished_this_year` (which
+    # books qualify), never in the hours (how long each took overall).
     standouts = sorted(
         (
             StandoutRead(
                 title=s.title,
                 authors=s.authors,
-                read_time_seconds=s.stat.read_time_seconds if s.stat else 0,
+                total_read_time_seconds=s.stat.read_time_seconds if s.stat else 0,
             )
             for s in finished_this_year
         ),
-        key=lambda r: (-r.read_time_seconds, r.title),
+        key=lambda r: (-r.total_read_time_seconds, r.title),
     )[:top_n]
 
     return Wrapped(
