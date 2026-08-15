@@ -13,6 +13,16 @@ Pure module: no I/O, no wall clock, no randomness. Caller supplies the
 remaining-pages count (``total_pages - pages_read`` from a
 :class:`~ingest.models.ReadingStat`) and the day-level activity to derive pace
 from.
+
+Scope: one book at a time. A whole-series forecast would need a remaining-pages
+total across the *unread* books in a series, and no such number exists here —
+page counts arrive on :class:`~ingest.models.ReadingStat`, which only exists for
+books with KOReader reading stats, and :class:`~ingest.models.Book` carries no
+page count from Calibre at all. A ``forecast_series`` helper used to live here;
+it had no caller, and its "up to ~N weeks at that pace" clause divided by an
+unstated 24-hours-a-day assumption while its docstring claimed ~2 hours/day, a
+12x discrepancy under a green suite. It is removed rather than left as an
+unreachable answer to a question the data cannot pose.
 """
 
 from __future__ import annotations
@@ -97,34 +107,12 @@ def forecast_book(
     p25, p75 = _quantiles(sample)
     low_hours = round(remaining_pages * p25 / 3600, 1)
     high_hours = round(remaining_pages * p75 / 3600, 1)
-    days_in_sample = min(len(daily), window_days)
-    basis = f"from your last {days_in_sample} reading days"
+    # The count the quantiles were actually computed from. This used to be
+    # `min(len(daily), window_days)` — every day in the record, including days
+    # with no pages turned, which `_recent_per_page_seconds` has already
+    # discarded. With 30 days in the window of which 6 contributed, the basis
+    # line said thirty. The MIN_DAYS_FOR_ESTIMATE guard does real work refusing
+    # to forecast from four days; the surviving forecast must not then tell the
+    # reader it rests on five times more evidence than it does.
+    basis = f"from your last {len(sample)} reading days"
     return Forecast(low_hours=low_hours, high_hours=high_hours, basis=basis)
-
-
-def forecast_series(
-    remaining_pages_total: int,
-    daily: list[DailyActivity],
-    *,
-    window_days: int = DEFAULT_WINDOW_DAYS,
-) -> Forecast:
-    """Forecast hours-to-finish for a whole series (or any multi-book total).
-
-    Reuses :func:`forecast_book`'s math over the combined remaining-pages count.
-    When the high end is large, the basis also expresses it in weeks (at ~2
-    reading-hours/day-equivalent pacing implied by the same sample) — still a
-    range, never a single number.
-    """
-    result = forecast_book(remaining_pages_total, daily, window_days=window_days)
-    if not result.estimable or result.high_hours < 24:
-        return result
-
-    high_days = result.high_hours / 24
-    high_weeks = round(high_days / 7, 1)
-    basis = f"{result.basis} (up to ~{high_weeks} weeks at that pace)"
-    return Forecast(
-        low_hours=result.low_hours,
-        high_hours=result.high_hours,
-        basis=basis,
-        estimable=True,
-    )
