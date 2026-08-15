@@ -13,6 +13,12 @@ auth-gated dashboard: aggregate counts (books / pages / hours), a year, and —
 for a finished-book card — a title, author, and the book's *sourced* theme
 descriptors (never an inferred identity, never an author label). No device
 names, no timestamps, no reading history, no streak calendar.
+
+The privacy toggle reaches here too. A card is composed to be copied and posted
+by hand, which makes its descriptors the ones most likely to end up published,
+so a card assembled while the toggle is on omits the descriptors the toggle is
+holding back. Nothing is hidden from the reader by this: the card on screen is
+exactly the card they would post, and unsetting the toggle restores the full set.
 """
 
 from __future__ import annotations
@@ -72,14 +78,14 @@ class ShareCard:
         return body
 
 
-def year_in_books_card(wrapped: Wrapped) -> ShareCard:
+def year_in_books_card(wrapped: Wrapped, hidden: frozenset[str] = frozenset()) -> ShareCard:
     """A "my year in books" card from the private Wrapped (aggregates only)."""
     lines = [
         f"{wrapped.books_finished} books · {wrapped.pages_read} pages · "
         f"{wrapped.read_time_hours} hours",
         f"across {wrapped.days_read} reading days",
     ]
-    top = [label for label, _ in wrapped.theme_breakdown[:3]]
+    top = [label for label, _ in wrapped.theme_breakdown if label.lower() not in hidden][:3]
     if top:
         lines.append("Top themes: " + ", ".join(top))
     return ShareCard(
@@ -90,13 +96,20 @@ def year_in_books_card(wrapped: Wrapped) -> ShareCard:
     )
 
 
-def finished_book_card(state: ReadingState) -> ShareCard:
-    """A "just finished" card for one book, using only its sourced descriptors."""
+def finished_book_card(state: ReadingState, hidden: frozenset[str] = frozenset()) -> ShareCard:
+    """A "just finished" card for one book, using only its sourced descriptors.
+
+    ``hidden`` is the sensitive descriptor set when the privacy toggle is on. A
+    card is composed for a reader to copy and post by hand, so the descriptors it
+    carries are the ones most likely to be published — a card assembled while the
+    toggle is on must not carry the descriptors the toggle exists to hold back.
+    The omission is visible on the page, and unsetting the toggle restores them.
+    """
     author = ", ".join(state.authors) or "unknown author"
     lines = [f"by {author}"]
     if state.stat and state.stat.read_time_seconds > 0:
         lines.append(f"{round(state.stat.read_time_seconds / 3600, 1)} hours well spent")
-    themes = [t.label for t in state.theme_tags]
+    themes = [t.label for t in state.theme_tags if t.label.strip().lower() not in hidden]
     if themes:
         lines.append("Themes (sourced): " + ", ".join(themes))
     return ShareCard(
@@ -233,7 +246,13 @@ def build_share_cards(view: object) -> tuple[ShareCard, ...]:
     """
     wrapped: Wrapped = view.wrapped  # type: ignore[attr-defined]
     finished: tuple[ReadingState, ...] = view.finished  # type: ignore[attr-defined]
-    cards: list[ShareCard] = [year_in_books_card(wrapped)]
+    diversity = getattr(view, "diversity", None)
+    hidden: frozenset[str] = (
+        diversity.sensitive_descriptors
+        if diversity is not None and diversity.hide_sensitive
+        else frozenset()
+    )
+    cards: list[ShareCard] = [year_in_books_card(wrapped, hidden)]
     if finished:
-        cards.append(finished_book_card(finished[0]))
+        cards.append(finished_book_card(finished[0], hidden))
     return tuple(cards)

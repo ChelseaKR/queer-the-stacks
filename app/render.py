@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from app.view import BookForecast
 from recommender.lists import CuratedList
 
-from app.diversity import DiversityReport
+from app.diversity import REDACTED_LABEL, DiversityReport
 from app.goals import Goal
 from app.shelf import SeriesNext
 from app.stats import ReadingStats
@@ -42,14 +42,43 @@ def _pct(value: float) -> str:
     return f"{value:.0%}"
 
 
-def _theme_chips(state: ReadingState) -> str:
+def _withheld_note(hidden_count: int) -> str:
+    """The visible stand-in for descriptors the privacy toggle withheld.
+
+    Shown as text (never colour or omission alone) so the reader can always tell
+    the difference between "this book has no sourced descriptors" and "some are
+    being held back right now".
+    """
+    if hidden_count == 1:
+        return f"{REDACTED_LABEL} (1 descriptor)"
+    return f"{REDACTED_LABEL} ({hidden_count} descriptors)"
+
+
+def _split_labels(labels: Sequence[str], hidden: frozenset[str]) -> tuple[list[str], int]:
+    """Split sourced labels into the ones to show and a count of the withheld."""
+    if not hidden:
+        return list(labels), 0
+    shown = [label for label in labels if label.strip().lower() not in hidden]
+    return shown, len(labels) - len(shown)
+
+
+def _theme_chips(state: ReadingState, hidden: frozenset[str] = frozenset()) -> str:
+    """Per-book theme chips, minus anything the privacy toggle is withholding.
+
+    A per-book chip is *more* revealing than the aggregated diversity breakdown,
+    not less: it ties the descriptor to a specific title. Redacting the summary
+    while publishing the detail beside each book would defeat the toggle.
+    """
     if not state.theme_tags:
         return '<p class="themes">Themes: none recorded.</p>'
-    chips = " ".join(f'<span class="tag">{escape(t.label)}</span>' for t in state.theme_tags)
+    shown, withheld = _split_labels([t.label for t in state.theme_tags], hidden)
+    chips = " ".join(f'<span class="tag">{escape(label)}</span>' for label in shown)
+    if withheld:
+        chips = f'{chips} <span class="tag">{escape(_withheld_note(withheld))}</span>'.strip()
     return f'<p class="themes">Themes: {chips}</p>'
 
 
-def _reading_item(state: ReadingState) -> str:
+def _reading_item(state: ReadingState, hidden: frozenset[str] = frozenset()) -> str:
     authors = escape(", ".join(state.authors) or "unknown author")
     device = escape(state.latest_device or "—")
     title = escape(state.title)
@@ -64,7 +93,7 @@ def _reading_item(state: ReadingState) -> str:
         f" · last on {device}</p>"
         f'<progress max="100" value="{progress}" '
         f'aria-label="Reading progress for {title}">{progress}%</progress>'
-        f"{_theme_chips(state)}</div>"
+        f"{_theme_chips(state, hidden)}</div>"
         "</li>"
     )
 
@@ -90,17 +119,34 @@ def _stats_table(stats: ReadingStats) -> str:
     )
 
 
-def _theme_mix_table(stats: ReadingStats) -> str:
+def _theme_mix_table(stats: ReadingStats, hidden: frozenset[str] = frozenset()) -> str:
+    """The theme/genre mix, minus anything the privacy toggle is withholding.
+
+    Withheld rows are dropped rather than replaced by a stand-in count: this
+    table counts books per theme, and there is no way to combine those counts
+    into a distinct-book total without inventing a number. The aggregated,
+    correct figure already lives in the Reading-diversity section, so the note
+    points there instead of guessing.
+    """
     if not stats.theme_mix:
         return "<p>No sourced themes recorded yet.</p>"
+    visible = [(label, count) for label, count in stats.theme_mix if label.lower() not in hidden]
+    withheld = len(stats.theme_mix) - len(visible)
     rows = "".join(
-        f'<tr><th scope="row">{escape(label)}</th><td>{count}</td></tr>'
-        for label, count in stats.theme_mix
+        f'<tr><th scope="row">{escape(label)}</th><td>{count}</td></tr>' for label, count in visible
     )
+    note = (
+        f"<p>{escape(_withheld_note(withheld))} — held back here by the privacy toggle. "
+        "The aggregated count is in the reading-diversity section below.</p>"
+        if withheld
+        else ""
+    )
+    if not visible:
+        return f"{note}<p>No further sourced themes to show.</p>"
     return (
         "<table><caption>Theme &amp; genre mix, from sourced tags only"
         '</caption><thead><tr><th scope="col">Theme</th>'
-        f'<th scope="col">Books</th></tr></thead><tbody>{rows}</tbody></table>'
+        f'<th scope="col">Books</th></tr></thead><tbody>{rows}</tbody></table>{note}'
     )
 
 
@@ -560,11 +606,29 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     else:
         descriptor_table = "<p>No per-descriptor provenance recorded yet.</p>"
 
-    if report.hide_sensitive:
+    # `hide_sensitive` records that the toggle was *asked for*; only
+    # `redacted_descriptor_count` records that anything was actually removed.
+    # Claiming descriptors are hidden while listing them is worse than saying
+    # nothing, so the assurance is keyed off the count. The wording describes the
+    # mechanism ("on your sensitive list") rather than the outcome
+    # ("identity-adjacent"): the code cannot know a label is identity-adjacent,
+    # only that it is on a list.
+    if report.hide_sensitive and report.redacted_descriptor_count:
+        count = report.redacted_descriptor_count
+        plural = "descriptor" if count == 1 else "descriptors"
         privacy_note = (
-            "<p><strong>Privacy:</strong> identity-adjacent descriptors are aggregated "
-            "and hidden in this view (the coarse lens counts remain). Unset the privacy "
-            "toggle to see every sourced descriptor individually.</p>"
+            f"<p><strong>Privacy:</strong> {count} sourced {plural} on your sensitive "
+            "list are aggregated into a single row here, and held back everywhere else "
+            "on this page — the per-book theme chips, the library table, and the theme "
+            "mix. Lens names and their counts stay visible, and share cards composed "
+            "while this is on leave them out too. Unset the privacy toggle to see every "
+            "sourced descriptor individually.</p>"
+        )
+    elif report.hide_sensitive:
+        privacy_note = (
+            "<p><strong>Privacy:</strong> the privacy toggle is on, and nothing on this "
+            "shelf matched your sensitive list, so nothing has been aggregated — every "
+            "descriptor below is shown individually.</p>"
         )
     else:
         privacy_note = (
@@ -617,14 +681,22 @@ def _authored_lists_section(lists: Sequence[CuratedList]) -> str:
     )
 
 
-def _library_table(library: Sequence[ReadingState]) -> str:
+def _library_row_themes(state: ReadingState, hidden: frozenset[str]) -> str:
+    """The library table's themes cell, minus anything being withheld."""
+    shown, withheld = _split_labels([t.label for t in state.theme_tags], hidden)
+    if withheld:
+        shown = [*shown, _withheld_note(withheld)]
+    return ", ".join(shown) or "—"
+
+
+def _library_table(library: Sequence[ReadingState], hidden: frozenset[str] = frozenset()) -> str:
     if not library:
         return "<p>Your library is empty.</p>"
     rows = "".join(
         f'<tr><th scope="row">{escape(s.title)}</th>'
         f"<td>{escape(', '.join(s.authors) or 'unknown')}</td>"
         f"<td>{escape(str(s.status))}</td>"
-        f"<td>{escape(', '.join(t.label for t in s.theme_tags) or '—')}</td></tr>"
+        f"<td>{escape(_library_row_themes(s, hidden))}</td></tr>"
         for s in library
     )
     return (
@@ -777,10 +849,20 @@ def render_dashboard(
 ) -> str:
     """Render the complete, accessible dashboard document."""
     catalog = catalog_status or CatalogPoolStatus()
-    reading_items = "".join(_reading_item(s) for s in currently_reading) or (
+    # The privacy toggle governs the whole document, not only the diversity
+    # panel. Per-book chips and the library table are *more* revealing than the
+    # aggregated breakdown, because they name the title alongside the
+    # descriptor; the theme mix restates the same vocabulary a second time.
+    # Redacting one section while three others publish it is not a toggle.
+    hidden_descriptors: frozenset[str] = (
+        diversity.sensitive_descriptors
+        if diversity is not None and diversity.hide_sensitive
+        else frozenset()
+    )
+    reading_items = "".join(_reading_item(s, hidden_descriptors) for s in currently_reading) or (
         "<li>Nothing in progress right now.</li>"
     )
-    finished_items = "".join(_reading_item(s) for s in finished[:10]) or (
+    finished_items = "".join(_reading_item(s, hidden_descriptors) for s in finished[:10]) or (
         "<li>No finished books recorded yet.</li>"
     )
     if recommendations:
@@ -796,7 +878,7 @@ def render_dashboard(
             '<p class="empty-state">No recommendations fit yet. Check source status '
             "below, then read or tag a few books to provide local matching signals.</p>"
         )
-    tbr_items = "".join(_reading_item(s) for s in to_read[:10]) or (
+    tbr_items = "".join(_reading_item(s, hidden_descriptors) for s in to_read[:10]) or (
         "<li>Nothing on your to-read shelf.</li>"
     )
     library_preview = library[:LIBRARY_PREVIEW_LIMIT]
@@ -872,7 +954,7 @@ def render_dashboard(
         '<button type="submit">Search library</button></form>'
         f'<p id="lib-filter-status" role="status" aria-live="polite" '
         f'data-complete="{str(library_complete).lower()}">{escape(library_status)}</p>'
-        f"{_library_table(library_preview)}"
+        f"{_library_table(library_preview, hidden_descriptors)}"
         f"{_FILTER_JS}"
         "</section>"
         '<section id="record" class="home-section">'
@@ -881,7 +963,7 @@ def render_dashboard(
         '</div><div class="disclosures">'
         '<details><summary>Stats, goals &amp; yearly history</summary><div class="details-inner">'
         "<h3>Reading stats</h3>"
-        f"{_stats_table(stats)}{_theme_mix_table(stats)}"
+        f"{_stats_table(stats)}{_theme_mix_table(stats, hidden_descriptors)}"
         f"<h3>Reading Wrapped {wrapped.year}</h3>"
         f"<p>{wrapped.books_finished} books · {wrapped.read_time_hours} hours · "
         f"{wrapped.days_read} reading days — computed locally, shared with no one.</p>"

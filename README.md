@@ -79,7 +79,13 @@ degraded, including last-success timestamps and last-good fallback counts.
 Config can also live in the ignored runtime file `stacks.toml`
 (`[calibre] path=…`; `[catalogs] outbound_mode="public-metadata"`); env vars
 win. Copy [`examples/lenses.example.toml`](examples/lenses.example.toml) to the
-ignored `data/lenses.toml` before personalizing diversity lenses.
+ignored `data/lenses.toml` before personalizing diversity lenses. Each
+`[[lenses]]` entry takes an optional `sensitive` flag that controls what the
+privacy toggle (`STACKS_HIDE_SENSITIVE=1`, or `?hide_sensitive=1`) holds back —
+per-book theme chips, the library table, the theme mix, the diversity
+descriptors, and any share card composed while it is on. It defaults to **true**,
+so a lens you add without saying is treated as sensitive rather than as safe;
+mark a lens `sensitive = false` to show it in full.
 `make verify` runs every checkable gate (CI parity). See
 [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
 
