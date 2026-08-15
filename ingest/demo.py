@@ -362,12 +362,20 @@ def _src(kind: SourceKind, citation: str, detail: str = "") -> Source:
 
 
 def _ol_tags(*labels: str) -> tuple[ThemeTag, ...]:
+    """Sourced OpenLibrary tags whose citations are URLs OpenLibrary would serve.
+
+    The citation used to interpolate the raw label, so "science fiction" became
+    ``https://openlibrary.org/subjects/science fiction`` — rendered on the
+    dashboard as a link with a literal space in its href. ``subject_url`` builds
+    the slug OpenLibrary actually uses (``science_fiction``); the displayed label
+    keeps the human wording.
+    """
+    from recommender.catalogs import subject_url
+
     return tuple(
         ThemeTag(
             label=lbl,
-            source=_src(
-                SourceKind.OPENLIBRARY_SUBJECT, f"https://openlibrary.org/subjects/{lbl}", lbl
-            ),
+            source=_src(SourceKind.OPENLIBRARY_SUBJECT, subject_url(lbl), lbl),
         )
         for lbl in labels
     )

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from ingest.models import Author, Book, Source, SourceKind, ThemeTag, merge_tags
 from ingest.unify import normalize_key
@@ -85,6 +85,50 @@ def etiquette_headers(accept: str = "application/json") -> dict[str, str]:
     requested; reading data is never sent.
     """
     return {"User-Agent": USER_AGENT, "Accept": accept}
+
+
+#: Where Open Library serves subject pages. Kept at module level (rather than
+#: only on the client) because the citation URL for a subject is built in
+#: several places and must be the same string the client would fetch.
+SUBJECTS_ROOT = "https://openlibrary.org/subjects"
+
+
+def subject_slug(subject: str) -> str:
+    """Normalize a subject label into Open Library's own slug form.
+
+    Open Library subject paths are lowercase with underscores for spaces
+    (``science_fiction``), which is also the only shape
+    :data:`recommender.catalog_pool._OL_SUBJECT` accepts as a configured
+    subject. Interpolating a raw label instead produced citations like
+    ``.../subjects/science fiction`` — a URL with a literal space in it, which
+    is not a URL. Anything still unsafe after normalizing is percent-encoded
+    rather than passed through.
+    """
+    normalized = "_".join(subject.strip().lower().split())
+    return quote(normalized, safe="_-")
+
+
+def subject_url(subject: str) -> str:
+    """The canonical Open Library citation URL for ``subject``."""
+    return f"{SUBJECTS_ROOT}/{subject_slug(subject)}"
+
+
+def is_citable_url(url: str) -> bool:
+    """True if ``url`` is safe to render as a clickable citation link.
+
+    The same allowlist the fetch path enforces, applied to the *display* path:
+    a citation is only presented as a link if it is a well-formed, credential-
+    free HTTPS URL on an allowlisted catalog host and contains no whitespace.
+    Everything else stays visible as text — a reader can still read and check
+    it, but the page never hands them a malformed or off-allowlist link.
+    """
+    if url != url.strip() or any(ch.isspace() for ch in url):
+        return False
+    try:
+        assert_allowed(url)
+    except SourceNotAllowed:
+        return False
+    return True
 
 
 def assert_allowed(url: str) -> str:
@@ -333,8 +377,6 @@ class ResponseCache:
 class OpenLibraryClient:
     """Live OpenLibrary client. Every request passes through :func:`assert_allowed`."""
 
-    SUBJECTS_ROOT = "https://openlibrary.org/subjects"
-
     def __init__(self, cache: Optional[ResponseCache] = None, timeout: int = 15) -> None:
         self.cache = cache
         self.timeout = timeout
@@ -342,7 +384,7 @@ class OpenLibraryClient:
     def subject(self, subject: str, limit: int = 50) -> tuple[Book, ...]:
         import time
 
-        url = assert_allowed(f"{self.SUBJECTS_ROOT}/{subject}.json?limit={limit}")
+        url = assert_allowed(f"{SUBJECTS_ROOT}/{subject}.json?limit={limit}")
         body = self._fetch(url)
         payload = _validated_collection_payload(body, "works")
         if self.cache is not None:

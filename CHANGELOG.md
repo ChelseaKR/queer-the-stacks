@@ -159,6 +159,17 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   ("descriptors on your sensitive list") rather than the outcome
   ("identity-adjacent"), since the code cannot know a label is identity-adjacent
   — only that it is on a list.
+- Citation links are URLs a browser can resolve, and the dashboard says whose
+  requests "outbound mode" governs. Subject citations interpolated the raw
+  label, so a multi-word subject shipped as
+  `href="https://openlibrary.org/subjects/science fiction"` — a href with a
+  space in it, on the page that also reports "no public catalog requests are
+  permitted". Subject URLs are now built with Open Library's own slug form, the
+  renderer only presents a citation as a link if it passes the same allowlist,
+  HTTPS, credential and whitespace checks the fetch path enforces (everything
+  else stays visible as plain text), and the status row now reads "this
+  instance makes no public catalog requests" with a note that following a
+  citation is a request your browser makes, not one the instance makes (#70).
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

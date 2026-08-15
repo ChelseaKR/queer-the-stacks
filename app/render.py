@@ -175,14 +175,26 @@ _EXTERNAL_REL = "noopener noreferrer external"
 
 
 def _source_item(kind: object, citation: str, retrieved_at: str) -> str:
-    """Render external citations as links and local citations as honest text.
+    """Render a citation as a link only when it is one, and as text otherwise.
 
-    Local ``curated-list:...`` citations used to point at in-page fragments
-    that did not exist. They remain visible provenance, but are no longer
-    presented as broken links.
+    Local ``curated-list:...`` citations used to point at in-page fragments that
+    did not exist. They remain visible provenance, but are no longer presented
+    as broken links.
+
+    The link test used to be ``startswith("http://", "https://")``, which said
+    yes to ``https://openlibrary.org/subjects/science fiction`` — a string with
+    a space in it, which no browser can resolve. The demo dashboard shipped that
+    href. So the test is now :func:`~recommender.catalogs.is_citable_url`: the
+    same allowlist, HTTPS, credential and whitespace rules the *fetch* path
+    enforces, applied to the *display* path, so a citation the app would refuse
+    to request is also one it will not hand the reader as a link. Anything that
+    fails stays fully visible as text — the provenance is never hidden, it just
+    stops pretending to be clickable.
     """
+    from recommender.catalogs import is_citable_url
+
     label = escape(citation)
-    if citation.startswith(("http://", "https://")):
+    if is_citable_url(citation):
         source = f'<a href="{label}" rel="{_EXTERNAL_REL}">{label}</a>'
     else:
         source = f'<span class="local-citation">{label}</span>'
@@ -741,8 +753,12 @@ def _utc_timestamp(value: Optional[int], *, empty: str = "never") -> str:
 
 def _catalog_status_section(status: CatalogPoolStatus) -> str:
     """Explain catalog consent, freshness, and last-good fallback in plain text."""
+    # Name the subject of the sentence. "No public catalog requests are
+    # permitted" sat on the same page as live openlibrary.org citation links,
+    # which reads as a contradiction until you work out that the row is about
+    # requests *this instance* makes, not links you may choose to follow.
     mode = (
-        "Off — no public catalog requests are permitted"
+        "Off — this instance makes no public catalog requests"
         if status.outbound_mode != "public-metadata"
         else "Public metadata — explicitly enabled"
     )
@@ -931,7 +947,10 @@ def render_dashboard(
         '<div class="section-heading"><h2>What next</h2>'
         "<p>Explained possibilities for the next open slot on your reading shelf.</p></div>"
         "<h3>Recommended for you</h3>"
-        "<p>Every pick shows why it surfaced and the source it came from.</p>"
+        "<p>Every pick shows why it surfaced and the source it came from. A "
+        "citation that links out is a page you can open yourself; following one "
+        "is a request your browser makes to that catalog, never one this "
+        "instance makes on your behalf, and it carries no referrer.</p>"
         f'<div class="recommendation-grid">{rec_cards}</div>'
         '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
         f"{_series_table(series_next)}</div>"
