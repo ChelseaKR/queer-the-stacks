@@ -95,6 +95,21 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   `x-auth-key` (the derived credential) and the document key to any host. The
   first hop is now the last one, and the document key is percent-encoded into a
   single path segment so it cannot reshape the URL.
+- `/openapi.json` is no longer served (#63). `docs_url=None, redoc_url=None`
+  closed two of FastAPI's three documentation surfaces; `openapi_url` was not
+  set alongside them, so the schema — every private path, each route's
+  query-parameter names, and the session cookie name — answered any anonymous
+  request. No reading content was exposed, but on a host whose contents can out
+  its owner, publishing what the application is and what its private routes are
+  called is itself the disclosure.
+- The auth test enumerates the route table instead of checking two paths. It
+  verified 2 routes of 17, and the one route that had slipped through was not
+  one of the two — it was registered by FastAPI rather than by this project's
+  own code, which is exactly what a hand-written list of paths cannot cover.
+  Every registered route must now answer 401 without credentials or appear in an
+  explicit public list with the reason it is safe, so a new ungated route fails
+  the build rather than being found later. Public routes are separately asserted
+  to carry no reading content and to name no private route.
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

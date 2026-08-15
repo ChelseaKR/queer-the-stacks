@@ -2,10 +2,16 @@
 
 Every content route depends on :func:`require_auth`, which rejects any request
 without a valid bearer token *or* a valid signed session cookie (401). There is
-no unauthenticated path: even ``/`` is gated, because a reading history can out
-a reader (privacy guardrail). The app is single-user and binds to localhost by
-default (``make dev``); deployment puts it behind the seedbox's auth next to
-Calibre-Web.
+no unauthenticated path to reading content: even ``/`` is gated, because a
+reading history can out a reader (privacy guardrail). The only routes served
+without credentials are the health/readiness probes, ``/version``, and the
+login/logout pair — none of which carry reading content or name a private route.
+Auth is applied per route rather than app-wide, so
+``tests/test_auth.py::test_every_registered_route_is_authed_or_explicitly_public``
+enumerates the whole route table and fails the build on any route that is
+neither gated nor on the explicit public list. The app is single-user and binds
+to localhost by default (``make dev``); deployment puts it behind the seedbox's
+auth next to Calibre-Web.
 
 Browser session auth (FIX-04): a phone/desktop browser can't attach an
 ``Authorization`` header on plain navigation, so ``GET /login`` renders a form
@@ -475,7 +481,20 @@ def _opds_recommendations(request: Request) -> Response:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Queer the Stacks", docs_url=None, redoc_url=None, lifespan=_lifespan)
+    # ``openapi_url=None`` belongs with ``docs_url``/``redoc_url``: without it
+    # FastAPI still serves ``/openapi.json``, and that document is the app's
+    # whole route inventory — every private path, each route's query-parameter
+    # names, and the session cookie name — to an anonymous caller. No reading
+    # content, but on a host whose contents can out its owner, publishing what
+    # the application *is* is itself the disclosure. The API-documentation
+    # surface is closed, not partly closed.
+    app = FastAPI(
+        title="Queer the Stacks",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=_lifespan,
+    )
     app.state.view_cache = None
     configure_logging()
     app.add_middleware(RequestLoggingMiddleware)

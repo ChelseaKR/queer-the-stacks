@@ -1,9 +1,24 @@
-"""Security guardrail — the dashboard is reachable only behind auth (merge-blocking)."""
+"""Security guardrail — the dashboard is reachable only behind auth (merge-blocking).
+
+The auth claim in ``docs/audits/reading-privacy.md`` is enforced here by
+*enumerating the route table*, not by naming a couple of paths. Auth is applied
+per route (``dependencies=[Depends(require_auth)]``) rather than app-wide, so
+omitting it on a new route is a one-line mistake with no compile-time
+consequence — the enumeration is what turns it into a failing build instead of a
+later discovery.
+
+:data:`PUBLIC_PATHS` is the whole point: every path served without credentials
+is listed there with the reason it is safe, so adding one is a deliberate,
+reviewable act. Anything not on that list must answer 401 to an anonymous
+request, and the public ones are separately asserted to carry no reading content
+and to name no private route.
+"""
 
 from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from app.auth import (
@@ -15,6 +30,59 @@ from app.auth import (
     sign_session,
     verify_session,
 )
+
+#: Paths deliberately reachable without credentials, each with why it is safe.
+#: Everything else must 401. Keep the reason: it is what makes an addition here
+#: reviewable rather than routine.
+PUBLIC_PATHS: dict[str, str] = {
+    "/healthz": "liveness for a container/reverse proxy; returns only {'status': 'ok'}",
+    "/livez": "liveness; no dependency calls, no reading content",
+    "/readyz": "readiness; fail-closed status only, never a path or exception text",
+    "/version": "installed package version only (REL-19), no internal detail",
+    "/login": "the entry point by necessity; an empty form, no reading content",
+    "/logout": "clears the session cookie and redirects to /login",
+}
+
+#: Every (path, method) the app registers. Pinned so that adding a route is a
+#: deliberate change to this file too — the enumeration below already fails on an
+#: ungated route, and this makes a *gated* addition visible in review as well.
+EXPECTED_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("/healthz", "GET"),
+        ("/livez", "GET"),
+        ("/version", "GET"),
+        ("/readyz", "GET"),
+        ("/login", "GET"),
+        ("/login", "POST"),
+        ("/logout", "GET"),
+        ("/", "GET"),
+        ("/browse", "GET"),
+        ("/opds", "GET"),
+        ("/opds/to-read", "GET"),
+        ("/opds/currently-reading", "GET"),
+        ("/opds/series-next", "GET"),
+        ("/opds/recommendations", "GET"),
+        ("/share", "GET"),
+        ("/share/card.svg", "GET"),
+    }
+)
+
+#: Documentation surfaces FastAPI can mount by default. All three must be closed:
+#: ``/openapi.json`` publishes the app's route inventory, its query-parameter
+#: names, and the session cookie name to anyone who asks.
+DOC_SURFACES: tuple[str, ...] = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
+
+
+def _registered_routes(app: object) -> set[tuple[str, str]]:
+    """Every (path, method) the app serves, ignoring HEAD/OPTIONS bookkeeping."""
+    found: set[tuple[str, str]] = set()
+    for route in app.routes:  # type: ignore[attr-defined] # FastAPI/Starlette app
+        path: Optional[str] = getattr(route, "path", None)
+        methods = getattr(route, "methods", None) or {"GET"}
+        if not path:
+            continue
+        found.update((path, method) for method in methods if method not in {"HEAD", "OPTIONS"})
+    return found
 
 
 def test_demo_mode_uses_demo_token() -> None:
@@ -312,3 +380,120 @@ def test_lockout_after_n_failed_logins_returns_429(
     still_locked = client.post("/login", data={"token": "demo-token"})
     assert still_locked.status_code == 429
     assert client.get("/").status_code == 401
+
+
+# --- The route table itself: every route, not two of them -------------------
+
+
+def _seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """A TestClient over a demo app whose store has been refreshed once."""
+    from app.server import create_app
+    from fastapi.testclient import TestClient
+
+    from tests.conftest import seed_store_from_env
+
+    monkeypatch.setenv("STACKS_DEMO", "1")
+    monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    seed_store_from_env()
+    app_obj = create_app()
+    return app_obj, TestClient(app_obj, base_url="https://testserver")
+
+
+def test_the_registered_route_table_is_exactly_what_is_declared() -> None:
+    """Pin the route table so a new route is visible in review.
+
+    The enumeration below already fails on an *ungated* route. This catches the
+    other half: a route added *with* auth still has to be looked at, because the
+    reason it is safe to serve is a human judgement, not a status code.
+    """
+    pytest.importorskip("fastapi")
+    from app.server import create_app
+
+    assert _registered_routes(create_app()) == EXPECTED_ROUTES
+
+
+def test_every_registered_route_is_authed_or_explicitly_public(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No route answers without credentials unless it is on PUBLIC_PATHS.
+
+    This replaces asserting 401 on ``/`` alone and inferring the other sixteen.
+    The previous check verified 2 routes of 17, and the one route that had
+    slipped through — ``/openapi.json``, registered by FastAPI rather than by
+    this project's own code — was not one of the two. A hand-written list of
+    paths could not have covered it; enumerating ``app.routes`` does.
+    """
+    pytest.importorskip("fastapi")
+    app_obj, client = _seeded_client(tmp_path, monkeypatch)
+
+    gated: list[tuple[str, str]] = []
+    for path, method in sorted(_registered_routes(app_obj)):
+        if path in PUBLIC_PATHS:
+            continue
+        response = client.request(method, path)
+        assert response.status_code == 401, (
+            f"{method} {path} answered {response.status_code} with no credentials; "
+            "every route must require auth or be listed in PUBLIC_PATHS with a reason"
+        )
+        gated.append((path, method))
+
+    # A loop that iterated nothing would also "pass" every assertion above, so
+    # pin how many routes were actually exercised. Counted as (path, method)
+    # pairs: /login is public on both GET and POST.
+    public_pairs = {(path, method) for path, method in EXPECTED_ROUTES if path in PUBLIC_PATHS}
+    assert len(gated) == len(EXPECTED_ROUTES) - len(public_pairs)
+    assert set(PUBLIC_PATHS) <= {path for path, _ in EXPECTED_ROUTES}
+
+
+@pytest.mark.parametrize("path", DOC_SURFACES)
+def test_no_api_documentation_surface_is_served(
+    path: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``/openapi.json`` must not exist, with or without credentials.
+
+    ``docs_url=None, redoc_url=None`` closed two of the three doc surfaces;
+    ``openapi_url`` was not set alongside them, so FastAPI still served the
+    schema: every private path, each route's query-parameter names, and the
+    session cookie name, to an anonymous caller. Asserted for the authenticated
+    case too, because the fix is that the document is not generated — not that
+    it is merely gated.
+    """
+    pytest.importorskip("fastapi")
+    _, client = _seeded_client(tmp_path, monkeypatch)
+
+    assert client.get(path).status_code == 404
+    assert client.get(path, headers={"Authorization": "Bearer demo-token"}).status_code == 404
+
+
+def test_public_routes_leak_no_reading_content_and_name_no_private_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Being public is only safe if the response says nothing.
+
+    Asserts the absence of the unsafe outcome rather than the presence of a
+    status code: no title, no author, and no private route path anywhere an
+    anonymous caller can read.
+    """
+    pytest.importorskip("fastapi")
+    from ingest.demo import demo_reading_states
+
+    _, client = _seeded_client(tmp_path, monkeypatch)
+
+    reading_data: set[str] = set()
+    for state in demo_reading_states(tmp_path / "demo"):
+        reading_data.add(state.book.title.lower())
+        reading_data.update(name.lower() for name in state.book.author_names)
+    assert reading_data, "the fixture library is empty; this assertion would be vacuous"
+
+    # "/" is a substring of every path, so it is covered by its own 401 above.
+    private_paths = {
+        path for path, _ in EXPECTED_ROUTES if path not in PUBLIC_PATHS and len(path) > 1
+    }
+    assert private_paths, "no private routes to check for"
+
+    for path in sorted(PUBLIC_PATHS):
+        body = client.get(path).text.lower()
+        leaked = sorted(item for item in reading_data if item in body)
+        assert leaked == [], f"{path} served reading content without credentials: {leaked}"
+        named = sorted(p for p in private_paths if p in body)
+        assert named == [], f"{path} named private routes without credentials: {named}"
