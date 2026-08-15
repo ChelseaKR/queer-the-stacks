@@ -550,3 +550,109 @@ def test_real_ingest_without_a_clock_stays_at_the_epoch(tmp_path: Path) -> None:
     states, _activity = ingest_states(cfg)
     tags = [t for s in states for t in s.book.theme_tags]
     assert {t.source.retrieved_at for t in tags} == {"1970-01-01"}
+
+
+# --- doctor against a mid-write library -------------------------------------
+#
+# The setup the README describes ("beside Calibre-Web") means doctor is most
+# often run while Calibre is open on the other screen — a WAL-present source.
+# `_check_source` called `open_readonly` on the live path, whose `immutable=1`
+# skips WAL recovery, so it reported a healthy library's `books` table as
+# missing: a reader is sent looking for a problem that does not exist.
+
+
+def _wal_calibre_source(path: Path) -> sqlite3.Connection:
+    """A Calibre-shaped ``metadata.db`` whose table + rows live only in the -wal.
+
+    Returns the still-open writer so the sidecars stay on disk. The caller closes
+    it. Nothing is checkpointed, so the main file alone has no ``books`` table at
+    all — exactly the state that produced "'books' table missing".
+    """
+    writer = sqlite3.connect(path)
+    writer.execute("PRAGMA journal_mode=WAL;")
+    writer.execute("PRAGMA wal_autocheckpoint=0;")
+    writer.execute("CREATE TABLE books (id INTEGER PRIMARY KEY, sort TEXT, title TEXT);")
+    writer.execute("INSERT INTO books (id, sort, title) VALUES (1, 'a', 'Nevada');")
+    writer.commit()
+    return writer
+
+
+def test_doctor_finds_the_table_of_a_mid_write_library(tmp_path: Path) -> None:
+    """A healthy library that is open elsewhere must not be reported as broken."""
+    from ingest.refresh import _check_source
+    from ingest.snapshot import has_sidecar
+
+    src = tmp_path / "metadata.db"
+    writer = _wal_calibre_source(src)
+    try:
+        assert has_sidecar(src), "the fixture is not mid-write; this test would be vacuous"
+
+        checks = {c.name: c for c in _check_source("Calibre", src, "books")}
+        access = checks["Calibre read-only access"]
+        assert access.ok, access.detail
+        assert "missing" not in access.detail
+
+        # And the reader is told the library is open, rather than left to
+        # interpret a surprising result.
+        in_use = checks["Calibre in use"]
+        assert in_use.ok
+        assert "open in another program" in in_use.detail
+    finally:
+        writer.close()
+
+
+def test_doctor_does_not_mutate_a_mid_write_source(tmp_path: Path) -> None:
+    """Snapshotting to answer the question must still leave the source untouched."""
+    import hashlib
+
+    from ingest.refresh import _check_source
+
+    src = tmp_path / "metadata.db"
+    writer = _wal_calibre_source(src)
+    try:
+        before = hashlib.sha256(src.read_bytes()).hexdigest()
+        _check_source("Calibre", src, "books")
+        assert hashlib.sha256(src.read_bytes()).hexdigest() == before
+    finally:
+        writer.close()
+
+
+def test_doctor_leaves_no_snapshot_behind(tmp_path: Path) -> None:
+    """The temporary snapshot doctor takes is discarded, not left in the library."""
+    from ingest.refresh import _check_source
+
+    src = tmp_path / "metadata.db"
+    writer = _wal_calibre_source(src)
+    try:
+        _check_source("Calibre", src, "books")
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "metadata.db",
+            "metadata.db-shm",
+            "metadata.db-wal",
+        ]
+    finally:
+        writer.close()
+
+
+def test_open_readonly_refuses_a_live_source_with_sidecars(tmp_path: Path) -> None:
+    """The invariant is enforced, not merely documented in a docstring.
+
+    ``open_readonly``'s docstring promised the snapshot-first invariant while
+    nothing stopped a caller from breaking it — and one caller did. The
+    previously-unused ``ReadOnlyViolation`` now closes that off, so this cannot
+    be reintroduced by accident.
+    """
+    from ingest.snapshot import ReadOnlyViolation, open_readonly, open_snapshot
+
+    src = tmp_path / "metadata.db"
+    writer = _wal_calibre_source(src)
+    try:
+        with pytest.raises(ReadOnlyViolation, match="sidecar"), open_readonly(src):
+            pass  # pragma: no cover - the context manager never yields
+
+        # The supported way in works and sees the rows the WAL still holds.
+        with open_snapshot(src, tmp_path / "snap") as conn:
+            titles = {row[0] for row in conn.execute("SELECT title FROM books")}
+        assert titles == {"Nevada"}
+    finally:
+        writer.close()

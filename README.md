@@ -57,7 +57,7 @@ export STACKS_CALIBRE_DB=/path/to/Calibre/metadata.db
 export STACKS_KOREADER_DB=/path/to/koreader/statistics.sqlite
 # optional cross-device progress (key from the env, never a file):
 export STACKS_KOSYNC_HOST=https://sync.koreader.rocks STACKS_KOSYNC_USER=you STACKS_KOSYNC_KEY=…
-stacks doctor     # validate paths + confirm read-only access (mutates nothing)
+stacks doctor     # validate paths + confirm snapshot-first read-only access (mutates nothing)
 stacks refresh    # snapshot-first ingest into data/app-state.sqlite
 uvicorn app.server:app   # serve the dashboard behind auth (set STACKS_AUTH_TOKEN)
 ```

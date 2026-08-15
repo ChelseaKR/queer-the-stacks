@@ -110,6 +110,18 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   explicit public list with the reason it is safe, so a new ungated route fails
   the build rather than being found later. Public routes are separately asserted
   to carry no reading content and to name no private route.
+- `stacks doctor` no longer reports a mid-write library's main table as missing
+  (#60). `_check_source` was the one caller in the tree that passed a live path
+  to `open_readonly`, whose `immutable=1` makes SQLite skip WAL recovery — so
+  against a Calibre library that was open in Calibre-Web (the setup the README
+  describes, and the moment a reader runs `doctor`) it read only the main file
+  and announced `'books' table missing` for a healthy library. It now snapshots
+  into a temporary directory and reads that, the same entry point `refresh`
+  uses, so the diagnostic is no longer less accurate than the thing it
+  diagnoses; it also reports when a sidecar shows the library is open elsewhere,
+  rather than leaving a reader to interpret a surprising result. `open_readonly`
+  now refuses a path with sidecars (`ReadOnlyViolation`, previously defined and
+  unused), so the snapshot-first invariant is enforced rather than documented.
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no
