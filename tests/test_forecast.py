@@ -8,7 +8,6 @@ from app.forecast import (
     _quantiles,
     _recent_per_page_seconds,
     forecast_book,
-    forecast_series,
 )
 from ingest.models import DailyActivity
 
@@ -97,28 +96,50 @@ def test_forecast_never_a_single_point() -> None:
     assert result.low_hours != result.high_hours
 
 
-def test_forecast_series_aggregates_remaining_pages() -> None:
-    # Two "books" with remaining pages 40 and 60 -> total 100, same math as
-    # the single-book pinned case since forecast_series reuses forecast_book.
-    book_a_remaining = 40
-    book_b_remaining = 60
-    result = forecast_series(book_a_remaining + book_b_remaining, _DAYS)
-    assert result.low_hours == 0.8
-    assert result.high_hours == 1.7
+# --- The basis line must name the sample it came from ------------------------
+
+
+def test_basis_names_the_days_that_contributed_not_the_days_on_record() -> None:
+    """More days on record than valid days: the basis must name the valid count.
+
+    The basis line is this module's entire honesty mechanism — it is what a
+    reader weighs the range against, and `app/render.py` prints it verbatim into
+    the "Time to finish" table. It used to be `min(len(daily), window_days)`,
+    every day in the record including days with no pages turned, which
+    `_recent_per_page_seconds` had already discarded. This is the test that
+    would have caught it.
+    """
+    quiet_days = [
+        DailyActivity(day_ordinal=200 + i, seconds=1800, pages=0)
+        for i in range(20)  # on record, contributing nothing
+    ]
+    daily = [*_DAYS, *quiet_days]
+
+    assert len(daily) == 28
+    assert len(_recent_per_page_seconds(daily, window_days=30)) == 8
+
+    result = forecast_book(100, daily)
+    assert result.estimable is True
     assert result.basis == "from your last 8 reading days"
 
 
-def test_forecast_series_expresses_large_high_end_in_weeks() -> None:
-    # remaining_pages_total chosen so high_hours = 1400 * 62.5 / 3600 = 24.3 >= 24
-    result = forecast_series(1400, _DAYS)
-    assert result.estimable is True
-    assert result.low_hours == 10.7
-    assert result.high_hours == 24.3
-    assert "weeks" in result.basis
-    assert result.basis.startswith("from your last 8 reading days")
+def test_basis_count_never_exceeds_the_window() -> None:
+    """A window narrower than the record still names what was sampled."""
+    many = [DailyActivity(day_ordinal=100 + i, seconds=(i + 1) * 100, pages=10) for i in range(40)]
+    result = forecast_book(100, many, window_days=30)
+    assert result.basis == "from your last 30 reading days"
 
 
-def test_forecast_series_thin_data() -> None:
-    result = forecast_series(1000, _DAYS[:2])
-    assert result.estimable is False
-    assert result.basis == "not enough recent reading to estimate"
+def test_forecast_series_is_gone() -> None:
+    """The unreachable whole-series helper is removed, not left dormant.
+
+    It had no caller, and the number it needed — remaining pages across the
+    *unread* books of a series — does not exist in the models: page counts live
+    on ``ReadingStat`` (KOReader, so read books only) and ``Book`` carries none
+    from Calibre. Its weeks clause divided by an unstated 24-hours-a-day
+    assumption while its docstring claimed ~2 hours/day, and the test covering
+    that line asserted only that the word "weeks" appeared, never the number.
+    """
+    import app.forecast as forecast_module
+
+    assert not hasattr(forecast_module, "forecast_series")

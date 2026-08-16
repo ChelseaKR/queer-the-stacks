@@ -122,6 +122,19 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   rather than leaving a reader to interpret a surprising result. `open_readonly`
   now refuses a path with sidecars (`ReadOnlyViolation`, previously defined and
   unused), so the snapshot-first invariant is enforced rather than documented.
+- The "Time to finish" basis line no longer overstates its sample (#61). The
+  range is computed from days with pages turned, but the label counted every day
+  in the record: with 30 days in the window of which 6 contributed, the
+  dashboard said thirty. The basis line is the module's whole honesty mechanism,
+  and `render.py` prints it verbatim, so a reader deciding whether to trust a
+  range had been handed the wrong denominator.
+- Removed `forecast_series`. It had no caller, and the number it needs —
+  remaining pages across the *unread* books of a series — does not exist in the
+  models: page counts arrive on `ReadingStat` (KOReader, so read books only) and
+  `Book` carries none from Calibre. Its "up to ~N weeks at that pace" clause
+  divided by an unstated 24-hours-a-day assumption while its own docstring said
+  ~2 hours/day, a 12x discrepancy that sat under a green suite because the test
+  covering the line asserted only that the word "weeks" appeared.
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

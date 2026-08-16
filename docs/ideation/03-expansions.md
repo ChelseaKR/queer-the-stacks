@@ -75,17 +75,24 @@ and returns a `Forecast(low_hours, high_hours, basis, estimable)` — always a
 range (p25–p75 of recent per-page seconds), never a single point. Fewer than
 `MIN_DAYS_FOR_ESTIMATE` valid days, or a non-positive remaining-pages count,
 returns the honest `Forecast.unknown()` ("not enough recent reading to
-estimate") instead of guessing. `forecast_series` reuses the same math over a
-combined remaining-pages total and adds a weeks-ish gloss to the basis when
-the high end is large. `tests/test_forecast.py` pins the p25/p75 math against
-a hand-computable fixture and covers the thin-data and zero/negative-pages
-fallbacks. Not wired into `render.py`/`app/server.py` — the spec scoped this
-item to the pure module + fixture test. The dashboard wiring is now done: the
-view builds a per-book `BookForecast` for every currently-reading title and the
-renderer shows an accessible "Time to finish" section (a range, never a single
-number; unestimable books say so).
-**Pitch:** "at your recent pace, this 384-page book ≈ 8–10 hours; this series
-≈ 6 weeks" — locally, from KOReader page timing.
+estimate") instead of guessing. `tests/test_forecast.py` pins the p25/p75 math
+against a hand-computable fixture and covers the thin-data and
+zero/negative-pages fallbacks. The dashboard wiring is done: the view builds a
+per-book `BookForecast` for every currently-reading title and the renderer shows
+an accessible "Time to finish" section (a range, never a single number;
+unestimable books say so).
+
+**Series scope, revised (2026-08-14, #61):** the per-book half shipped; the
+series half did not, and a `forecast_series` helper that had no caller was
+removed rather than left dormant. The blocker is data, not code: a series
+forecast needs remaining pages across the *unread* books of a series, and page
+counts arrive on `ReadingStat` (KOReader, so read books only) while `Book`
+carries none from Calibre. Reviving it means a page-count source for unread
+books first, and a stated daily reading budget for any weeks figure — the
+removed version divided by an unstated 24 hours/day while its docstring claimed
+~2 hours/day.
+**Pitch:** "at your recent pace, this 384-page book ≈ 8–10 hours" — locally,
+from KOReader page timing.
 **Impact:** turns data the system already has
 (`app/wrapped.py::pace_pages_per_day`, per-book stats) into a daily decision
 aid; no new data, no inference beyond the reader's own arithmetic.
