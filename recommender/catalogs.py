@@ -8,9 +8,12 @@ build-time impossibility: any request to a blocked host raises before a socket i
 opened. The merge-blocking metric "Goodreads requests = 0" is enforced here plus
 by the source-allowlist test.
 
-Only public catalog metadata (subjects, lists, a lookup by title/ISBN) is ever
-fetched; the user's reading history is never sent anywhere — that is the privacy
-guardrail, checked by the no-egress test.
+Only public catalog metadata is ever fetched, and only from the operator's own
+predeclared configuration: broad Open Library subject slugs and explicit public
+BookWyrm list URLs. There is deliberately no per-title or per-ISBN lookup — such
+a request would carry a book the reader owns, which is exactly the thing that
+must not leave. ``tests/test_no_egress.py`` asserts the outbound URL set for a
+real refresh and that nothing derived from the library appears in it.
 """
 
 from __future__ import annotations

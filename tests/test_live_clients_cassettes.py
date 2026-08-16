@@ -54,7 +54,10 @@ class _FakeResponse:
 def test_kosync_client_progress_for(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, Any]] = []
 
-    def fake_get(url: str, headers: dict[str, str], timeout: int) -> _FakeResponse:
+    def fake_get(
+        url: str, headers: dict[str, str], timeout: int, allow_redirects: bool
+    ) -> _FakeResponse:
+        assert allow_redirects is False
         calls.append({"url": url, "headers": headers, "timeout": timeout})
         return _FakeResponse(_load("kosync_progress.json"))
 
@@ -81,7 +84,8 @@ def test_kosync_client_progress_for(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_kosync_client_404_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "requests.get", lambda url, headers, timeout: _FakeResponse("", status_code=404)
+        "requests.get",
+        lambda url, headers, timeout, allow_redirects: _FakeResponse("", status_code=404),
     )
 
     client = KosyncClient("chelsea", "deadbeefdeadbeefdeadbeefdeadbeef")

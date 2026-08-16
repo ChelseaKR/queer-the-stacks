@@ -76,6 +76,25 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- The no-egress guardrail now detects egress instead of grepping for four
+  substrings while exempting the two modules that make every request (#62). It
+  parses each first-party module's imports and asserts that the set of
+  network-capable modules is *exactly* the KOReader sync client and the catalog
+  client — equality, not an exemption list — and it runs ingest, view build,
+  render, and every dashboard route with the socket layer trapped, so those
+  paths cannot reach the network without failing the suite. The two permitted
+  paths are asserted request-by-request below `requests.get`: exact outbound URL
+  set, no request body, redirects off, and no library-derived string anywhere in
+  the request. The old check for the literal string `.post(` is gone; a GET
+  carries its payload in the URL, so it never tested its own name. The limits of
+  what the guardrail can see are now written down in
+  `docs/audits/reading-privacy.md` rather than implied by a test name.
+- The KOReader sync client no longer follows redirects. `requests` drops an
+  `Authorization` header when a redirect changes host but keeps arbitrary ones,
+  so a hostile or compromised sync endpoint could have bounced `x-auth-user`,
+  `x-auth-key` (the derived credential) and the document key to any host. The
+  first hop is now the last one, and the document key is percent-encoded into a
+  single path segment so it cannot reshape the URL.
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no
