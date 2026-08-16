@@ -418,3 +418,37 @@ def test_the_privacy_note_does_not_claim_a_redaction_that_did_not_happen() -> No
     )
     assert "nothing on this shelf matched your sensitive list" in html
     assert "are aggregated into a single row" not in html
+
+
+def test_no_rendered_href_contains_whitespace(tmp_path: Path) -> None:
+    """Every link on the demo dashboard is a URL a browser can resolve.
+
+    The shipped `docs/audits/dashboard.html` carried
+    `href="https://openlibrary.org/subjects/science fiction"`, built by
+    interpolating a raw subject label into the citation.
+    """
+    import re
+
+    html = render_view(demo_view(tmp_path))
+    hrefs = re.findall(r'href="([^"]*)"', html)
+
+    assert hrefs, "the dashboard should link somewhere"
+    bad = [h for h in hrefs if any(ch.isspace() for ch in h)]
+    assert bad == [], f"hrefs with whitespace: {bad}"
+    assert "https://openlibrary.org/subjects/science_fiction" in hrefs
+
+
+def test_outbound_off_names_who_is_not_making_requests(tmp_path: Path) -> None:
+    """The privacy claim and the citation links must not read as contradictory.
+
+    The status row said "no public catalog requests are permitted" on a page
+    that also offered live openlibrary.org links. Both are true — the row is
+    about this instance — so the row says whose requests it means, and the
+    recommendation section says what following a citation actually does.
+    """
+    html = render_view(demo_view(tmp_path))
+
+    assert "Off — this instance makes no public catalog requests" in html
+    assert "a request your browser makes to that catalog" in html
+    assert "never one this instance makes on your behalf" in html
+    assert check_html(html) == []

@@ -32,6 +32,8 @@ from ingest.models import (
     ThemeTag,
 )
 
+from recommender.catalogs import subject_url
+
 _RETRIEVED_AT = "2026-07-01"
 
 
@@ -46,7 +48,7 @@ def _theme_tags(labels: list[str]) -> tuple[ThemeTag, ...]:
             label=label,
             source=Source(
                 kind=SourceKind.OPENLIBRARY_SUBJECT,
-                citation=f"https://openlibrary.org/subjects/{label}",
+                citation=subject_url(label),
                 retrieved_at=_RETRIEVED_AT,
                 detail=label,
             ),
