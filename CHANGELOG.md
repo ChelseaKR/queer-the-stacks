@@ -13,6 +13,11 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Added
+- A "Why not others?" near-miss section on the recommendation shelf: the
+  best-scoring candidates that didn't make the cut, each with the same
+  sourced counterfactual accounting `explain_absence` already gave EXP-02's
+  pure function, now actually wired into the dashboard (`app/view.py`,
+  `app/render.py`, `recommender/explain.py::near_misses`).
 - An explicitly opt-in public-metadata candidate pool for predeclared Open
   Library subjects and public BookWyrm lists, persisted per source with a
   visible last-good fallback, source age, and degraded-state reporting.

@@ -22,11 +22,12 @@ from collections.abc import Sequence
 from html import escape
 from typing import TYPE_CHECKING, Optional
 
-from ingest.models import ReadingState, Recommendation
+from ingest.models import Explanation, ReadingState, Recommendation
 from ingest.store import CatalogPoolStatus
 
 if TYPE_CHECKING:
     from app.view import BookForecast
+from recommender.explain import NearMiss
 from recommender.lists import CuratedList
 
 from app.diversity import REDACTED_LABEL, DiversityReport
@@ -224,18 +225,14 @@ def _source_item(kind: object, citation: str, retrieved_at: str) -> str:
     )
 
 
-def _sources_html(rec: Recommendation) -> str:
-    items = "".join(
-        _source_item(s.kind, s.citation, s.retrieved_at) for s in rec.explanation.sources
-    )
+def _sources_html(explanation: Explanation) -> str:
+    items = "".join(_source_item(s.kind, s.citation, s.retrieved_at) for s in explanation.sources)
     return f"<h4>Sources</h4><ul>{items}</ul>"
 
 
-def _signals_html(rec: Recommendation) -> str:
-    items = "".join(
-        f"<li>{escape(s.kind)}: {escape(s.detail)}</li>" for s in rec.explanation.signals
-    )
-    return f"<h4>Why recommended</h4><ul>{items}</ul>"
+def _signals_html(explanation: Explanation, *, heading: str = "Why recommended") -> str:
+    items = "".join(f"<li>{escape(s.kind)}: {escape(s.detail)}</li>" for s in explanation.signals)
+    return f"<h4>{escape(heading)}</h4><ul>{items}</ul>"
 
 
 def _rec_card(rec: Recommendation) -> str:
@@ -246,9 +243,23 @@ def _rec_card(rec: Recommendation) -> str:
         f'<h3 id="rec-{rid}">{rec.rank}. {escape(rec.book.title)}</h3>'
         f'<p class="byline">by {authors}</p>'
         f'<p class="score">Fit score: {rec.score:.3f}</p>'
-        f"{_signals_html(rec)}"
-        f"{_sources_html(rec)}"
+        f"{_signals_html(rec.explanation)}"
+        f"{_sources_html(rec.explanation)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
+        "</article>"
+    )
+
+
+def _near_miss_card(miss: NearMiss) -> str:
+    authors = escape(", ".join(miss.book.author_names) or "unknown author")
+    rid = escape(miss.book.book_id.replace(":", "-"))
+    return (
+        f'<article class="card" aria-labelledby="miss-{rid}">'
+        f'<h3 id="miss-{rid}">{escape(miss.book.title)}</h3>'
+        f'<p class="byline">by {authors}</p>'
+        f"{_signals_html(miss.explanation, heading='Why not')}"
+        f"{_sources_html(miss.explanation)}"
+        f'<p class="summary">{escape(miss.explanation.summary)}</p>'
         "</article>"
     )
 
@@ -866,6 +877,7 @@ def render_dashboard(
     wrapped: Wrapped,
     recommendations: Sequence[Recommendation],
     *,
+    near_misses: Sequence[NearMiss] = (),
     forecasts: Sequence[BookForecast] = (),
     series_next: Sequence[SeriesNext] = (),
     to_read: Sequence[ReadingState] = (),
@@ -914,6 +926,17 @@ def render_dashboard(
             '<p class="empty-state">No recommendations fit yet. Check source status '
             "below, then read or tag a few books to provide local matching signals.</p>"
         )
+    near_miss_cards = "".join(_near_miss_card(m) for m in near_misses)
+    near_miss_section = (
+        '<details class="near-misses"><summary>Why not others?</summary>'
+        '<div class="details-inner">'
+        "<p>Close candidates that didn't make the shelf, ranked and explained — "
+        "the same sourced accounting the picks above get, applied to what "
+        "fell short.</p>"
+        f'<div class="recommendation-grid">{near_miss_cards}</div></div></details>'
+        if near_miss_cards
+        else ""
+    )
     tbr_items = "".join(_reading_item(s, hidden_descriptors) for s in to_read[:10]) or (
         "<li>Nothing on your to-read shelf.</li>"
     )
@@ -972,6 +995,7 @@ def render_dashboard(
         "is a request your browser makes to that catalog, never one this "
         "instance makes on your behalf, and it carries no referrer.</p>"
         f'<div class="recommendation-grid">{rec_cards}</div>'
+        f"{near_miss_section}"
         '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
         f"{_series_table(series_next)}</div>"
         '<div class="shelf-block"><h3>To-read shelf</h3>'
