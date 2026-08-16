@@ -39,6 +39,19 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   ethical-catalog recommender with explanations, auth-gated self-hosted dashboard).
 
 ### Changed
+- The accessibility gate now audits every HTML document the app serves, not two
+  of the three. The share-card page reached the structural checker only through
+  a unit test; the pa11y/axe, light/dark, and 320 px reflow layers never loaded
+  it, because `app.build_static` never wrote it and `make a11y` scans what that
+  writes. It is now built, audited in all gated modes (0 violations on first
+  run), and `tests/test_a11y.py` asserts that every `HTMLResponse` route maps to
+  an audited document, so the list cannot silently fall behind the app. The gate
+  also refuses an empty page list instead of looping zero times and exiting 0.
+- The coverage gate measures `ingest/cli.py`. It was omitted as "thin argparse
+  glue"; it is 503 lines of refresh/doctor/import/export/list-authoring
+  behaviour with three dedicated test files, and at 57% it was the
+  least-covered module in the project while sitting outside the denominator the
+  85% floor is computed from. Reported total moves from ~96.9% to ~94.1%.
 - Reconciled the contradictory internationalization dispositions: the standard
   now applies, deferred to backlog #17's fork/audience decision; `docs/I18N.md`
   defines both decision paths and ADR 0007 supersedes only the i18n portion of

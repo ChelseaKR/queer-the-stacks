@@ -6,8 +6,13 @@ PYTHON  ?= .venv/bin/python
 PIP     ?= .venv/bin/pip
 # Interpreter used to create the venv — Python 3.14 is the project floor.
 PYTHON3 ?= python3.14
+# Every HTML document the app serves to a person. `app.build_static` writes
+# exactly this set; a page missing from here is a page the a11y gate cannot
+# fail on. `/browse` renders the dashboard template, so it needs no entry.
 A11Y_HTML := docs/audits/dashboard.html
 A11Y_LOGIN_HTML := docs/audits/login.html
+A11Y_SHARE_HTML := docs/audits/share.html
+A11Y_PAGES := $(A11Y_HTML) $(A11Y_LOGIN_HTML) $(A11Y_SHARE_HTML)
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev verify format lint marker-hygiene typecheck test security a11y eval perf perf-load lighthouse perf-gates audit clean
@@ -74,19 +79,28 @@ security: ## Stage 4 — dependency vulnerability + secret scan + lockfile CVE s
 		echo "osv-scanner not installed locally — CI installs a pinned binary and runs this blocking (ci.yml); install it (https://google.github.io/osv-scanner) to match CI locally"; \
 	fi
 
-a11y: ## Stage 5 — audit dashboard + login at desktop/mobile/light/dark (blocking)
+a11y: ## Stage 5 — audit every served page at desktop/mobile/light/dark (blocking)
 	$(PYTHON) -m app.build_static
-	# Layer 1: deterministic structural checks on both user-facing entry points.
-	$(PYTHON) -m app.a11y_check $(A11Y_HTML)
-	$(PYTHON) -m app.a11y_check $(A11Y_LOGIN_HTML)
+	# Layer 0: the page list itself. An empty or missing-file list would make
+	# every loop below a no-op that exits 0 — a gate that cannot fail.
+	@test -n "$(A11Y_PAGES)" || { echo "a11y: the page list is empty" >&2; exit 1; }
+	@for page in $(A11Y_PAGES); do \
+		test -s "$$page" || { echo "a11y: $$page is missing or empty" >&2; exit 1; }; \
+	done
+	# Layer 1: deterministic structural checks on every user-facing document.
+	@for page in $(A11Y_PAGES); do \
+		echo "$(PYTHON) -m app.a11y_check $$page"; \
+		$(PYTHON) -m app.a11y_check $$page || exit 1; \
+	done
 	# Layer 2a: pa11y/axe in a real browser at default desktop and 320px viewports.
-	pa11y --runner axe --config .pa11y.json $(A11Y_HTML)
-	pa11y --runner axe --config .pa11y.mobile.json $(A11Y_HTML)
-	pa11y --runner axe --config .pa11y.json $(A11Y_LOGIN_HTML)
-	pa11y --runner axe --config .pa11y.mobile.json $(A11Y_LOGIN_HTML)
+	@for page in $(A11Y_PAGES); do \
+		echo "pa11y --runner axe (desktop + 320px) $$page"; \
+		pa11y --runner axe --config .pa11y.json $$page || exit 1; \
+		pa11y --runner axe --config .pa11y.mobile.json $$page || exit 1; \
+	done
 	# Layer 2b: explicit light/dark axe scans plus an actual document-width
 	# assertion at 320px (axe alone does not implement WCAG 1.4.10 reflow).
-	node scripts/a11y-browser-check.js $(A11Y_HTML) $(A11Y_LOGIN_HTML)
+	node scripts/a11y-browser-check.js $(A11Y_PAGES)
 
 eval: ## Stage 7 — offline eval; fails unless the recommender beats popularity
 	$(PYTHON) -m ingest.cli eval --k 5 --out docs/audits/eval-report.json

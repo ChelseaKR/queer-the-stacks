@@ -100,10 +100,11 @@ ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # Test + coverage gate (CI stage 3)
-# Coverage is measured on CORE LOGIC (ingest + recommender + app) plus the
-# FastAPI wiring in app/server.py, which is exercised directly via TestClient
-# in tests/test_auth.py and tests/test_server_lifecycle.py. The static-build
-# script and the CLI glue remain integration/manual-verified (omitted below).
+# Coverage is measured on everything a reader can reach: ingest + recommender +
+# app, including the FastAPI wiring in app/server.py (exercised via TestClient
+# in tests/test_auth.py and tests/test_server_lifecycle.py) and ingest/cli.py
+# (exercised in tests/test_lists_cli.py, tests/test_cli_recommend.py, and
+# tests/test_cli_export.py). Only app/build_static.py is omitted; see below.
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 addopts = [
@@ -132,9 +133,18 @@ filterwarnings = [
 [tool.coverage.run]
 branch = true
 omit = [
-    "app/build_static.py",  # thin static-render script
-    "ingest/cli.py",        # thin argparse glue
+    # Genuinely thin: 44 lines that render three documents to disk, and the
+    # a11y gate fails loudly if any of them stops being produced, which is a
+    # stronger check than a coverage percentage would be.
+    "app/build_static.py",
 ]
+# ingest/cli.py used to be omitted here as "thin argparse glue". It is 503
+# lines carrying real behaviour (refresh, doctor, import/export, list
+# authoring), it already has three dedicated test files, and it measured 57%
+# — the least-covered module in the project, sitting outside the denominator
+# the 85% gate is computed from. Including it moves the reported total from
+# ~96.9% to ~94.4%, still comfortably over the floor, and makes a CLI
+# regression something the gate can actually see.
 
 [tool.coverage.report]
 # The genuinely untestable live-network glue is pragma-excluded at its class;
