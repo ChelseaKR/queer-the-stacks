@@ -170,6 +170,16 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   else stays visible as plain text), and the status row now reads "this
   instance makes no public catalog requests" with a note that following a
   citation is a request your browser makes, not one the instance makes (#70).
+- Reading Wrapped no longer reports all-time hours under a year-scoped heading.
+  "Standout reads of 2024 by time spent" listed each book's cumulative KOReader
+  `total_read_time`, so the demo's top five summed to 78.0 hours inside a
+  37.6-hour year — a number a reader checks in seconds and then stops trusting
+  the rest of the page for. KOReader keeps no per-year total per book, so the
+  figure stays what it is and the page now says what it is: the column reads
+  "Hours (all time)", the caption explains the scope, and when the standouts do
+  exceed the year it reconciles the two figures in place. `StandoutRead` carries
+  the scope in its field name (`total_read_time_seconds`) so a future caller
+  cannot re-make the assumption silently (#71).
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

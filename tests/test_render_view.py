@@ -451,4 +451,56 @@ def test_outbound_off_names_who_is_not_making_requests(tmp_path: Path) -> None:
     assert "Off — this instance makes no public catalog requests" in html
     assert "a request your browser makes to that catalog" in html
     assert "never one this instance makes on your behalf" in html
+
+
+def test_wrapped_standout_hours_name_their_scope_on_the_page(tmp_path: Path) -> None:
+    """The year panel must not present an all-time figure under a year-scoped label.
+
+    In the shipped demo the top five standouts total 78.0 hours inside a
+    37.6-hour year. That is not a wrong number, it is a different one — and a
+    bare "Hours" column under "Reading Wrapped 2024" makes it read as the wrong
+    one. The page has to name the scope and reconcile the gap in place.
+    """
+    view = demo_view(tmp_path)
+    html = render_view(view)
+    wrapped = view.wrapped
+
+    assert wrapped.standouts_exceed_the_year, "demo world should exercise the gap"
+    standouts_table = html.split("Standout reads of", 1)[1].split("</table>", 1)[0]
+    # The column names its scope, and the old ambiguous heading is gone from
+    # this table (the monthly table's "Hours" really is within the year).
+    assert '<th scope="col">Hours (all time)</th>' in standouts_table
+    assert '<th scope="col">Hours</th>' not in standouts_table
+    # The caption reconciles the two figures rather than leaving them to collide.
+    assert "all-time read time" in standouts_table
+    assert f"more than the {wrapped.read_time_hours} hours above" in standouts_table
+    # And the year total says which year it belongs to.
+    assert f"hours read in {wrapped.year}" in html
+    assert check_html(html) == []
+
+
+def test_wrapped_caption_omits_the_reconciliation_when_there_is_nothing_to_reconcile() -> None:
+    from ingest.models import ReadingStat
+
+    stat = ReadingStat(
+        key="k",
+        title="Quick Read",
+        authors=("Author",),
+        pages_read=100,
+        total_pages=100,
+        read_time_seconds=3600,
+        last_read_ts=1_717_000_000,
+        sessions=2,
+    )
+    state = ReadingState(
+        title="Quick Read", authors=("Author",), status=ReadingStatus.FINISHED, stat=stat
+    )
+    # Two hours of day-level activity in the same year as the finish.
+    day = 1_717_000_000 // 86400
+    view = build_view([state], [DailyActivity(day, 7200, 120)], ())
+
+    html = render_view(view)
+
+    assert "all-time read time" in html
+    assert "more than the" not in html
     assert check_html(html) == []
