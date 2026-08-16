@@ -18,11 +18,14 @@ risk corrupting them. Two complementary protections live here:
    Every snapshot is then verified with ``PRAGMA integrity_check`` before it is
    handed to a reader; an unrecoverable source fails loudly with
    :class:`SnapshotIntegrityError` rather than yielding a silent bad read.
-2. :func:`open_readonly` opens *any* SQLite file through a ``mode=ro`` +
-   ``immutable=1`` URI and pins ``PRAGMA query_only=ON``. A write attempt raises
-   ``sqlite3.OperationalError`` — proven by the read-only guardrail test. Because
-   :func:`snapshot` produces a standalone, sidecar-free file, ``immutable=1`` is
-   safe here: there is no WAL left to ignore.
+2. :func:`open_readonly` opens a *sidecar-free* SQLite file through a
+   ``mode=ro`` + ``immutable=1`` URI and pins ``PRAGMA query_only=ON``. A write
+   attempt raises ``sqlite3.OperationalError`` — proven by the read-only
+   guardrail test. Because :func:`snapshot` produces a standalone, sidecar-free
+   file, ``immutable=1`` is safe there: there is no WAL left to ignore. Handed a
+   path that *does* have sidecars it raises :class:`ReadOnlyViolation` instead of
+   silently reading a stale main file, so the snapshot-first invariant is
+   enforced rather than merely documented.
 
 The merge-blocking metric "writes to source DBs = 0" is enforced by these
 mechanisms plus the test that asserts the source file's hash is unchanged after
@@ -44,7 +47,13 @@ _SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 
 
 class ReadOnlyViolation(Exception):
-    """Raised if code attempts to obtain a writable handle to a source DB."""
+    """Raised when a read would bypass the snapshot-first invariant.
+
+    Specifically: :func:`open_readonly` was handed a live database that has
+    SQLite sidecars, where its ``immutable=1`` would suppress WAL recovery and
+    yield a stale, confidently-wrong read. The access is still read-only; the
+    *answer* would not be.
+    """
 
 
 class SnapshotIntegrityError(Exception):
@@ -55,8 +64,14 @@ class SnapshotIntegrityError(Exception):
     """
 
 
-def _has_sidecar(src: Path) -> bool:
-    """True if ``src`` has a ``-wal``/``-shm``/``-journal`` sidecar on disk."""
+def has_sidecar(src: Path) -> bool:
+    """True if ``src`` has a ``-wal``/``-shm``/``-journal`` sidecar on disk.
+
+    In practice this means the database is open in another program right now —
+    Calibre or Calibre-Web on the other screen — and that the main file alone is
+    not the current state of the library.
+    """
+    src = Path(src)
     return any((src.parent / f"{src.name}{suffix}").exists() for suffix in _SIDECAR_SUFFIXES)
 
 
@@ -114,7 +129,7 @@ def snapshot(src: Path, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{src.stem}.snapshot{src.suffix or '.db'}"
 
-    use_backup = _has_sidecar(src)
+    use_backup = has_sidecar(src)
     last_detail = "not attempted"
     for _attempt in range(2):
         try:
@@ -139,15 +154,32 @@ def snapshot(src: Path, dest_dir: Path) -> Path:
 
 @contextmanager
 def open_readonly(path: Path) -> Iterator[sqlite3.Connection]:
-    """Yield a strictly read-only connection to the SQLite file at ``path``.
+    """Yield a strictly read-only connection to a *sidecar-free* SQLite file.
 
     Opened via ``file:…?mode=ro&immutable=1`` and pinned with
     ``PRAGMA query_only=ON``; any attempt to mutate raises
     ``sqlite3.OperationalError``.
+
+    ``immutable=1`` tells SQLite the file cannot change, so it skips WAL
+    recovery and reads only the main file. On a snapshot that is exactly right —
+    a snapshot is standalone by construction. On a *live* database that is
+    mid-write it is silently wrong: committed rows still in the ``-wal`` sidecar
+    are invisible, and the reader gets a confident answer about a state that is
+    not the current one.
+
+    So this refuses a path with sidecars, with :class:`ReadOnlyViolation`, rather
+    than trusting every caller to remember. Reach a live source through
+    :func:`open_snapshot`; that is the only supported way in.
     """
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"database not found: {path}")
+    if has_sidecar(path):
+        raise ReadOnlyViolation(
+            f"{path.name} has a -wal/-shm/-journal sidecar, so it is mid-write and "
+            "immutable=1 would hide committed rows still in the sidecar. Read it "
+            "through open_snapshot() instead."
+        )
     uri = f"file:{path}?mode=ro&immutable=1"
     conn = sqlite3.connect(uri, uri=True)
     try:

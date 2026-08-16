@@ -22,6 +22,7 @@ from __future__ import annotations
 import concurrent.futures
 import datetime as dt
 import os
+import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,7 +34,7 @@ from ingest.kobo import load_stats as load_kobo_stats
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
-from ingest.snapshot import columns, open_readonly
+from ingest.snapshot import columns, has_sidecar, open_snapshot
 from ingest.store import CatalogSourceUpdate, Store
 from ingest.unify import unify
 
@@ -364,6 +365,20 @@ class Check:
 
 
 def _check_source(label: str, path: Optional[Path], required_table: str) -> list[Check]:
+    """Validate one source the way ``stacks refresh`` will actually read it.
+
+    Snapshot-first, through :func:`~ingest.snapshot.open_snapshot`, into a
+    temporary directory that is discarded immediately. This used to call
+    ``open_readonly`` on the live path, whose ``immutable=1`` skips WAL recovery
+    — so against a Calibre library that was open on the other screen (the setup
+    the README describes, and the moment a reader runs ``doctor``) it reported a
+    healthy library's main table as *missing*. The check was less accurate than
+    the thing it was diagnosing.
+
+    Going through the real entry point also means doctor now verifies that the
+    source can be snapshotted consistently at all, which is the step ``refresh``
+    would fail on.
+    """
     checks: list[Check] = []
     if path is None:
         checks.append(Check(f"{label} configured", False, "no path set (demo or unconfigured)"))
@@ -372,14 +387,29 @@ def _check_source(label: str, path: Optional[Path], required_table: str) -> list
         checks.append(Check(f"{label} file", False, f"not found: {path}"))
         return checks
     checks.append(Check(f"{label} file", True, str(path)))
+    if has_sidecar(path):
+        # Not a problem — say so, or a reader will read the extra line as one.
+        checks.append(
+            Check(
+                f"{label} in use",
+                True,
+                "a -wal/-journal sidecar is present, so the library is open in "
+                "another program right now; reads go through a consistent "
+                "snapshot, so this is fine",
+            )
+        )
     try:
-        with open_readonly(path) as conn:
+        with (
+            tempfile.TemporaryDirectory(prefix="stacks-doctor-") as tmp,
+            open_snapshot(path, Path(tmp)) as conn,
+        ):
             has_table = bool(columns(conn, required_table))
         checks.append(
             Check(
                 f"{label} read-only access",
                 has_table,
-                f"opened read-only; '{required_table}' table {'found' if has_table else 'missing'}",
+                "snapshotted and opened read-only; "
+                f"'{required_table}' table {'found' if has_table else 'missing'}",
             )
         )
     except Exception as exc:  # noqa: BLE001 - surface any access problem to the user
