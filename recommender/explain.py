@@ -65,7 +65,12 @@ def _collab_signals(collab_anchors: tuple[CoAnchor, ...]) -> tuple[list[Signal],
             Source(
                 kind=SourceKind.CURATED_LIST,
                 citation=anchor.list_citation,
-                retrieved_at="2026-06-05",
+                # The anchoring list's own date. This used to be the literal
+                # "2026-06-05", so a list fetched today was cited as fetched in
+                # June — and, because `_list_signals` dates the *same* list from
+                # `as_source()`, one page could show one citation under two
+                # different retrieval dates.
+                retrieved_at=anchor.list_retrieved_at,
                 detail=anchor.list_name,
             )
         )

@@ -55,8 +55,15 @@ def test_list_to_record_roundtrips_via_records_from_lists() -> None:
 def test_save_then_load_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "lists.json"
     lists = (
-        CuratedList(name="A", citation="curated-list:a", book_ids=("ol:1",)),
-        CuratedList(name="B", citation="curated-list:b", book_ids=("ol:2", "ol:3")),
+        CuratedList(
+            name="A", citation="curated-list:a", book_ids=("ol:1",), retrieved_at="2026-07-02"
+        ),
+        CuratedList(
+            name="B",
+            citation="curated-list:b",
+            book_ids=("ol:2", "ol:3"),
+            retrieved_at="2026-07-02",
+        ),
     )
     save_lists(path, lists)
     loaded = load_stored_lists(path)
@@ -65,7 +72,9 @@ def test_save_then_load_round_trips(tmp_path: Path) -> None:
 
 def test_save_writes_sorted_keys_json_with_trailing_newline(tmp_path: Path) -> None:
     path = tmp_path / "lists.json"
-    save_lists(path, (CuratedList(name="A", citation="c", book_ids=("ol:1",)),))
+    save_lists(
+        path, (CuratedList(name="A", citation="c", book_ids=("ol:1",), retrieved_at="2026-07-02"),)
+    )
     body = path.read_text(encoding="utf-8")
     assert body.endswith("\n")
     # sort_keys means "book_ids" sorts before "citation" before "name" before "retrieved_at"
@@ -81,7 +90,7 @@ def test_load_stored_lists_missing_file_returns_empty(tmp_path: Path) -> None:
 
 def test_save_rejects_list_with_no_citation(tmp_path: Path) -> None:
     path = tmp_path / "lists.json"
-    bad = (CuratedList(name="X", citation="", book_ids=("ol:1",)),)
+    bad = (CuratedList(name="X", citation="", book_ids=("ol:1",), retrieved_at="2026-07-02"),)
     with pytest.raises(ListValidationError, match="citation"):
         save_lists(path, bad)
     assert not path.exists()  # invalid list is never persisted
@@ -89,7 +98,9 @@ def test_save_rejects_list_with_no_citation(tmp_path: Path) -> None:
 
 def test_save_rejects_list_with_no_books(tmp_path: Path) -> None:
     path = tmp_path / "lists.json"
-    bad = (CuratedList(name="X", citation="curated-list:x", book_ids=()),)
+    bad = (
+        CuratedList(name="X", citation="curated-list:x", book_ids=(), retrieved_at="2026-07-02"),
+    )
     with pytest.raises(ListValidationError, match="no books"):
         save_lists(path, bad)
     assert not path.exists()
@@ -97,7 +108,9 @@ def test_save_rejects_list_with_no_books(tmp_path: Path) -> None:
 
 def test_new_list_adds_and_is_immutable() -> None:
     lists: tuple[CuratedList, ...] = ()
-    updated = new_list(lists, "My Canon", "curated-list:my-canon", ("ol:nevada",))
+    updated = new_list(
+        lists, "My Canon", "curated-list:my-canon", ("ol:nevada",), retrieved_at="2026-08-15"
+    )
     assert lists == ()  # original untouched
     assert len(updated) == 1
     assert updated[0].name == "My Canon"
@@ -105,30 +118,51 @@ def test_new_list_adds_and_is_immutable() -> None:
 
 
 def test_new_list_rejects_duplicate_name() -> None:
-    lists = (CuratedList(name="My Canon", citation="curated-list:x", book_ids=("ol:1",)),)
+    lists = (
+        CuratedList(
+            name="My Canon",
+            citation="curated-list:x",
+            book_ids=("ol:1",),
+            retrieved_at="2026-07-02",
+        ),
+    )
     with pytest.raises(ListValidationError, match="already exists"):
-        new_list(lists, "My Canon", "curated-list:y", ("ol:2",))
+        new_list(lists, "My Canon", "curated-list:y", ("ol:2",), retrieved_at="2026-08-15")
 
 
 def test_new_list_rejects_blank_name() -> None:
     with pytest.raises(ListValidationError, match="must have a name"):
-        new_list((), "   ", "curated-list:x", ("ol:1",))
+        new_list((), "   ", "curated-list:x", ("ol:1",), retrieved_at="2026-08-15")
 
 
 def test_new_list_rejects_missing_citation() -> None:
     with pytest.raises(ListValidationError, match="citation"):
-        new_list((), "My Canon", "", ("ol:1",))
+        new_list((), "My Canon", "", ("ol:1",), retrieved_at="2026-08-15")
 
 
 def test_add_book_to_list_appends_and_is_immutable() -> None:
-    lists = (CuratedList(name="My Canon", citation="curated-list:my-canon", book_ids=("ol:1",)),)
+    lists = (
+        CuratedList(
+            name="My Canon",
+            citation="curated-list:my-canon",
+            book_ids=("ol:1",),
+            retrieved_at="2026-07-02",
+        ),
+    )
     updated = add_book_to_list(lists, "My Canon", "ol:2")
     assert lists[0].book_ids == ("ol:1",)  # original untouched
     assert updated[0].book_ids == ("ol:1", "ol:2")
 
 
 def test_add_book_to_list_is_idempotent_for_duplicate_book() -> None:
-    lists = (CuratedList(name="My Canon", citation="curated-list:my-canon", book_ids=("ol:1",)),)
+    lists = (
+        CuratedList(
+            name="My Canon",
+            citation="curated-list:my-canon",
+            book_ids=("ol:1",),
+            retrieved_at="2026-07-02",
+        ),
+    )
     updated = add_book_to_list(lists, "My Canon", "ol:1")
     assert updated[0].book_ids == ("ol:1",)
 
@@ -139,21 +173,27 @@ def test_add_book_to_list_missing_list_raises() -> None:
 
 
 def test_export_lists_returns_validated_json_string() -> None:
-    lists = (CuratedList(name="A", citation="curated-list:a", book_ids=("ol:1",)),)
+    lists = (
+        CuratedList(
+            name="A", citation="curated-list:a", book_ids=("ol:1",), retrieved_at="2026-07-02"
+        ),
+    )
     body = export_lists(lists)
     assert body.endswith("\n")
     assert '"name": "A"' in body
 
 
 def test_export_lists_rejects_invalid_list() -> None:
-    bad = (CuratedList(name="X", citation="", book_ids=("ol:1",)),)
+    bad = (CuratedList(name="X", citation="", book_ids=("ol:1",), retrieved_at="2026-07-02"),)
     with pytest.raises(ListValidationError):
         export_lists(bad)
 
 
 def test_author_export_reimport_on_clean_dir(tmp_path: Path) -> None:
     """The EXP-05 acceptance flow: author -> export -> re-import on a clean instance."""
-    lists = new_list((), "My Canon", "curated-list:my-canon", ("ol:nevada",))
+    lists = new_list(
+        (), "My Canon", "curated-list:my-canon", ("ol:nevada",), retrieved_at="2026-08-15"
+    )
     lists = add_book_to_list(lists, "My Canon", "ol:fifth-season")
     exported = export_lists(lists)
 

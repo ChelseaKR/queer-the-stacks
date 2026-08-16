@@ -19,11 +19,19 @@ from recommender.lists import CuratedList, lists_for
 
 @dataclass(frozen=True)
 class CoAnchor:
-    """A reason a candidate co-occurs with the reader's taste, with its source."""
+    """A reason a candidate co-occurs with the reader's taste, with its source.
+
+    Carries the anchoring list's own ``retrieved_at`` so the citation built from
+    it in :func:`recommender.explain._collab_signals` can be dated from the list
+    rather than from a constant. Without it that code path had nothing to date
+    the source with and substituted a literal, which meant the same BookWyrm
+    list could appear twice on one page under two different retrieval dates.
+    """
 
     author: str  # the finished author the candidate is shelved alongside
     list_name: str
     list_citation: str
+    list_retrieved_at: str
 
 
 def _finished_authors(states: list[ReadingState]) -> frozenset[str]:
@@ -55,6 +63,6 @@ def cooccurrence_anchors(
                     continue
                 for author in member.author_names:
                     if author in finished:
-                        anchors.add(CoAnchor(author, lst.name, lst.citation))
+                        anchors.add(CoAnchor(author, lst.name, lst.citation, lst.retrieved_at))
         out[cand.book_id] = tuple(sorted(anchors, key=lambda a: (a.author, a.list_name)))
     return out

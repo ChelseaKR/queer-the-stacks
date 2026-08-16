@@ -30,7 +30,15 @@ from ingest.models import (
 from ingest.unify import unify
 
 DEMO_USER = "demo"
-_FETCHED = "2026-06-05"
+
+#: The single day the whole demo world was compiled. Public, because the two
+#: other demo entry points (``app.view.demo_view`` and
+#: ``ingest.refresh._ingest_demo``) each used to repeat the literal, which is one
+#: rename away from a fixture claiming two different fetch dates on one page.
+#: This is a real fact about a fixture; the *reader's* provenance dates are never
+#: constants (see ``recommender.lists.CuratedList.retrieved_at``).
+DEMO_RETRIEVED_AT = "2026-06-05"
+_FETCHED = DEMO_RETRIEVED_AT
 
 
 @dataclass(frozen=True)

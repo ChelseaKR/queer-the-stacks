@@ -315,8 +315,19 @@ def _cmd_import_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _today_utc() -> str:
+    """Today's UTC date, ISO-8601. The one place the list CLI reads a clock."""
+    import datetime as _dt
+
+    return _dt.datetime.now(tz=_dt.UTC).strftime("%Y-%m-%d")
+
+
 def _cmd_lists_new(args: argparse.Namespace) -> int:
-    """Create a new authored curated list and persist it to ``data_dir/lists.json``."""
+    """Create a new authored curated list and persist it to ``data_dir/lists.json``.
+
+    The list is stamped with today's UTC date unless ``--retrieved-at`` names the
+    day it was actually fetched (transcribing an existing public list, say).
+    """
     from recommender.lists_store import list_store_path, load_stored_lists, new_list, save_lists
 
     from ingest.config import load_config
@@ -324,7 +335,13 @@ def _cmd_lists_new(args: argparse.Namespace) -> int:
     config = load_config()
     path = list_store_path(config)
     lists = load_stored_lists(path)
-    lists = new_list(lists, args.name, args.citation, tuple(args.book or ()))
+    lists = new_list(
+        lists,
+        args.name,
+        args.citation,
+        tuple(args.book or ()),
+        retrieved_at=args.retrieved_at or _today_utc(),
+    )
     save_lists(path, lists)
     added = next(lst for lst in lists if lst.name == args.name)
     print(f"created list {added.name!r} ({len(added.book_ids)} book(s)) — saved to {path}")
@@ -478,6 +495,11 @@ def main(argv: list[str] | None = None) -> int:
     p_lists_new.add_argument("--citation", required=True, help="where this list came from")
     p_lists_new.add_argument(
         "--book", action="append", default=[], help="a book id to seed the list with (repeatable)"
+    )
+    p_lists_new.add_argument(
+        "--retrieved-at",
+        default=None,
+        help="ISO date this list was fetched or authored (default: today, UTC)",
     )
     p_lists_new.set_defaults(func=_cmd_lists_new)
 
