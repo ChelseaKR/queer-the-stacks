@@ -24,10 +24,17 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
 
 ## Controls & commitments
 
-- **Auth required, no open path.** Every dashboard route depends on
-  `app.auth.check_credentials`; `/` returns 401 without a valid bearer token. The
-  app binds to localhost for `make dev` and sits behind the seedbox's auth in
-  deployment.
+- **Auth required, enumerated rather than asserted.** `tests/test_auth.py` walks
+  the app's whole route table and requires every registered route to answer 401
+  without credentials, or to be listed in an explicit `PUBLIC_PATHS` map with the
+  reason it is safe. The public set is the health/readiness probes, `/version`,
+  and `/login`/`/logout`; each is separately asserted to carry no reading content
+  and to name no private route. The three FastAPI documentation surfaces
+  (`/openapi.json`, `/docs`, `/redoc`) are not served at all — the schema is the
+  app's route inventory and was previously reachable by anyone. Auth is per route
+  rather than app-wide, so the enumeration is what makes a new ungated route a
+  failing build rather than a later discovery. The app binds to localhost for
+  `make dev` and sits behind the seedbox's auth in deployment.
 - **No egress of reading data.** Network access is confined to the KOReader sync
   client (the user's own data → the user's own server) and opt-in catalog
   clients. Catalog requests contain only broad subjects or explicit public-list
@@ -68,6 +75,10 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
 | Failed source refresh retains visible last-good state | `tests/test_catalog_pool_refresh.py::test_catalog_failure_keeps_last_good_pool_and_exposes_degraded_status` |
 | Core is log-free (no reading content can leak to logs) | `tests/test_log_safety.py::test_core_is_log_free` |
 | Dashboard returns 401 without a valid token | `tests/test_auth.py::test_server_rejects_unauthenticated_requests` |
+| **Every** registered route is gated or on an explicit public list (route table enumerated) | `tests/test_auth.py::test_every_registered_route_is_authed_or_explicitly_public` |
+| The route table is pinned, so adding any route is visible in review | `tests/test_auth.py::test_the_registered_route_table_is_exactly_what_is_declared` |
+| No API-documentation surface is served (`/openapi.json`, `/docs`, `/redoc`) | `tests/test_auth.py::test_no_api_documentation_surface_is_served` |
+| Public routes carry no reading content and name no private route | `tests/test_auth.py::test_public_routes_leak_no_reading_content_and_name_no_private_route` |
 | App fails closed if no token configured (non-demo) | `tests/test_auth.py::test_real_mode_requires_env_token` |
 
 ### What the enforcement does not cover
