@@ -15,6 +15,7 @@ from app.diversity import (
     compute_diversity,
     load_dimensions,
     load_lens_config,
+    resolve_sensitive_descriptors,
     validate_dimensions,
 )
 from ingest.models import (
@@ -365,3 +366,264 @@ def test_any_reading_history_keeps_the_reading_view() -> None:
 
 def test_empty_shelf_does_not_claim_a_fallback() -> None:
     assert compute_diversity([]).shelf_fallback is False
+
+
+# --- The privacy toggle against a reader's OWN lenses ------------------------
+#
+# The toggle exists for one situation, named in app/diversity.py: screen-sharing
+# a queer or trans reading history. It used to redact a frozen list of twelve
+# built-in strings while honouring the reader's configured lenses everywhere
+# else, so on a personalized lens file it redacted less than it said, and on a
+# fully personalized one it redacted nothing while the page still said it had.
+#
+# Every test below asserts the absence of the unsafe outcome — no
+# reader-configured sensitive descriptor surviving anywhere in the report — not
+# the presence of a flag.
+
+
+def _assert_nowhere_in_report(report: object, labels: set[str]) -> None:
+    """No label in ``labels`` appears in any granular part of ``report``."""
+    breakdown = {lbl for lbl, _ in report.theme_breakdown}  # type: ignore[attr-defined]
+    assert not (breakdown & labels), f"theme_breakdown leaked {sorted(breakdown & labels)}"
+
+    provenance = {d.label for d in report.descriptor_provenance}  # type: ignore[attr-defined]
+    assert not (provenance & labels), f"descriptor_provenance leaked {sorted(provenance & labels)}"
+
+    for dim in report.dimensions:  # type: ignore[attr-defined]
+        matched = set(dim.matched_labels)
+        assert not (matched & labels), (
+            f"{dim.name} matched_labels leaked {sorted(matched & labels)}"
+        )
+
+
+CUSTOM_VOCABULARY = {"transmasc", "two-spirit", "asexual", "intersex", "dyke", "genderfluid"}
+
+
+def test_hide_sensitive_redacts_a_readers_own_vocabulary_under_a_shipped_lens_name() -> None:
+    """Issue case 1: shipped lens names, the reader's own descriptors inside them.
+
+    This was the worst version: the coarse lens masking *did* fire, so the
+    reader saw "(hidden for privacy)" beside both identity lenses and had every
+    reason to believe the toggle had worked — with the granular labels sitting in
+    the table underneath.
+    """
+    dimensions = (
+        ("Trans & nonbinary", frozenset({"trans", "transmasc", "two-spirit"})),
+        ("Queer / LGBTQ+", frozenset({"queer", "asexual", "intersex"})),
+        ("Literary", frozenset({"literary"})),
+    )
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("transmasc"), _tag("literary"))),
+        _state("B", ReadingStatus.FINISHED, (_tag("two-spirit"),)),
+        _state("C", ReadingStatus.FINISHED, (_tag("asexual"),)),
+        _state("D", ReadingStatus.FINISHED, (_tag("intersex"), _tag("trans"))),
+    ]
+    report = compute_diversity(
+        states,
+        dimensions,
+        hide_sensitive=True,
+        sensitive_lens_names=frozenset({"Trans & nonbinary", "Queer / LGBTQ+"}),
+    )
+
+    _assert_nowhere_in_report(report, CUSTOM_VOCABULARY)
+    # The non-sensitive lens keeps its detail: this is redaction, not a blank page.
+    assert "literary" in {lbl for lbl, _ in report.theme_breakdown}
+    # And the aggregate still says how many books are behind the curtain.
+    agg = [d for d in report.descriptor_provenance if d.aggregated]
+    assert len(agg) == 1 and agg[0].books == 4
+
+
+def test_hide_sensitive_fails_closed_on_renamed_lenses() -> None:
+    """Issue case 2: renamed lenses, wholly the reader's own vocabulary.
+
+    ``SENSITIVE_DIMENSIONS`` matches lens *names*, so a renamed lens fell outside
+    it and nothing was redacted at all. An unmarked custom grouping now fails
+    closed — over-redacting is the right direction for what this toggle is for.
+    """
+    dimensions = (
+        ("Gender", frozenset({"genderfluid", "transmasc"})),
+        ("Sexuality", frozenset({"dyke"})),
+    )
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("genderfluid"),)),
+        _state("B", ReadingStatus.FINISHED, (_tag("transmasc"),)),
+        _state("C", ReadingStatus.FINISHED, (_tag("dyke"),)),
+    ]
+    report = compute_diversity(states, dimensions, hide_sensitive=True)
+
+    _assert_nowhere_in_report(report, CUSTOM_VOCABULARY)
+    assert report.redacted_descriptor_count == 3
+    # The coarse picture survives: lens names and their counts are still there.
+    assert {d.name for d in report.dimensions} == {"Gender", "Sexuality"}
+
+
+def test_a_custom_lens_file_cannot_unredact_a_builtin_sensitive_descriptor() -> None:
+    """Dropping ``queer`` from your own lists must not make ``queer`` visible."""
+    dimensions = (("Shelf", frozenset({"literary"})),)
+    states = [_state("A", ReadingStatus.FINISHED, (_tag("queer"), _tag("literary")))]
+
+    report = compute_diversity(
+        states,
+        dimensions,
+        hide_sensitive=True,
+        sensitive_lens_names=frozenset(),  # the reader marked every lens safe
+    )
+    _assert_nowhere_in_report(report, {"queer"})
+    assert "literary" in {lbl for lbl, _ in report.theme_breakdown}
+
+
+def test_default_lenses_redact_exactly_what_they_always_did() -> None:
+    """The built-in path is unchanged: same twelve descriptors, same behaviour."""
+    assert resolve_sensitive_descriptors(DEFAULT_DIMENSIONS) == SENSITIVE_DESCRIPTORS
+
+
+def test_redacted_count_records_what_was_removed_not_what_was_asked_for() -> None:
+    """``hide_sensitive`` is a request; the count is the outcome.
+
+    The rendered assurance keys off the count, so a report that redacted nothing
+    must not be able to claim it did.
+    """
+    nothing_sensitive = [_state("A", ReadingStatus.FINISHED, (_tag("literary"),))]
+    report = compute_diversity(nothing_sensitive, hide_sensitive=True)
+    assert report.hide_sensitive is True
+    assert report.redacted_descriptor_count == 0
+
+    two_sensitive = [_state("A", ReadingStatus.FINISHED, (_tag("trans"), _tag("queer")))]
+    report = compute_diversity(two_sensitive, hide_sensitive=True)
+    assert report.redacted_descriptor_count == 2
+
+    # Not requested -> nothing removed, whatever is on the shelf.
+    assert compute_diversity(two_sensitive).redacted_descriptor_count == 0
+
+
+def test_unmarked_lenses_in_a_config_file_default_to_sensitive(tmp_path: Path) -> None:
+    """A lens you added without saying is treated as sensitive, not as safe."""
+    toml = tmp_path / "lenses.toml"
+    toml.write_text(
+        """
+        [[lenses]]
+        name = "Gender"
+        descriptors = ["genderfluid", "transmasc"]
+
+        [[lenses]]
+        name = "Sea stories"
+        descriptors = ["nautical"]
+        """
+    )
+    cfg = load_lens_config(toml)
+    assert cfg.warning is None
+    assert cfg.sensitive_lens_names == frozenset({"Gender", "Sea stories"})
+
+
+def test_a_lens_marked_not_sensitive_is_shown_in_full(tmp_path: Path) -> None:
+    """The escape hatch works: ``sensitive = false`` is the reader's own call."""
+    toml = tmp_path / "lenses.toml"
+    toml.write_text(
+        """
+        [[lenses]]
+        name = "Gender"
+        descriptors = ["genderfluid"]
+
+        [[lenses]]
+        name = "Sea stories"
+        sensitive = false
+        descriptors = ["nautical"]
+        """
+    )
+    cfg = load_lens_config(toml)
+    assert cfg.sensitive_lens_names == frozenset({"Gender"})
+
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("genderfluid"),)),
+        _state("B", ReadingStatus.FINISHED, (_tag("nautical"),)),
+    ]
+    report = compute_diversity(
+        states,
+        cfg.dimensions,
+        hide_sensitive=True,
+        sensitive_lens_names=cfg.sensitive_lens_names,
+    )
+    labels = {lbl for lbl, _ in report.theme_breakdown}
+    assert "genderfluid" not in labels
+    assert "nautical" in labels
+
+
+def test_a_non_boolean_sensitive_flag_degrades_visibly(tmp_path: Path) -> None:
+    """A typo must not silently resolve to "not sensitive"."""
+    toml = tmp_path / "lenses.toml"
+    toml.write_text(
+        """
+        [[lenses]]
+        name = "Gender"
+        sensitive = "yes"
+        descriptors = ["genderfluid"]
+        """
+    )
+    cfg = load_lens_config(toml)
+    assert cfg.dimensions == DEFAULT_DIMENSIONS
+    assert cfg.warning is not None and "sensitive" in cfg.warning
+    assert cfg.sensitive_lens_names == SENSITIVE_DIMENSIONS
+
+
+def test_the_committed_template_reproduces_the_builtin_redaction() -> None:
+    """Copying the shipped template must not change what the toggle hides.
+
+    Unmarked lenses fail closed, so the template marks its four non-identity
+    lenses ``sensitive = false`` on purpose — otherwise a reader who copied it
+    unchanged would get a duller chart than the defaults for no reason.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    cfg = load_lens_config(repo_root / "examples" / "lenses.example.toml")
+    assert cfg.warning is None
+    assert cfg.dimensions == DEFAULT_DIMENSIONS
+    assert cfg.sensitive_lens_names == SENSITIVE_DIMENSIONS
+    assert (
+        resolve_sensitive_descriptors(cfg.dimensions, cfg.sensitive_lens_names)
+        == SENSITIVE_DESCRIPTORS
+    )
+
+
+def test_no_configured_sensitive_descriptor_survives_into_the_rendered_page(
+    tmp_path: Path,
+) -> None:
+    """End to end, at the surface that matters: the HTML on the shared screen.
+
+    The same report feeds the exported static dashboard, so an export made with
+    the toggle on is covered by this too — both go through ``build_view``.
+    """
+    from app.view import build_view, render_view
+
+    toml = tmp_path / "lenses.toml"
+    toml.write_text(
+        """
+        [[lenses]]
+        name = "Gender"
+        descriptors = ["genderfluid", "transmasc", "two-spirit"]
+
+        [[lenses]]
+        name = "Sea stories"
+        sensitive = false
+        descriptors = ["nautical"]
+        """
+    )
+    cfg = load_lens_config(toml)
+    states = [
+        _state("A", ReadingStatus.FINISHED, (_tag("transmasc"),)),
+        _state("B", ReadingStatus.FINISHED, (_tag("two-spirit"), _tag("nautical"))),
+        _state("C", ReadingStatus.FINISHED, (_tag("genderfluid"),)),
+    ]
+    view = build_view(
+        states,
+        [],
+        (),
+        lens_dimensions=cfg.dimensions,
+        lens_source=cfg.source,
+        lens_warning=cfg.warning,
+        lens_sensitive_names=cfg.sensitive_lens_names,
+        hide_sensitive_descriptors=True,
+    )
+    html = render_view(view).lower()
+
+    for label in ("genderfluid", "transmasc", "two-spirit"):
+        assert label not in html, f"the rendered page still shows {label!r}"
+    assert "nautical" in html  # the lens the reader marked safe is unaffected

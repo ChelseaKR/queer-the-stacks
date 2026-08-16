@@ -80,13 +80,20 @@ class LensValidationError(Exception):
     """Raised when a diversity-lens config is malformed or ambiguous."""
 
 
-#: The lenses whose descriptors are identity-adjacent — the ones a reading
-#: history could be used to *out* someone by (EV-PRIVACY). When the privacy toggle
-#: is on, the granular descriptors behind these lenses are aggregated/hidden in the
-#: diverse-shelf view; the coarse lens *counts* stay, so the picture isn't lost.
+#: The *built-in* lenses whose descriptors are identity-adjacent — the ones a
+#: reading history could be used to *out* someone by (EV-PRIVACY). When the
+#: privacy toggle is on, the granular descriptors behind these lenses are
+#: aggregated/hidden in the diverse-shelf view; the coarse lens *counts* stay, so
+#: the picture isn't lost. A configured lens file marks its own sensitivity (see
+#: :func:`resolve_sensitive_descriptors`); these names remain the default for a
+#: configured lens that reuses one of them.
 SENSITIVE_DIMENSIONS: frozenset[str] = frozenset({"Trans & nonbinary", "Queer / LGBTQ+"})
 
-#: The concrete sourced descriptors that fall under a sensitive lens.
+#: The concrete sourced descriptors that fall under a *built-in* sensitive lens.
+#: This is the floor, never the whole set: redaction always unions this with the
+#: descriptors of whatever sensitive lenses are actually in use, so a custom lens
+#: file that drops ``queer`` from its lists cannot un-redact ``queer`` for a book
+#: that carries it.
 SENSITIVE_DESCRIPTORS: frozenset[str] = frozenset(
     label for name, labels in DIMENSIONS if name in SENSITIVE_DIMENSIONS for label in labels
 )
@@ -94,6 +101,46 @@ SENSITIVE_DESCRIPTORS: frozenset[str] = frozenset(
 #: Stand-in labels used when the privacy toggle redacts granular sensitive tags.
 REDACTED_LABEL = "(hidden for privacy)"
 AGGREGATED_LABEL = "(sensitive descriptors — aggregated for privacy)"
+
+
+def resolve_sensitive_descriptors(
+    dimensions: tuple[tuple[str, frozenset[str]], ...],
+    sensitive_lens_names: Optional[frozenset[str]] = None,
+) -> frozenset[str]:
+    """The descriptors the privacy toggle must hide, for *these* lenses.
+
+    The toggle exists for one situation: screen-sharing a queer or trans reading
+    history. A reader personalizes ``data/lenses.toml`` precisely because the
+    built-in vocabulary does not describe their shelf — so the readers most
+    likely to have a custom lens file are the ones whose descriptors are furthest
+    from the shipped defaults, and often the ones with the most to lose from a
+    disclosure. Redacting only the twelve built-in strings protects the wrong
+    person.
+
+    Resolution:
+
+    * ``sensitive_lens_names`` given (the configured-file path, where each
+      ``[[lenses]]`` entry carries an explicit or defaulted ``sensitive`` flag) —
+      honour it.
+    * Not given, and the grouping *is* the built-in default — use
+      :data:`SENSITIVE_DIMENSIONS`, so default behaviour is unchanged.
+    * Not given, and the grouping is something else — **fail closed**: treat
+      every lens as sensitive. An unmarked custom grouping carries no sensitivity
+      information, and over-redacting errs the right way for what this toggle is
+      for.
+
+    The result is always unioned with :data:`SENSITIVE_DESCRIPTORS`.
+    """
+    if sensitive_lens_names is None:
+        names = (
+            SENSITIVE_DIMENSIONS
+            if dimensions == DEFAULT_DIMENSIONS
+            else frozenset(name for name, _ in dimensions)
+        )
+    else:
+        names = sensitive_lens_names
+    configured = {label for name, labels in dimensions if name in names for label in labels}
+    return frozenset(configured | SENSITIVE_DESCRIPTORS)
 
 
 @dataclass(frozen=True)
@@ -158,10 +205,18 @@ class DiversityReport:
     dimensions: tuple[DimensionStat, ...]
     source_provenance: tuple[tuple[str, int], ...]  # (source-kind, descriptor count), desc
     descriptor_provenance: tuple[DescriptorProvenance, ...] = ()  # per-tag Source + retrieved_at
-    hide_sensitive: bool = False  # privacy toggle: sensitive descriptors aggregated/hidden
+    hide_sensitive: bool = False  # privacy toggle: *requested*, not necessarily effective
     lens_source: str = BUILTIN_LENS_SOURCE
     lens_warning: Optional[str] = None
     shelf_fallback: bool = False  # counts describe the whole shelf, not reading history
+    #: How many distinct descriptors were actually removed from this report.
+    #: ``hide_sensitive`` records only that the toggle was *asked for*; a view
+    #: that claims descriptors are hidden while listing all of them is worse than
+    #: no claim, so the renderer keys its assurance off this instead.
+    redacted_descriptor_count: int = 0
+    #: The sensitive vocabulary in effect, so a caller can see what "sensitive"
+    #: resolved to for this reader's lenses rather than assuming the built-ins.
+    sensitive_descriptors: frozenset[str] = frozenset()
 
     @property
     def undescribed_books(self) -> int:
@@ -181,6 +236,7 @@ def compute_diversity(
     lens_source: str = BUILTIN_LENS_SOURCE,
     lens_warning: Optional[str] = None,
     hide_sensitive: bool = False,
+    sensitive_lens_names: Optional[frozenset[str]] = None,
 ) -> DiversityReport:
     """Compute the diverse-shelf report from sourced book descriptors only.
 
@@ -190,10 +246,16 @@ def compute_diversity(
 
     Every descriptor carries its full provenance — the :class:`SourceRef`\\ s that
     assert it, each with a citation and ``retrieved_at`` (R4). With
-    ``hide_sensitive=True`` the *granular* identity-adjacent descriptors
-    (:data:`SENSITIVE_DESCRIPTORS`) are aggregated into a single redacted row and
-    the matching lens labels are masked — a privacy posture for screen-sharing a
-    queer/trans reading history (EV-PRIVACY) — while the coarse lens counts stay.
+    ``hide_sensitive=True`` the *granular* sensitive descriptors are aggregated
+    into a single redacted row and the matching lens labels are masked — a
+    privacy posture for screen-sharing a queer/trans reading history
+    (EV-PRIVACY) — while the coarse lens names and counts stay.
+
+    What counts as sensitive is resolved from the lens grouping actually in use,
+    not from the module constant: see :func:`resolve_sensitive_descriptors`. Pass
+    ``sensitive_lens_names`` to say which of ``dimensions`` are identity-adjacent
+    (:func:`load_lens_config` does this from the reader's own file); omit it and
+    a non-default grouping is treated as sensitive throughout, fail-closed.
     """
     considered = [s for s in states if s.status is not ReadingStatus.UNREAD]
     # A Calibre-only install has no reading status at all, so the reading filter
@@ -205,6 +267,8 @@ def compute_diversity(
     if shelf_fallback:
         considered = list(states)
     total = len(considered)
+
+    sensitive = resolve_sensitive_descriptors(dimensions, sensitive_lens_names)
 
     theme_counter: Counter[str] = Counter()
     provenance: Counter[str] = Counter()
@@ -219,7 +283,7 @@ def compute_diversity(
         labels = {t.normalized for t in state.theme_tags}
         if labels:
             described += 1
-        if labels & SENSITIVE_DESCRIPTORS:
+        if labels & sensitive:
             sensitive_books += 1
         for label in labels:
             theme_counter[label] += 1
@@ -239,9 +303,12 @@ def compute_diversity(
             name=name,
             books=dim_books[name],
             described_total=described,
+            # Mask the whole matched set for a lens whose vocabulary is
+            # sensitive, not just its sensitive members: leaving the rest
+            # in place narrows the hidden ones by elimination.
             matched_labels=(
                 (REDACTED_LABEL,)
-                if hide_sensitive and descriptors & SENSITIVE_DESCRIPTORS
+                if hide_sensitive and descriptors & sensitive
                 else tuple(sorted(dim_labels[name]))
             ),
         )
@@ -249,19 +316,24 @@ def compute_diversity(
         if dim_books[name] > 0  # only surface lenses your shelf actually populates
     )
 
+    # Count what was *actually* removed, not what was asked for.
+    redacted = sum(1 for label in theme_counter if label in sensitive) if hide_sensitive else 0
+
     return DiversityReport(
         total_books=total,
         described_books=described,
-        theme_breakdown=_theme_breakdown(theme_counter, hide_sensitive, sensitive_books),
+        theme_breakdown=_theme_breakdown(theme_counter, hide_sensitive, sensitive_books, sensitive),
         dimensions=dimension_stats,
         source_provenance=tuple(provenance.most_common()),
         descriptor_provenance=_descriptor_provenance(
-            theme_counter, desc_sources, hide_sensitive, sensitive_books
+            theme_counter, desc_sources, hide_sensitive, sensitive_books, sensitive
         ),
         hide_sensitive=hide_sensitive,
         lens_source=lens_source,
         lens_warning=lens_warning,
         shelf_fallback=shelf_fallback,
+        redacted_descriptor_count=redacted,
+        sensitive_descriptors=sensitive,
     )
 
 
@@ -270,12 +342,15 @@ def _sort_ref(ref: SourceRef) -> tuple[str, str, str]:
 
 
 def _theme_breakdown(
-    theme_counter: Counter[str], hide_sensitive: bool, sensitive_books: int
+    theme_counter: Counter[str],
+    hide_sensitive: bool,
+    sensitive_books: int,
+    sensitive_descriptors: frozenset[str],
 ) -> tuple[tuple[str, int], ...]:
     """The (label, books) breakdown, redacting sensitive labels when asked."""
     if not hide_sensitive:
         return tuple(theme_counter.most_common())
-    visible = [(lbl, n) for lbl, n in theme_counter.items() if lbl not in SENSITIVE_DESCRIPTORS]
+    visible = [(lbl, n) for lbl, n in theme_counter.items() if lbl not in sensitive_descriptors]
     if sensitive_books:
         visible.append((AGGREGATED_LABEL, sensitive_books))
     return tuple(sorted(visible, key=lambda item: (-item[1], item[0])))
@@ -286,13 +361,14 @@ def _descriptor_provenance(
     desc_sources: dict[str, set[SourceRef]],
     hide_sensitive: bool,
     sensitive_books: int,
+    sensitive_descriptors: frozenset[str],
 ) -> tuple[DescriptorProvenance, ...]:
     """Build per-descriptor provenance (R4), aggregating sensitive tags if hidden."""
     rows: list[DescriptorProvenance] = []
     aggregated_refs: set[SourceRef] = set()
     for label, books in theme_counter.items():
         refs = tuple(sorted(desc_sources.get(label, set()), key=_sort_ref))
-        sensitive = label in SENSITIVE_DESCRIPTORS
+        sensitive = label in sensitive_descriptors
         if hide_sensitive and sensitive:
             aggregated_refs |= set(refs)
             continue
@@ -338,7 +414,34 @@ def load_dimensions(
     :attr:`~ingest.models.ThemeTag.normalized`. The result is validated before
     being returned — raises :class:`LensValidationError` on any problem.
     """
+    return load_lens_records(records)[0]
+
+
+def load_lens_records(
+    records: list[dict[str, object]],
+) -> tuple[tuple[tuple[str, frozenset[str]], ...], frozenset[str]]:
+    """Parse ``[[lenses]]`` records into a grouping plus its sensitive lens names.
+
+    Each record needs ``name`` and ``descriptors`` (a list of strings);
+    descriptors are normalized to lowercase to match
+    :attr:`~ingest.models.ThemeTag.normalized`. The optional ``sensitive``
+    boolean says whether the privacy toggle should hide that lens's granular
+    descriptors.
+
+    **Unmarked lenses default to sensitive.** A configured file exists because
+    the built-in vocabulary did not fit this reader's shelf, and the toggle
+    exists for the moment a queer or trans reading history is on a shared
+    screen; the cost of over-redacting a lens is a duller chart, and the cost of
+    under-redacting one is the thing the toggle is for. A reader who wants a
+    lens shown in full writes ``sensitive = false`` on it — which is a decision
+    they have made, rather than one the defaults made for them. (The shipped
+    template marks its non-identity lenses that way, so copying it reproduces
+    the built-in behaviour exactly.)
+
+    Raises :class:`LensValidationError` on any shape problem.
+    """
     out: list[tuple[str, frozenset[str]]] = []
+    sensitive_names: set[str] = set()
     for r in records:
         name = str(r.get("name", ""))
         raw = r.get("descriptors", [])
@@ -347,10 +450,19 @@ def load_dimensions(
             if isinstance(raw, list)
             else frozenset()
         )
+        marked = r.get("sensitive")
+        if marked is None:
+            is_sensitive = True  # fail closed: unmarked means we do not know
+        elif isinstance(marked, bool):
+            is_sensitive = marked
+        else:
+            raise LensValidationError(f"lens {name!r}: 'sensitive' must be true or false")
+        if is_sensitive:
+            sensitive_names.add(name)
         out.append((name, descriptors))
     result = tuple(out)
     validate_dimensions(result)
-    return result
+    return result, frozenset(sensitive_names)
 
 
 @dataclass(frozen=True)
@@ -360,6 +472,10 @@ class LensConfig:
     dimensions: tuple[tuple[str, frozenset[str]], ...]
     source: str  # BUILTIN_LENS_SOURCE, or the config file path as a string
     warning: Optional[str] = None  # set only when a configured file degraded
+    #: Which of ``dimensions`` the privacy toggle must hide. ``None`` means "not
+    #: stated" and leaves the decision to :func:`resolve_sensitive_descriptors`,
+    #: which is fail-closed for anything but the built-in grouping.
+    sensitive_lens_names: Optional[frozenset[str]] = None
 
 
 def load_lens_config(path: Optional[Path]) -> LensConfig:
@@ -372,11 +488,18 @@ def load_lens_config(path: Optional[Path]) -> LensConfig:
     the ordinary "no override configured" case and carries no warning.
     """
     if path is None:
-        return LensConfig(dimensions=DEFAULT_DIMENSIONS, source=BUILTIN_LENS_SOURCE)
+        return LensConfig(
+            dimensions=DEFAULT_DIMENSIONS,
+            source=BUILTIN_LENS_SOURCE,
+            sensitive_lens_names=SENSITIVE_DIMENSIONS,
+        )
 
     def _degraded(warning: str) -> LensConfig:
         return LensConfig(
-            dimensions=DEFAULT_DIMENSIONS, source=BUILTIN_LENS_SOURCE, warning=warning
+            dimensions=DEFAULT_DIMENSIONS,
+            source=BUILTIN_LENS_SOURCE,
+            warning=warning,
+            sensitive_lens_names=SENSITIVE_DIMENSIONS,
         )
 
     try:
@@ -394,8 +517,12 @@ def load_lens_config(path: Optional[Path]) -> LensConfig:
         )
 
     try:
-        dims = load_dimensions([r for r in records if isinstance(r, dict)])
+        dims, sensitive_names = load_lens_records([r for r in records if isinstance(r, dict)])
     except LensValidationError as exc:
         return _degraded(f"lens config {path} is invalid: {exc} — using {BUILTIN_LENS_SOURCE}")
 
-    return LensConfig(dimensions=dims, source=str(path))
+    return LensConfig(
+        dimensions=dims,
+        source=str(path),
+        sensitive_lens_names=sensitive_names,
+    )

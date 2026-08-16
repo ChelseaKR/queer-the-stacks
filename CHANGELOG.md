@@ -135,6 +135,30 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   divided by an unstated 24-hours-a-day assumption while its own docstring said
   ~2 hours/day, a 12x discrepancy that sat under a green suite because the test
   covering the line asserted only that the word "weeks" appeared.
+- The privacy toggle now redacts the lenses a reader configured, not only the
+  twelve built-in descriptor strings (#59). `SENSITIVE_DESCRIPTORS` was computed
+  once at import from the module defaults, so on a personalized
+  `data/lenses.toml` the toggle redacted less than it said, and on a fully
+  personalized one it redacted nothing while the page still said it had. What
+  counts as sensitive is now resolved from the grouping actually in use: each
+  `[[lenses]]` entry takes an optional `sensitive` flag that **defaults to
+  true**, an unmarked or renamed custom lens fails closed, and the built-in
+  identity descriptors are always unioned in so a custom file cannot un-redact
+  them. The shipped template marks its four non-identity lenses `sensitive =
+  false`, so copying it reproduces the built-in behaviour exactly.
+- The privacy toggle now covers the whole page rather than one panel. It only
+  ever reached the diverse-shelf section; the per-book theme chips, the library
+  table's "Themes (sourced)" column, the stats theme mix, and the `/share` card
+  all continued to publish the same descriptors. The first two are *more*
+  revealing than the aggregated breakdown, not less, because they name the
+  descriptor beside a specific title.
+- The page no longer claims a redaction that did not happen.
+  `DiversityReport.hide_sensitive` records only that the toggle was requested, so
+  a new `redacted_descriptor_count` records what was actually removed and the
+  rendered assurance keys off that. The copy now describes the mechanism
+  ("descriptors on your sensitive list") rather than the outcome
+  ("identity-adjacent"), since the code cannot know a label is identity-adjacent
+  — only that it is on a list.
 - Diverse-shelf analytics no longer render blank on a Calibre-only shelf. The
   reading filter excludes unread books by design, but without KOReader every
   book is unread, so a real 1,907-book library reported 0% coverage and no

@@ -14,17 +14,43 @@
 # share a name (case-insensitive). If this file is missing, unreadable,
 # malformed, or fails validation, the dashboard falls back to the built-in
 # defaults with a visible warning — never a blank section.
+#
+# ``sensitive`` (optional, defaults to TRUE) controls the privacy toggle
+# (STACKS_HIDE_SENSITIVE=1 or ?hide_sensitive=1), which exists for one
+# situation: a queer or trans reading history on a shared screen. With the
+# toggle on, a sensitive lens has its granular descriptors aggregated into a
+# single row and its matched labels replaced by a placeholder; the lens name and
+# its book count stay visible, so the picture is not lost.
+#
+# It defaults to TRUE on purpose. A lens you add is a category *you* decided
+# mattered enough to name, and this file exists because the shipped vocabulary
+# did not describe your shelf — which is exactly the case the toggle is for. Set
+# ``sensitive = false`` on a lens you are happy to show in full. The four
+# non-identity lenses below are marked that way, so copying this template
+# unchanged reproduces the built-in behaviour exactly.
+#
+# Descriptors on the built-in identity list (trans, transgender, nonbinary,
+# non-binary, genderqueer, queer, lgbtq, lgbtq+, lesbian, gay, bisexual,
+# sapphic) are always redacted when the toggle is on, whether or not any lens
+# here lists them — removing one from this file cannot un-redact it.
+#
+# Known limit: redaction works on lens vocabulary. A sourced descriptor that
+# belongs to no lens here and is not on the built-in list is shown as-is. If a
+# tag on your shelf matters, put it in a lens.
 
 [[lenses]]
 name = "Trans & nonbinary"
+sensitive = true
 descriptors = ["trans", "transgender", "nonbinary", "non-binary", "genderqueer"]
 
 [[lenses]]
 name = "Queer / LGBTQ+"
+sensitive = true
 descriptors = ["queer", "lgbtq", "lgbtq+", "lesbian", "gay", "bisexual", "sapphic"]
 
 [[lenses]]
 name = "Speculative / SFF"
+sensitive = false
 descriptors = [
     "speculative",
     "science fiction",
@@ -39,12 +65,15 @@ descriptors = [
 
 [[lenses]]
 name = "Feminist"
+sensitive = false
 descriptors = ["feminist", "feminism", "womanist"]
 
 [[lenses]]
 name = "Literary"
+sensitive = false
 descriptors = ["literary", "short stories", "essays"]
 
 [[lenses]]
 name = "Historical"
+sensitive = false
 descriptors = ["historical", "history"]

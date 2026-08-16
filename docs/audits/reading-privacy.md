@@ -46,6 +46,20 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
   enabling value is `public-metadata`. Invalid modes fall back to off. Source
   state, last-success time, candidate count, and last-good fallback are visible
   in `stacks doctor` and the dashboard.
+- **The privacy toggle covers the whole view, and the reader's own lenses.**
+  `STACKS_HIDE_SENSITIVE=1` / `?hide_sensitive=1` exists for one situation: a
+  queer or trans reading history on a shared screen. What counts as sensitive is
+  resolved from the lens grouping actually in use — each `[[lenses]]` entry in
+  `data/lenses.toml` carries a `sensitive` flag that **defaults to true**, so a
+  lens the reader added without saying is held back rather than published, and
+  the built-in identity descriptors are always unioned in so a custom file
+  cannot un-redact them. When on, the descriptors are withheld from the
+  per-book theme chips, the library table, the theme mix, the diverse-shelf
+  breakdown and provenance, and any share card composed while it is on. Lens
+  names and their book counts stay visible by design, and the page states how
+  many descriptors were actually withheld rather than asserting that the toggle
+  worked. Limit: redaction operates on lens vocabulary, so a sourced descriptor
+  that belongs to no lens and is not on the built-in list is shown as-is.
 - **No telemetry.** No analytics SDK is imported anywhere in the core.
 - **Minimal retention.** Snapshots and derived data stay in ignored `data/`.
   SQLite sidecars, the candidate pool, backups, authored lists, active lens
@@ -74,6 +88,12 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
 | Obsolete raw-response cache is removed in every outbound mode | `tests/test_catalog_pool_refresh.py::test_refresh_removes_legacy_raw_response_cache` |
 | Failed source refresh retains visible last-good state | `tests/test_catalog_pool_refresh.py::test_catalog_failure_keeps_last_good_pool_and_exposes_degraded_status` |
 | Core is log-free (no reading content can leak to logs) | `tests/test_log_safety.py::test_core_is_log_free` |
+| The privacy toggle redacts the reader's *configured* lenses, not just the built-ins | `tests/test_diversity.py::test_hide_sensitive_redacts_a_readers_own_vocabulary_under_a_shipped_lens_name` |
+| An unmarked or renamed custom lens fails closed | `tests/test_diversity.py::test_hide_sensitive_fails_closed_on_renamed_lenses`, `tests/test_diversity.py::test_unmarked_lenses_in_a_config_file_default_to_sensitive` |
+| A custom lens file cannot un-redact a built-in sensitive descriptor | `tests/test_diversity.py::test_a_custom_lens_file_cannot_unredact_a_builtin_sensitive_descriptor` |
+| No sensitive descriptor survives into any section of the rendered page | `tests/test_render_view.py::test_hide_sensitive_removes_the_descriptor_from_every_section`, `tests/test_render_view.py::test_hide_sensitive_leaves_the_per_book_chips_and_library_table_clean` |
+| A share card composed with the toggle on omits the withheld descriptors | `tests/test_share.py::test_a_card_composed_with_the_privacy_toggle_on_omits_hidden_descriptors` |
+| The page never claims a redaction that did not happen | `tests/test_render_view.py::test_the_privacy_note_does_not_claim_a_redaction_that_did_not_happen` |
 | Dashboard returns 401 without a valid token | `tests/test_auth.py::test_server_rejects_unauthenticated_requests` |
 | **Every** registered route is gated or on an explicit public list (route table enumerated) | `tests/test_auth.py::test_every_registered_route_is_authed_or_explicitly_public` |
 | The route table is pinned, so adding any route is visible in review | `tests/test_auth.py::test_the_registered_route_table_is_exactly_what_is_declared` |

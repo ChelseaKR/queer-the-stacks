@@ -111,6 +111,7 @@ def build_view(
     lens_dimensions: tuple[tuple[str, frozenset[str]], ...] = DEFAULT_DIMENSIONS,
     lens_source: str = "built-in defaults",
     lens_warning: Optional[str] = None,
+    lens_sensitive_names: Optional[frozenset[str]] = None,
     hide_sensitive_descriptors: bool = False,
     refreshed_at: Optional[int] = None,
     now: Optional[int] = None,
@@ -141,6 +142,7 @@ def build_view(
         lens_source=lens_source,
         lens_warning=lens_warning,
         hide_sensitive=hide_sensitive_descriptors,
+        sensitive_lens_names=lens_sensitive_names,
     )
     candidate_books = tuple(
         candidate if isinstance(candidate, Book) else candidate.book  # type: ignore[attr-defined]
@@ -274,6 +276,7 @@ def view_from_store(
         lens_dimensions=lenses.dimensions,
         lens_source=lenses.source,
         lens_warning=lenses.warning,
+        lens_sensitive_names=lenses.sensitive_lens_names,
         hide_sensitive_descriptors=hide_sensitive_descriptors,
         refreshed_at=refreshed_at,
         catalog_status=store.catalog_pool_status(),  # type: ignore[attr-defined]

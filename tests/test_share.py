@@ -194,3 +194,73 @@ def test_svg_truncates_a_very_long_title() -> None:
     after_title = svg.split("</title>", 1)[1]
     assert "…" in after_title
     assert ("A" * 200) not in after_title
+
+
+# --- The privacy toggle reaches the card a reader is about to post ----------
+
+
+def _card_shelf() -> list[ReadingState]:
+    def tag(label: str) -> ThemeTag:
+        return ThemeTag(label, Source(SourceKind.CALIBRE_TAG, "calibre:local", "2026-06-05", label))
+
+    book = Book(
+        book_id="b",
+        title="A Finished Book",
+        authors=(Author("An Author"),),
+        theme_tags=(tag("transmasc"), tag("nautical")),
+    )
+    stat = ReadingStat("b", "A Finished Book", ("An Author",), 100, 100, 3600, 1_700_000_000, 3)
+    return [
+        ReadingState(
+            title=book.title,
+            authors=("An Author",),
+            status=ReadingStatus.FINISHED,
+            book=book,
+            stat=stat,
+        )
+    ]
+
+
+def test_a_card_composed_with_the_privacy_toggle_on_omits_hidden_descriptors() -> None:
+    """A share card is the text most likely to be published — it must honour the toggle.
+
+    ``/share`` renders on the same screen as the dashboard, and its text is what
+    the reader copies into Bookwyrm or Mastodon. Redacting the dashboard while
+    the card said "Themes (sourced): transmasc" would hand the descriptor to the
+    exact surface it is most exposed on.
+    """
+    from app.view import build_view
+
+    lenses = (("Identity", frozenset({"transmasc"})), ("Sea stories", frozenset({"nautical"})))
+
+    shown = build_share_cards(
+        build_view(
+            _card_shelf(),
+            [],
+            (),
+            lens_dimensions=lenses,
+            lens_sensitive_names=frozenset({"Identity"}),
+            hide_sensitive_descriptors=False,
+        )
+    )
+    shown_text = " ".join(card.post_text() for card in shown)
+    assert "transmasc" in shown_text, "the fixture never produced the label; this would be vacuous"
+
+    hidden = build_share_cards(
+        build_view(
+            _card_shelf(),
+            [],
+            (),
+            lens_dimensions=lenses,
+            lens_sensitive_names=frozenset({"Identity"}),
+            hide_sensitive_descriptors=True,
+        )
+    )
+    hidden_text = " ".join(card.post_text() for card in hidden)
+    assert "transmasc" not in hidden_text
+    assert "nautical" in hidden_text  # the safe lens is untouched
+
+    # The rendered page (and the SVG a reader saves from it) carry it no further.
+    page = render_share_page(hidden, user="you")
+    assert "transmasc" not in page
+    assert all("transmasc" not in render_share_svg(card) for card in hidden)

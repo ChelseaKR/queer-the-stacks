@@ -308,3 +308,113 @@ def test_forecast_without_page_stat_is_honestly_unestimated() -> None:
     assert not view.forecasts[0].forecast.estimable
     html = render_view(view)
     assert "not enough recent reading to estimate" in html
+
+
+# --- The privacy toggle covers the whole page, not one panel ----------------
+#
+# The diversity panel was the only section the toggle ever reached. Three other
+# sections restated the same descriptors: the per-book theme chips, the library
+# table's "Themes (sourced)" column, and the stats theme mix. The first two are
+# strictly *more* revealing than the aggregated breakdown, because they name the
+# descriptor next to a specific title.
+
+_SENSITIVE_LENSES = (
+    ("Identity", frozenset({"genderfluid", "transmasc"})),
+    ("Sea stories", frozenset({"nautical"})),
+)
+_SENSITIVE_NAMES = frozenset({"Identity"})
+
+
+def _shelf_with_sensitive_tags() -> list[ReadingState]:
+    def tag(label: str) -> ThemeTag:
+        return ThemeTag(label, Source(SourceKind.CALIBRE_TAG, "calibre:local", "2026-06-05", label))
+
+    def state(title: str, status: ReadingStatus, labels: tuple[str, ...]) -> ReadingState:
+        book = Book(
+            book_id=title,
+            title=title,
+            authors=(Author("An Author"),),
+            theme_tags=tuple(tag(label) for label in labels),
+        )
+        return ReadingState(title=title, authors=("An Author",), status=status, book=book)
+
+    return [
+        state("In Progress", ReadingStatus.READING, ("genderfluid", "nautical")),
+        state("Done", ReadingStatus.FINISHED, ("transmasc",)),
+        state("On The Pile", ReadingStatus.UNREAD, ("genderfluid",)),
+    ]
+
+
+def _page(hide: bool) -> str:
+    return render_view(
+        build_view(
+            _shelf_with_sensitive_tags(),
+            [],
+            (),
+            lens_dimensions=_SENSITIVE_LENSES,
+            lens_sensitive_names=_SENSITIVE_NAMES,
+            hide_sensitive_descriptors=hide,
+        )
+    )
+
+
+def test_hide_sensitive_removes_the_descriptor_from_every_section() -> None:
+    """No sensitive descriptor survives anywhere in the rendered page.
+
+    Deliberately whole-document, not section-scoped: a section-scoped assertion
+    is exactly what let three other sections keep publishing these strings while
+    the diversity panel's own test stayed green.
+    """
+    shown = _page(hide=False)
+    for label in ("genderfluid", "transmasc"):
+        assert label in shown, f"the fixture never rendered {label}; this test would be vacuous"
+
+    hidden = _page(hide=True)
+    for label in ("genderfluid", "transmasc"):
+        assert label not in hidden, f"the rendered page still carries {label!r}"
+
+    # Redaction, not deletion: the non-sensitive lens keeps its detail, and the
+    # withholding is stated in text rather than left as a silent gap.
+    assert "nautical" in hidden
+    assert "hidden for privacy" in hidden
+
+
+def test_hide_sensitive_leaves_the_per_book_chips_and_library_table_clean() -> None:
+    """Named explicitly, because these two tie a descriptor to a title."""
+    hidden = _page(hide=True)
+    assert '<span class="tag">genderfluid</span>' not in hidden
+    assert '<span class="tag">transmasc</span>' not in hidden
+    assert "<td>genderfluid</td>" not in hidden
+    assert "<td>genderfluid, nautical</td>" not in hidden
+    # The library row still names the book and says something was held back.
+    assert "In Progress" in hidden
+    assert "hidden for privacy" in hidden
+
+
+def test_the_redacted_page_is_still_accessible() -> None:
+    """Redaction must not break the a11y contract it shares the page with."""
+    assert check_html(_page(hide=True)) == []
+
+
+def test_the_privacy_note_does_not_claim_a_redaction_that_did_not_happen() -> None:
+    """The toggle on a shelf with nothing sensitive must say so, not assure.
+
+    ``hide_sensitive`` records only that the toggle was requested. The page used
+    to key its assurance off that flag alone, so on a fully personalized lens
+    file it stated that identity-adjacent descriptors were hidden while listing
+    every one of them.
+    """
+    states = _shelf_with_sensitive_tags()[:1]
+    safe_lenses = (("Sea stories", frozenset({"nautical"})),)
+    html = render_view(
+        build_view(
+            states,
+            [],
+            (),
+            lens_dimensions=safe_lenses,
+            lens_sensitive_names=frozenset(),
+            hide_sensitive_descriptors=True,
+        )
+    )
+    assert "nothing on this shelf matched your sensitive list" in html
+    assert "are aggregated into a single row" not in html
