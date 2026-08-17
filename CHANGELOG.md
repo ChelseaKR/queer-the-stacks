@@ -133,6 +133,28 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   with .standards-version" and nothing checked it. `tests/test_standards_pin.py`
   now reads both files and fails when either moves alone. It needs no
   credential and no network, so it runs inside `make verify` on forks too.
+### Fixed
+
+- **The lockfile-drift gate was not a gate.** `ci.yml` carried the comment
+  "`--frozen` fails the build on any drift between pyproject.toml and the
+  committed uv.lock", and `DEFINITION_OF_DONE.md` repeated the claim. It is not
+  true: `uv sync --frozen` never reads `pyproject.toml`, so it installs the
+  locked set and exits 0 when the lock no longer satisfies the manifest. Every
+  `uv sync --frozen` in `ci.yml` and `release.yml` is now `uv sync --locked`,
+  which makes the comparison and exits 1, and the Dockerfile's export stage is
+  `uv export --locked` for the same reason. The comment and the checklist line
+  now describe what the commands do.
+
+### Changed
+
+- **The README standards-conformance table declares all fifteen standards, and
+  in a form a reader can parse.** Performance, Incident Response, Data
+  Governance, and AI Development Measurement had no row at all, so none was
+  recorded as met, exempt, or a gap; three are declared as applying with open
+  gaps, and Data Governance points at the existing privacy commitments and
+  provenance document. The state column was headed "Status" and its cells were
+  bold, which is why nothing read the table as a conformance table; the header
+  is now "State" and the verdicts are plain text. No row's meaning changed.
 
 ### Added
 - A "Why not others?" near-miss section on the recommendation shelf: the

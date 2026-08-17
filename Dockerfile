@@ -12,7 +12,10 @@ FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5
 COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv export --frozen --extra app --no-dev --no-emit-project -o requirements.lock.txt
+# `--locked`, not `--frozen`: `--frozen` exports the lock without checking it
+# still satisfies pyproject.toml, so a drifted lock would be baked into the
+# image silently. `--locked` exits 1 instead.
+RUN uv export --locked --extra app --no-dev --no-emit-project -o requirements.lock.txt
 
 # --- Stage 2: runtime image --------------------------------------------------
 # Pinned by digest (Scorecard Pinned-Dependencies; bump both the tag and the

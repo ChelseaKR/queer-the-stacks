@@ -125,19 +125,23 @@ receive credentials for that private policy repository, so they run the full
 local verification gate instead. Every policy area is declared below. *Last
 verified: 2026-07-16.*
 
-| Standard | Status | Notes |
+| Standard | State | Notes |
 |---|---|---|
-| Quality & Metrics | **Applies** | `make verify` = lint → typecheck → test (≥85% branch coverage) → security → a11y → eval, identical locally and in CI (`ci.yml`). |
-| Code Quality | **Applies** | ruff (incl. bandit `S` + mccabe `C90` complexity) + `mypy --strict`, both blocking; `.pre-commit-config.yaml` mirrors the fast checks locally. |
-| Security & Supply-Chain | **Applies** | `pip-audit` (empty ignore list) + gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) + Trivy container CVE scan, all merge-blocking; see `docs/audits/residual-risk.md`. |
-| CI/CD | **Applies** | 3 workflows, all least-privilege (`permissions: contents: read`), all `uses:` SHA-pinned. |
-| Release & Versioning | **Applies — automated lifecycle shipped; first release pending** | Pre-1.0 (`0.1.x` is the current, unreleased line per `SECURITY.md`). Signed annotated `v*` tags trigger exact-commit verification, package/SBOM and GHCR builds, keyless signing/provenance, GitHub Release publication, and post-publication verification. |
-| Accessibility | **Applies** | Two blocking layers cover dashboard + login: structural checks and Chromium/axe at desktop/mobile, explicit light/dark preferences, and asserted 320px reflow. Human screen-reader and magnification sign-offs remain pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
-| Observability | **Applies — Tier C** | Local-only, single-user, no network surface. Structured JSON logs, `/livez`, fail-closed `/readyz`, `/version` — see [`docs/ROADMAP.md` §Observability](docs/ROADMAP.md#observability) for the full per-signal N/A-with-reason declaration. |
-| Internationalization | **Applies — deferred to backlog #17** | [`docs/I18N.md`](docs/I18N.md) now reconciles the manifest and prior single-user assumption; ADR 0007 defines the audience/fork decision paths and the first localization boundary. |
+| Quality & Metrics | Applies | `make verify` = lint → typecheck → test (≥85% branch coverage) → security → a11y → eval, identical locally and in CI (`ci.yml`). |
+| Code Quality | Applies | ruff (incl. bandit `S` + mccabe `C90` complexity) + `mypy --strict`, both blocking; `.pre-commit-config.yaml` mirrors the fast checks locally. |
+| Security & Supply-Chain | Applies | `pip-audit` (empty ignore list) + gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) + Trivy container CVE scan, all merge-blocking; see `docs/audits/residual-risk.md`. |
+| CI/CD | Applies | 3 workflows, all least-privilege (`permissions: contents: read`), all `uses:` SHA-pinned. |
+| Release & Versioning | Applies — automated lifecycle shipped; first release pending | Pre-1.0 (`0.1.x` is the current, unreleased line per `SECURITY.md`). Signed annotated `v*` tags trigger exact-commit verification, package/SBOM and GHCR builds, keyless signing/provenance, GitHub Release publication, and post-publication verification. |
+| Accessibility | Applies | Two blocking layers cover dashboard + login: structural checks and Chromium/axe at desktop/mobile, explicit light/dark preferences, and asserted 320px reflow. Human screen-reader and magnification sign-offs remain pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
+| Observability | Applies — Tier C | Local-only, single-user, no network surface. Structured JSON logs, `/livez`, fail-closed `/readyz`, `/version` — see [`docs/ROADMAP.md` §Observability](docs/ROADMAP.md#observability) for the full per-signal N/A-with-reason declaration. |
+| Internationalization | Applies — deferred to backlog #17 | [`docs/I18N.md`](docs/I18N.md) now reconciles the manifest and prior single-user assumption; ADR 0007 defines the audience/fork decision paths and the first localization boundary. |
 | AI Evaluation | N/A — no LLM/GenAI SDK anywhere; the recommender is a classic content/co-occurrence model | Has its own merge-blocking offline eval regardless (`make eval` — beats the popularity baseline); see [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md#applicability--ai-evaluation-and-internationalization). |
-| Documentation | **Applies** | This table, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, `CHANGELOG.md`, currency stamps throughout `docs/`. |
-| Responsible-Tech Framework | **Applies** | Full A–F treatment, including an ASVS level declaration, in [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md). |
+| Documentation | Applies | This table, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, `CHANGELOG.md`, currency stamps throughout `docs/`. |
+| Responsible-Tech Framework | Applies | Full A–F treatment, including an ASVS level declaration, in [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md). |
+| Performance | Applies | The app serves server-rendered HTML from FastAPI, so this is in scope rather than exempt. Three merge-blocking gates in `ci.yml`: render and full-pipeline budgets in `tests/test_perf.py` (1s and 5s), a p95 under 500ms load smoke on the dashboard route (`make perf-load`), and Lighthouse-CI asserting a performance score of at least 0.9 (`.lighthouserc.json`). |
+| Incident Response | Applies — not met | [`SECURITY.md`](SECURITY.md) is the private reporting channel and states that a severity assessment is shared at triage. No severity-label convention and no committed-postmortem requirement exist yet. Open gap. |
+| Data Governance | Applies | Self-hosted and single-user: reading history stays local, is never shared or exposed, and is covered by the no-egress/no-telemetry and auth tests cited in [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md); catalogue provenance is in [`docs/ethical-book-data-sources.md`](docs/ethical-book-data-sources.md). Not met: no data card, no stated tier, no retention SLA. |
+| AI Development Measurement | Applies — not met | No baseline and no outcome metrics are recorded for this repository's development stream. Open gap. |
 
 ## Support
 

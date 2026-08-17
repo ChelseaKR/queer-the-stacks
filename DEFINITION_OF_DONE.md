@@ -29,7 +29,7 @@ authoritative detail.
 
 ## If the change touches a dependency
 
-- [ ] `uv.lock` is updated in the same commit (CI's `uv sync --frozen` fails otherwise).
+- [ ] `uv.lock` is updated in the same commit (CI's `uv sync --locked` fails otherwise).
 - [ ] `pip-audit` and `osv-scanner` are clean, or a new finding is recorded in
       [`docs/audits/residual-risk.md`](docs/audits/residual-risk.md) with a justification and owner
       *before* anything is ignored.
