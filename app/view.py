@@ -63,6 +63,15 @@ class DashboardView:
     refreshed_at: Optional[int] = None
     stale: bool = False
     catalog_status: CatalogPoolStatus = CatalogPoolStatus()
+    #: The library/stats/Wrapped below came from the built-in demo world, not
+    #: the reader's libraries. Carried so every surface can say so: a fixture
+    #: shelf rendered without this flag is indistinguishable from a real one.
+    fixture_states: bool = False
+    #: The recommendations and near-misses came from demo candidates. Tracked
+    #: separately from :attr:`fixture_states` because the two mix: demo mode
+    #: reads the real store for states while still substituting fixture
+    #: candidates, so a page can be honest about one and lying about the other.
+    fixture_candidates: bool = False
     browse_query: str = ""
     browse_theme: str = ""
     browse_author: str = ""
@@ -118,6 +127,8 @@ def build_view(
     refreshed_at: Optional[int] = None,
     now: Optional[int] = None,
     catalog_status: Optional[CatalogPoolStatus] = None,
+    fixture_states: bool = False,
+    fixture_candidates: bool = False,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure).
 
@@ -197,6 +208,8 @@ def build_view(
         refreshed_at=refreshed_at,
         stale=stale,
         catalog_status=catalog_status or CatalogPoolStatus(),
+        fixture_states=fixture_states,
+        fixture_candidates=fixture_candidates,
     )
 
 
@@ -222,6 +235,8 @@ def render_view(view: DashboardView) -> str:
         refreshed_at=view.refreshed_at,
         stale=view.stale,
         catalog_status=view.catalog_status,
+        fixture_states=view.fixture_states,
+        fixture_candidates=view.fixture_candidates,
         browse_query=view.browse_query,
         browse_theme=view.browse_theme,
         browse_author=view.browse_author,
@@ -259,14 +274,22 @@ def view_from_store(
     never a blank one.
     """
     from ingest.demo import demo_candidates
+    from ingest.store import ORIGIN_DEMO
     from recommender.lists import DEMO_LISTS
 
     states = store.load_states()  # type: ignore[attr-defined]
     activity = store.load_daily_activity()  # type: ignore[attr-defined]
     candidates = store.load_catalog_candidates()  # type: ignore[attr-defined]
+    fixture_candidates = False
     if not candidates and demo_mode:
         candidates = tuple(candidate.book for candidate in demo_candidates())
+        fixture_candidates = True
     lists = DEMO_LISTS if demo_mode else ()
+    # Demo mode does not swap out the store: `make dev` sets STACKS_DEMO=1
+    # without redirecting STACKS_DATA_DIR, so the states here are frequently a
+    # real ingest while the candidates above are fixtures. Ask the store what
+    # wrote it rather than inferring the answer from the mode flag.
+    fixture_states = store.state_origin() == ORIGIN_DEMO  # type: ignore[attr-defined]
     lenses = load_lens_config(lens_config)
     refreshed_at = store.refreshed_at()  # type: ignore[attr-defined]
     return build_view(
@@ -290,6 +313,8 @@ def view_from_store(
         hide_sensitive_descriptors=hide_sensitive_descriptors,
         refreshed_at=refreshed_at,
         catalog_status=store.catalog_pool_status(),  # type: ignore[attr-defined]
+        fixture_states=fixture_states,
+        fixture_candidates=fixture_candidates,
     )
 
 
@@ -315,4 +340,12 @@ def demo_view(workdir: Path) -> DashboardView:
     activity = load_daily_activity(statistics_db, snap)
     states = unify(books, stats, demo_kosync())
     candidates: tuple[PopCandidate, ...] = demo_candidates()
-    return build_view(states, activity, candidates, lists=DEMO_LISTS, user=DEMO_USER)
+    return build_view(
+        states,
+        activity,
+        candidates,
+        lists=DEMO_LISTS,
+        user=DEMO_USER,
+        fixture_states=True,
+        fixture_candidates=True,
+    )

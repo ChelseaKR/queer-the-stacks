@@ -460,6 +460,7 @@ def _opds_shelf(shelf_id: str, request: Request) -> Response:
         opds.SHELF_TITLES[shelf_id],
         entries,
         calibre_web_url=_calibre_web_url(),
+        subtitle=opds.fixture_subtitle(view, shelf_id),
     )
     return Response(content=feed, media_type=opds.ACQ_TYPE)
 

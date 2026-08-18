@@ -81,6 +81,27 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- The app-state store records which world wrote it, so demo fixtures can no
+  longer be served as a real library. Demo and real refreshes share one store
+  path by default, and a demo refresh used to stamp its nine fixture books with
+  the *real* sources' mtimes; the next real `stacks refresh` then matched its
+  freshness guard, printed `skipped: sources unchanged since last refresh — 9
+  books in state`, and left the fixtures in place to be rendered under
+  `user="you"` with nothing on the page saying so. Reproduced against a real
+  1,907-book library. States now carry a `state_origin` of `real` or `demo`,
+  demo states claim no source mtimes at all, and the skip requires a real
+  origin — unrecorded origin (a store written before this change) re-ingests
+  once rather than trusting itself.
+- The dashboard and OPDS feeds name fixture-sourced content, as `stacks
+  recommend` already did. `make dev` sets `STACKS_DEMO=1` without redirecting
+  `STACKS_DATA_DIR`, so the documented way to run the dashboard against an
+  already-ingested library rendered the reader's real 1,907 books alongside
+  demo-fixture recommendations and near-misses — unlabelled, and directly above
+  a "Candidates stored locally: 0" row in the same panel. The view now tracks
+  the two provenances separately (the states can be real while the candidates
+  are fixtures), the page carries a banner for each case, the data-status panel
+  states both sources positively rather than leaving the reader to infer them,
+  and the OPDS feeds carry the same claim in a `<subtitle>` an e-reader shows.
 - The no-egress guardrail now detects egress instead of grepping for four
   substrings while exempting the two modules that make every request (#62). It
   parses each first-party module's imports and asserts that the set of
