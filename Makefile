@@ -28,7 +28,7 @@ $(PYTHON): ## Bootstrap the virtualenv (Python 3.14) + dev/app deps
 
 install: $(PYTHON) ## Install the project (editable) with dev + app extras
 
-dev: install ## Run the self-hosted dashboard (demo mode; no real library needed)
+dev: install ## Run the dashboard in demo mode (serves an existing real store if one exists)
 	STACKS_DEMO=1 $(PYTHON) -m uvicorn app.server:app --host 127.0.0.1 --port 8765
 
 # --- The verify pipeline (each stage is merge-blocking) ----------------------
