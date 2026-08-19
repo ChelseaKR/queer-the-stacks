@@ -428,7 +428,9 @@ def _share(request: Request) -> HTMLResponse:
 
     view = _load_view(request.app)
     cards = build_share_cards(view)
-    return HTMLResponse(content=render_share_page(cards, user=view.user))
+    return HTMLResponse(
+        content=render_share_page(cards, user=view.user, fixture_states=view.fixture_states)
+    )
 
 
 def _share_card_svg(request: Request, kind: str = "year") -> Response:
@@ -460,6 +462,7 @@ def _opds_shelf(shelf_id: str, request: Request) -> Response:
         opds.SHELF_TITLES[shelf_id],
         entries,
         calibre_web_url=_calibre_web_url(),
+        subtitle=opds.fixture_subtitle(view, shelf_id),
     )
     return Response(content=feed, media_type=opds.ACQ_TYPE)
 

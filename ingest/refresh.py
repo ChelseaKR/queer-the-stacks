@@ -35,7 +35,7 @@ from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
 from ingest.snapshot import columns, has_sidecar, open_snapshot
-from ingest.store import CatalogSourceUpdate, Store
+from ingest.store import ORIGIN_DEMO, ORIGIN_REAL, CatalogSourceUpdate, Store
 from ingest.unify import unify
 
 
@@ -298,10 +298,18 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
             or store.catalog_refresh_due(now, config.catalog_refresh_ttl_seconds)
         )
     )
+    # The skip is only safe when the *stored* state also came from the real
+    # libraries. A demo refresh writes to the same store path, so without the
+    # origin check a real refresh that follows one sees a populated store whose
+    # mtimes match and reports "sources unchanged" — leaving fixture books in
+    # place and serving them as the reader's own library. Unrecorded origin
+    # (a store written before FIX-STATE-ORIGIN) re-ingests once, which costs a
+    # fraction of a second and cannot be wrong.
     unchanged = (
         not force
         and not config.demo
         and store.is_populated
+        and store.state_origin() == ORIGIN_REAL
         and bool(current)
         and current == store.source_mtimes()
         and not progress_due
@@ -318,7 +326,16 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
         )
 
     states, activity, progress_result = _ingest_with_progress(config, store, now)
-    store.save(states, activity, refreshed_at=now, source_mtimes=current)
+    # Demo states are stamped with no source mtimes at all: the real files'
+    # mtimes describe libraries that had no part in producing these books, and
+    # persisting them would assert a lineage the fixtures do not have.
+    store.save(
+        states,
+        activity,
+        refreshed_at=now,
+        source_mtimes={} if config.demo else current,
+        origin=ORIGIN_DEMO if config.demo else ORIGIN_REAL,
+    )
     catalog_result = None
     if config.demo:
         from ingest.demo import demo_candidates

@@ -49,6 +49,12 @@ Try it in demo mode first — no real library needed:
 make dev    # installs, then serves a demo dashboard at http://127.0.0.1:8765
 ```
 
+`make dev` sets `STACKS_DEMO=1` but does not redirect `STACKS_DATA_DIR`, so if
+you have *already* ingested a real library it serves your real shelves with
+demo-fixture recommendations layered on top. The page labels both — see the
+"Data status" panel — but set `STACKS_DATA_DIR=data/demo` alongside it if you
+want a pure demo world.
+
 To run it on your library, point it at your real, read-only sources and ingest
 into the local app-state store:
 

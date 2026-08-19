@@ -38,6 +38,12 @@ _MTIMES_KEY = "source_mtimes"
 _PROGRESS_KEY = "kosync_progress"
 _CATALOG_KEY = "catalog_pool"
 _VIEW_REVISION_KEY = "view_revision"
+_ORIGIN_KEY = "state_origin"
+
+#: The demo world produced the persisted states — they are fixture books.
+ORIGIN_DEMO = "demo"
+#: The configured real libraries produced the persisted states.
+ORIGIN_REAL = "real"
 
 
 @dataclass(frozen=True)
@@ -127,6 +133,7 @@ class Store:
         daily_activity: list[DailyActivity],
         refreshed_at: int,
         source_mtimes: Optional[dict[str, int]] = None,
+        origin: str = ORIGIN_REAL,
     ) -> None:
         """Persist a full refresh of derived state atomically.
 
@@ -134,12 +141,22 @@ class Store:
         reader) can never observe new states paired with a stale
         ``refreshed_at``/``source_mtimes``/cache revision — it sees the whole
         refresh or none of it.
+
+        ``origin`` records *which world produced these states* — the demo
+        fixtures or the reader's configured libraries. Demo and real refreshes
+        write to the same store path by default, so without this the two are
+        indistinguishable once persisted: fixture books are then served as the
+        reader's own library under ``user="you"``, and the freshness guard in
+        :func:`ingest.refresh.refresh` sees a populated store and skips the real
+        ingest that would have replaced them. State that cannot say where it
+        came from is state that can quietly stand in for real data.
         """
         rows: list[tuple[str, object]] = [
             (_STATES_KEY, [state_to_dict(s) for s in states]),
             (_ACTIVITY_KEY, [activity_to_dict(a) for a in daily_activity]),
             (_REFRESHED_KEY, int(refreshed_at)),
             (_MTIMES_KEY, source_mtimes or {}),
+            (_ORIGIN_KEY, origin),
         ]
         with self._conn:  # commits on success, rolls back on error
             self._conn.executemany(self._UPSERT, [(k, json.dumps(v)) for k, v in rows])
@@ -169,6 +186,19 @@ class Store:
     def source_mtimes(self) -> dict[str, int]:
         raw = self._get(_MTIMES_KEY)
         return {str(k): int(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+
+    def state_origin(self) -> Optional[str]:
+        """Which world wrote the persisted states, or ``None`` if unrecorded.
+
+        ``None`` is returned for a store written before this field existed. It
+        is deliberately not treated as :data:`ORIGIN_REAL`: callers that must
+        know the provenance re-ingest rather than assume it (cheap, and
+        self-healing), and callers that warn about fixture data stay silent
+        rather than accuse a real library of being fake. Unrecorded is its own
+        state, like ``refreshed_at is None`` — not a defaulted value.
+        """
+        raw = self._get(_ORIGIN_KEY)
+        return raw if isinstance(raw, str) and raw else None
 
     @property
     def is_populated(self) -> bool:

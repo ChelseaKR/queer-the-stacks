@@ -49,6 +49,36 @@ SVG_BODY = "#222"
 #: overflows the fixed-width SVG canvas.
 MAX_SVG_TITLE_CHARS = 60
 
+#: The disclosure carried *inside* a fixture-sourced card — into its body, its
+#: alt text, its SVG, and the post text the reader pastes into Bookwyrm.
+#:
+#: Short on purpose. The dashboard's banner (``app.render.FIXTURE_STATES_NOTICE``)
+#: can afford four sentences because it stays on the page; this line has to
+#: survive being copied into a 500-character post, so it says the one thing that
+#: stops a fixture card being read as a real year. Per-surface wording, like
+#: ``app.opds.FIXTURE_STATES_SUBTITLE``.
+FIXTURE_CARD_LINE = "Demo world: fixture books, not a real library."
+
+#: The page-level banner on ``/share``. Rendered assertively (``role="alert"``)
+#: like the dashboard's, because the page's own header otherwise tells the reader
+#: these cards were composed "from your own dashboard" — true of the composition,
+#: false of the numbers, and this is the one surface built to be posted publicly.
+#: No apostrophes or angle brackets, so the constant survives ``html.escape``
+#: unchanged and a test can assert it appears verbatim in the page — the same
+#: idiom the dashboard notices use.
+FIXTURE_PAGE_NOTICE = (
+    "These cards describe the built-in demo world, not your reading. The books, "
+    "counts, and hours below came from fixture data, so posting one would publish "
+    "demo numbers as your own reading. Run stacks refresh without STACKS_DEMO=1 "
+    "to compose cards from your own libraries."
+)
+
+#: Stated positively on a real page, so "no banner" is a claim the page makes
+#: rather than an absence the reader has to infer. Same vocabulary as the
+#: dashboard's data-status rows.
+CARD_SOURCE_REAL = "your configured libraries"
+CARD_SOURCE_FIXTURE = "built-in demo world (fixture books)"
+
 
 @dataclass(frozen=True)
 class ShareCard:
@@ -58,11 +88,22 @@ class ShareCard:
     title: str
     lines: tuple[str, ...]  # body lines, already human-readable
     hashtags: tuple[str, ...]
+    #: This card's numbers came from the built-in demo world. A card is composed
+    #: to be *posted*, so the disclosure has to travel with it: a reader who
+    #: saves the SVG or copies the post text has left the page and its banner
+    #: behind. Rendered from this flag at every emission point below rather than
+    #: baked into ``lines``, so the flag and the disclosure cannot disagree.
+    fixture: bool = False
+
+    @property
+    def body_lines(self) -> tuple[str, ...]:
+        """The body as rendered — fixture disclosure first, when it applies."""
+        return (FIXTURE_CARD_LINE, *self.lines) if self.fixture else self.lines
 
     @property
     def alt_text(self) -> str:
         """A complete text equivalent of the card image (for the image's alt)."""
-        return f"{self.title}. " + " ".join(self.lines)
+        return f"{self.title}. " + " ".join(self.body_lines)
 
     def post_text(self) -> str:
         """The plain-text post the reader copies into Bookwyrm / Mastodon.
@@ -70,7 +111,7 @@ class ShareCard:
         Tags are appended on their own line. The result is capped at
         :data:`MAX_POST_CHARS` so it always fits a single post.
         """
-        body = "\n".join((self.title, *self.lines))
+        body = "\n".join((self.title, *self.body_lines))
         if self.hashtags:
             body = f"{body}\n\n" + " ".join(f"#{t}" for t in self.hashtags)
         if len(body) > MAX_POST_CHARS:
@@ -78,8 +119,17 @@ class ShareCard:
         return body
 
 
-def year_in_books_card(wrapped: Wrapped, hidden: frozenset[str] = frozenset()) -> ShareCard:
-    """A "my year in books" card from the private Wrapped (aggregates only)."""
+def year_in_books_card(
+    wrapped: Wrapped,
+    hidden: frozenset[str] = frozenset(),
+    *,
+    fixture: bool = False,
+) -> ShareCard:
+    """A "my year in books" card from the private Wrapped (aggregates only).
+
+    ``fixture`` marks a card built from the built-in demo world; see
+    :attr:`ShareCard.fixture`.
+    """
     lines = [
         f"{wrapped.books_finished} books · {wrapped.pages_read} pages · "
         f"{wrapped.read_time_hours} hours",
@@ -93,10 +143,16 @@ def year_in_books_card(wrapped: Wrapped, hidden: frozenset[str] = frozenset()) -
         title=f"My {wrapped.year} in books",
         lines=tuple(lines),
         hashtags=("amreading", "yearinbooks", "bookwyrm"),
+        fixture=fixture,
     )
 
 
-def finished_book_card(state: ReadingState, hidden: frozenset[str] = frozenset()) -> ShareCard:
+def finished_book_card(
+    state: ReadingState,
+    hidden: frozenset[str] = frozenset(),
+    *,
+    fixture: bool = False,
+) -> ShareCard:
     """A "just finished" card for one book, using only its sourced descriptors.
 
     ``hidden`` is the sensitive descriptor set when the privacy toggle is on. A
@@ -104,6 +160,9 @@ def finished_book_card(state: ReadingState, hidden: frozenset[str] = frozenset()
     carries are the ones most likely to be published — a card assembled while the
     toggle is on must not carry the descriptors the toggle exists to hold back.
     The omission is visible on the page, and unsetting the toggle restores them.
+
+    ``fixture`` marks a card built from the built-in demo world; see
+    :attr:`ShareCard.fixture`.
     """
     author = ", ".join(state.authors) or "unknown author"
     lines = [f"by {author}"]
@@ -117,6 +176,7 @@ def finished_book_card(state: ReadingState, hidden: frozenset[str] = frozenset()
         title=f"Just finished: {state.title}",
         lines=tuple(lines),
         hashtags=("amreading", "bookwyrm", "queerlit"),
+        fixture=fixture,
     )
 
 
@@ -158,7 +218,7 @@ def render_share_svg(card: ShareCard) -> str:
         title = title[: MAX_SVG_TITLE_CHARS - 1].rstrip() + "…"
     body = "".join(
         f'<text x="60" y="{180 + i * 52}" font-size="32" fill="{SVG_BODY}">{escape(line)}</text>'
-        for i, line in enumerate(card.lines)
+        for i, line in enumerate(card.body_lines)
     )
     tags = " ".join(f"#{t}" for t in card.hashtags)
     return (
@@ -178,7 +238,7 @@ def render_share_svg(card: ShareCard) -> str:
 def _card_figure(card: ShareCard, index: int) -> str:
     """One card: an accessible figure + a labelled, copyable post box."""
     tid = f"post-{card.kind}-{index}"
-    body_lines = "".join(f"<p>{escape(line)}</p>" for line in card.lines)
+    body_lines = "".join(f"<p>{escape(line)}</p>" for line in card.body_lines)
     tags = " ".join(f"#{escape(t)}" for t in card.hashtags)
     post = escape(card.post_text())
     return (
@@ -202,6 +262,11 @@ html { color: CanvasText; background-color: Canvas; }
 body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
   color: inherit; background-color: inherit; }
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+/* Borders in currentColor, no background swap: the banner has to stay AA in
+   both light and dark without introducing a second colour pair to verify. */
+.fixture-note { border: 1px solid; border-left-width: .3rem; border-radius: 4px;
+  padding: .75rem 1rem; margin: 1rem 0; color: inherit; background-color: inherit; }
+.card-source { color: inherit; background-color: inherit; }
 textarea.post { width: 100%; font: inherit; color: inherit; background-color: inherit; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
@@ -212,11 +277,28 @@ a:focus, button:focus, .skip:focus { outline: 3px solid; }
 """
 
 
-def render_share_page(cards: tuple[ShareCard, ...], *, user: str = "demo") -> str:
-    """Render the full, accessible /share page. Nothing here is auto-posted."""
+def render_share_page(
+    cards: tuple[ShareCard, ...],
+    *,
+    user: str = "demo",
+    fixture_states: bool = False,
+) -> str:
+    """Render the full, accessible /share page. Nothing here is auto-posted.
+
+    ``fixture_states`` is :attr:`~app.view.DashboardView.fixture_states`: the
+    cards below describe the built-in demo world. Every other surface gained a
+    provenance label with the fixture-provenance fix; this page — the only one
+    designed to be posted publicly — must not be the exception.
+    """
     figures = "".join(_card_figure(c, i) for i, c in enumerate(cards)) or (
         "<p>No share cards yet — finish a book or build up a year of reading first.</p>"
     )
+    banner = (
+        f'<p class="fixture-note" role="alert">{escape(FIXTURE_PAGE_NOTICE)}</p>'
+        if fixture_states
+        else ""
+    )
+    source = CARD_SOURCE_FIXTURE if fixture_states else CARD_SOURCE_REAL
     return (
         "<!doctype html>"
         '<html lang="en"><head><meta charset="utf-8">'
@@ -228,7 +310,9 @@ def render_share_page(cards: tuple[ShareCard, ...], *, user: str = "demo") -> st
         f"<p>Cards for {escape(user)}, composed locally from your own dashboard. "
         "<strong>Nothing is posted automatically.</strong> Copy a card's text (or "
         "save its image from <code>/share/card.svg</code>) and post it to Bookwyrm "
-        "or Mastodon yourself.</p></header>"
+        "or Mastodon yourself.</p>"
+        f"{banner}"
+        f'<p class="card-source">Composed from: {escape(source)}.</p></header>'
         '<main id="main">'
         "<h2>Your cards</h2>"
         f"{figures}"
@@ -242,17 +326,20 @@ def build_share_cards(view: object) -> tuple[ShareCard, ...]:
 
     Pure: reads only the already-assembled view. Typed ``object`` to avoid an
     import cycle with :mod:`app.view`; the attributes used are part of
-    :class:`~app.view.DashboardView`'s stable shape.
+    :class:`~app.view.DashboardView`'s stable shape — including
+    ``fixture_states``, which every card carries so the disclosure survives being
+    copied or saved away from the page.
     """
     wrapped: Wrapped = view.wrapped  # type: ignore[attr-defined]
     finished: tuple[ReadingState, ...] = view.finished  # type: ignore[attr-defined]
+    fixture: bool = bool(getattr(view, "fixture_states", False))
     diversity = getattr(view, "diversity", None)
     hidden: frozenset[str] = (
         diversity.sensitive_descriptors
         if diversity is not None and diversity.hide_sensitive
         else frozenset()
     )
-    cards: list[ShareCard] = [year_in_books_card(wrapped, hidden)]
+    cards: list[ShareCard] = [year_in_books_card(wrapped, hidden, fixture=fixture)]
     if finished:
-        cards.append(finished_book_card(finished[0], hidden))
+        cards.append(finished_book_card(finished[0], hidden, fixture=fixture))
     return tuple(cards)

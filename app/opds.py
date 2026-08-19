@@ -162,6 +162,29 @@ def entries_for_shelf(shelf_id: str, view: DashboardView) -> list[OpdsEntry]:
     raise ValueError(f"unknown OPDS shelf: {shelf_id!r}")
 
 
+#: Feed-level wording for fixture-sourced content. An OPDS client shows the
+#: feed's ``<subtitle>``, so this is the one place a reader browsing from
+#: KOReader can learn that a shelf is the demo world rather than their library.
+FIXTURE_STATES_SUBTITLE = "Demo world: these are fixture books, not your library."
+FIXTURE_CANDIDATES_SUBTITLE = (
+    "Demo world: these picks are fixture titles, not candidates from your catalogs."
+)
+
+
+def fixture_subtitle(view: DashboardView, shelf_id: str = "") -> str:
+    """The fixture warning that applies to ``shelf_id`` (or the whole catalog).
+
+    Returns an empty string when nothing on the shelf is fixture-sourced, so a
+    caller can drop the ``<subtitle>`` element entirely rather than emit a
+    reassuring-sounding "this is real" claim it has not verified.
+    """
+    if view.fixture_states:
+        return FIXTURE_STATES_SUBTITLE
+    if view.fixture_candidates and shelf_id in ("", "recommendations"):
+        return FIXTURE_CANDIDATES_SUBTITLE
+    return ""
+
+
 def _author_xml(authors: tuple[str, ...]) -> str:
     if not authors:
         return "<author><name>Unknown</name></author>"
@@ -192,6 +215,9 @@ def build_root_navigation(view: DashboardView) -> str:
     and ``rel="start"`` links to itself, as OPDS clients expect at the root.
     """
     counts = {shelf_id: len(entries_for_shelf(shelf_id, view)) for shelf_id, _, _ in SHELVES}
+    subtitle = (
+        f"<subtitle>{escape(fixture_subtitle(view))}</subtitle>" if fixture_subtitle(view) else ""
+    )
     entries = "".join(
         "<entry>"
         f"<title>{escape(title)}</title>"
@@ -208,6 +234,7 @@ def build_root_navigation(view: DashboardView) -> str:
         f'<feed xmlns="{ATOM_NS}" xmlns:opds="{OPDS_NS}">'
         "<id>urn:qts:root</id>"
         "<title>Queer the Stacks</title>"
+        f"{subtitle}"
         f"<updated>{FIXED_UPDATED}</updated>"
         f'<link rel="self" href="/opds" type="{NAV_TYPE}"/>'
         f'<link rel="start" href="/opds" type="{NAV_TYPE}"/>'
@@ -222,6 +249,7 @@ def build_shelf_acquisition(
     entries: Sequence[OpdsEntry],
     *,
     calibre_web_url: Optional[str] = None,
+    subtitle: str = "",
 ) -> str:
     """Render one acquisition feed: one ``<entry>`` per book on this shelf.
 
@@ -229,13 +257,18 @@ def build_shelf_acquisition(
     embedded as a link's ``href`` text in the returned XML — it is never
     fetched here, so no egress is introduced. Omit it (leave ``None``) to
     render entries without the optional alternate link.
+
+    ``subtitle`` carries a feed-level provenance warning (see
+    :func:`fixture_subtitle`); empty means no claim is made either way.
     """
     body = "".join(_entry_xml(e, calibre_web_url=calibre_web_url) for e in entries)
+    subtitle_xml = f"<subtitle>{escape(subtitle)}</subtitle>" if subtitle else ""
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         f'<feed xmlns="{ATOM_NS}" xmlns:opds="{OPDS_NS}">'
         f"<id>urn:qts:{escape(shelf_id)}</id>"
         f"<title>{escape(title)}</title>"
+        f"{subtitle_xml}"
         f"<updated>{FIXED_UPDATED}</updated>"
         f'<link rel="self" href="/opds/{escape(shelf_id)}" type="{ACQ_TYPE}"/>'
         f'<link rel="start" href="/opds" type="{NAV_TYPE}"/>'

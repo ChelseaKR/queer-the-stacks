@@ -51,7 +51,12 @@ def build_share(out: Path = DEFAULT_SHARE_OUT) -> Path:
     with tempfile.TemporaryDirectory(prefix="stacks-demo-") as tmp:
         view = demo_view(Path(tmp))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_share_page(build_share_cards(view), user=view.user), encoding="utf-8")
+    out.write_text(
+        render_share_page(
+            build_share_cards(view), user=view.user, fixture_states=view.fixture_states
+        ),
+        encoding="utf-8",
+    )
     return out
 
 

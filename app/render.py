@@ -99,6 +99,34 @@ def _reading_item(state: ReadingState, hidden: frozenset[str] = frozenset()) -> 
     )
 
 
+#: Said on the page whenever the shelf below is the built-in demo world. The
+#: CLI has printed the equivalent line since the recommend fix ("demo mode: no
+#: library configured — these are fixture titles"); the HTML and OPDS surfaces
+#: went without one, which is the whole reason fixture books could be read as a
+#: real library. Kept as one constant so every surface says the same thing.
+FIXTURE_STATES_NOTICE = (
+    "These are fixture books from the built-in demo world, not your library. "
+    "Everything below — the shelves, stats, Wrapped, and diversity report — "
+    "describes the demo world. Run stacks refresh without STACKS_DEMO=1 to "
+    "ingest your own libraries."
+)
+
+#: The narrower case: the shelves and stats are genuinely the reader's, but the
+#: recommendation candidates were substituted from the demo fixtures because
+#: the catalog pool is empty. Several fixture titles are books a real reader
+#: plausibly owns, so an unlabelled pick is indistinguishable from a real one.
+FIXTURE_CANDIDATES_NOTICE = (
+    "These picks are fixture titles from the built-in demo world, not "
+    "candidates sourced from your configured catalogs. They are shown because "
+    "demo mode is on and no public catalog pool is stored."
+)
+
+
+def _fixture_note(message: str) -> str:
+    """One labelled, assertive banner naming fixture-sourced content."""
+    return f'<p class="fixture-note" role="alert">{escape(message)}</p>'
+
+
 def _stats_table(stats: ReadingStats) -> str:
     rows = "".join(
         f'<tr><th scope="row">{escape(label)}</th><td>{escape(value)}</td></tr>'
@@ -430,8 +458,8 @@ th, td {
   text-align: left; vertical-align: top; overflow-wrap: anywhere;
 }
 thead th { color: var(--plum-dark); background: var(--wash); }
-.lens-warning, .status-note { padding: .75rem 1rem; border-left: .3rem solid var(--plum);
-  background: var(--wash); }
+.lens-warning, .status-note, .fixture-note { padding: .75rem 1rem;
+  border-left: .3rem solid var(--plum); background: var(--wash); }
 @media (max-width: 48rem) {
   .section-heading, .recommendation-grid, .next-shelves {
     grid-template-columns: minmax(0, 1fr);
@@ -843,12 +871,23 @@ def _catalog_status_section(status: CatalogPoolStatus) -> str:
     )
 
 
-def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False) -> str:
+def _data_status_section(
+    refreshed_at: Optional[int] = None,
+    stale: bool = False,
+    *,
+    fixture_states: bool = False,
+    fixture_candidates: bool = False,
+) -> str:
     """Say what the dashboard knows and how old it is — never silently stale.
 
     Degrades gracefully: per-source ``RefreshResult`` rows land with FIX-08;
     until then this shows the one honest thing the store already persists —
     the ``refreshed_at`` stamp — plus a text (not colour-only) staleness banner.
+
+    "How current" is only half of "how trustworthy": a store full of demo
+    fixtures carries a perfectly fresh timestamp. The two provenance rows say
+    which world produced the shelves and the picks, so this panel answers
+    *where the data came from* alongside *when*.
     """
     if refreshed_at is None:
         as_of = "never refreshed — run `stacks refresh`"
@@ -861,6 +900,17 @@ def _data_status_section(refreshed_at: Optional[int] = None, stale: bool = False
         else ""
     )
     rows = f'<tr><th scope="row">Data as of</th><td>{escape(as_of)}</td></tr>'
+    states_source = (
+        "built-in demo world (fixture books)" if fixture_states else "your configured libraries"
+    )
+    candidate_source = (
+        "built-in demo fixtures" if fixture_candidates else "your stored catalog pool"
+    )
+    rows += (
+        f'<tr><th scope="row">Library &amp; stats source</th><td>{states_source}</td></tr>'
+        '<tr><th scope="row">Recommendation candidates</th>'
+        f"<td>{candidate_source}</td></tr>"
+    )
     return (
         f"{banner}"
         "<h3>Data status</h3>"
@@ -889,13 +939,21 @@ def render_dashboard(
     refreshed_at: Optional[int] = None,
     stale: bool = False,
     catalog_status: Optional[CatalogPoolStatus] = None,
+    fixture_states: bool = False,
+    fixture_candidates: bool = False,
     browse_query: str = "",
     browse_theme: str = "",
     browse_author: str = "",
     browse_series: str = "",
     browse_status: str = "",
 ) -> str:
-    """Render the complete, accessible dashboard document."""
+    """Render the complete, accessible dashboard document.
+
+    ``fixture_states``/``fixture_candidates`` mark content that came from the
+    demo world rather than the reader's libraries, and are rendered as visible
+    banners. They are not cosmetic: fixture books served without them are
+    indistinguishable from a real ingest on every surface this function emits.
+    """
     catalog = catalog_status or CatalogPoolStatus()
     # The privacy toggle governs the whole document, not only the diversity
     # panel. Per-book chips and the library table are *more* revealing than the
@@ -926,6 +984,12 @@ def render_dashboard(
             '<p class="empty-state">No recommendations fit yet. Check source status '
             "below, then read or tag a few books to provide local matching signals.</p>"
         )
+    data_status = _data_status_section(
+        refreshed_at,
+        stale,
+        fixture_states=fixture_states,
+        fixture_candidates=fixture_candidates,
+    )
     near_miss_cards = "".join(_near_miss_card(m) for m in near_misses)
     near_miss_section = (
         '<details class="near-misses"><summary>Why not others?</summary>'
@@ -969,7 +1033,8 @@ def render_dashboard(
         f"{escape(user)}</p><h1>Queer the Stacks</h1>"
         f'<p class="intro">Your private reading dashboard, {escape(user)} — unified read-only from '
         "Calibre and KOReader, with recommendations from ethical, non-gatekept "
-        "catalogs. Reading data never leaves this instance.</p></header>"
+        "catalogs. Reading data never leaves this instance.</p>"
+        f"{_fixture_note(FIXTURE_STATES_NOTICE) if fixture_states else ''}</header>"
         '<nav class="section-nav" aria-label="Dashboard sections"><ul>'
         '<li><a href="#continue">Continue</a></li>'
         '<li><a href="#next">Next</a></li>'
@@ -994,6 +1059,7 @@ def render_dashboard(
         "citation that links out is a page you can open yourself; following one "
         "is a request your browser makes to that catalog, never one this "
         "instance makes on your behalf, and it carries no referrer.</p>"
+        f"{_fixture_note(FIXTURE_CANDIDATES_NOTICE) if fixture_candidates else ''}"
         f'<div class="recommendation-grid">{rec_cards}</div>'
         f"{near_miss_section}"
         '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
@@ -1047,7 +1113,7 @@ def render_dashboard(
         "<summary>Data &amp; source status"
         f"{' — attention needed' if stale or catalog.state == 'degraded' else ''}</summary>"
         '<div class="details-inner">'
-        f"{_data_status_section(refreshed_at, stale)}"
+        f"{data_status}"
         f"{_catalog_status_section(catalog)}"
         "</div></details></div></section>"
         "</main></body></html>"

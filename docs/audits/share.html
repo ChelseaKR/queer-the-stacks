@@ -7,6 +7,11 @@ html { color: CanvasText; background-color: Canvas; }
 body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padding: 1rem;
   color: inherit; background-color: inherit; }
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+/* Borders in currentColor, no background swap: the banner has to stay AA in
+   both light and dark without introducing a second colour pair to verify. */
+.fixture-note { border: 1px solid; border-left-width: .3rem; border-radius: 4px;
+  padding: .75rem 1rem; margin: 1rem 0; color: inherit; background-color: inherit; }
+.card-source { color: inherit; background-color: inherit; }
 textarea.post { width: 100%; font: inherit; color: inherit; background-color: inherit; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }
@@ -14,12 +19,14 @@ a:focus, button:focus, .skip:focus { outline: 3px solid; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
-</style></head><body><a class="skip" href="#main">Skip to your share cards</a><header><h1>Share cards</h1><p>Cards for demo, composed locally from your own dashboard. <strong>Nothing is posted automatically.</strong> Copy a card's text (or save its image from <code>/share/card.svg</code>) and post it to Bookwyrm or Mastodon yourself.</p></header><main id="main"><h2>Your cards</h2><figure class="card"><figcaption><strong>My 2024 in books</strong></figcaption><p>7 books · 2258 pages · 37.6 hours</p><p>across 16 reading days</p><p>Top themes: speculative, queer, trans</p><p class="tags">#amreading #yearinbooks #bookwyrm</p><p><label for="post-year-0">Postable text (copy and share it yourself):</label></p><textarea id="post-year-0" class="post" rows="6" readonly>My 2024 in books
+</style></head><body><a class="skip" href="#main">Skip to your share cards</a><header><h1>Share cards</h1><p>Cards for demo, composed locally from your own dashboard. <strong>Nothing is posted automatically.</strong> Copy a card's text (or save its image from <code>/share/card.svg</code>) and post it to Bookwyrm or Mastodon yourself.</p><p class="fixture-note" role="alert">These cards describe the built-in demo world, not your reading. The books, counts, and hours below came from fixture data, so posting one would publish demo numbers as your own reading. Run stacks refresh without STACKS_DEMO=1 to compose cards from your own libraries.</p><p class="card-source">Composed from: built-in demo world (fixture books).</p></header><main id="main"><h2>Your cards</h2><figure class="card"><figcaption><strong>My 2024 in books</strong></figcaption><p>Demo world: fixture books, not a real library.</p><p>7 books · 2258 pages · 37.6 hours</p><p>across 16 reading days</p><p>Top themes: speculative, queer, trans</p><p class="tags">#amreading #yearinbooks #bookwyrm</p><p><label for="post-year-0">Postable text (copy and share it yourself):</label></p><textarea id="post-year-0" class="post" rows="6" readonly>My 2024 in books
+Demo world: fixture books, not a real library.
 7 books · 2258 pages · 37.6 hours
 across 16 reading days
 Top themes: speculative, queer, trans
 
-#amreading #yearinbooks #bookwyrm</textarea><p><button type="button" class="copy" data-target="post-year-0">Copy post text</button></p></figure><figure class="card"><figcaption><strong>Just finished: A Safe Girl to Love</strong></figcaption><p>by Casey Plett</p><p>11.4 hours well spent</p><p>Themes (sourced): literary, queer, short stories, trans</p><p class="tags">#amreading #bookwyrm #queerlit</p><p><label for="post-finished-1">Postable text (copy and share it yourself):</label></p><textarea id="post-finished-1" class="post" rows="6" readonly>Just finished: A Safe Girl to Love
+#amreading #yearinbooks #bookwyrm</textarea><p><button type="button" class="copy" data-target="post-year-0">Copy post text</button></p></figure><figure class="card"><figcaption><strong>Just finished: A Safe Girl to Love</strong></figcaption><p>Demo world: fixture books, not a real library.</p><p>by Casey Plett</p><p>11.4 hours well spent</p><p>Themes (sourced): literary, queer, short stories, trans</p><p class="tags">#amreading #bookwyrm #queerlit</p><p><label for="post-finished-1">Postable text (copy and share it yourself):</label></p><textarea id="post-finished-1" class="post" rows="6" readonly>Just finished: A Safe Girl to Love
+Demo world: fixture books, not a real library.
 by Casey Plett
 11.4 hours well spent
 Themes (sourced): literary, queer, short stories, trans
