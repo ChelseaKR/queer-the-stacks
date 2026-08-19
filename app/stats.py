@@ -19,7 +19,16 @@ from ingest.models import DailyActivity, ReadingState, ReadingStatus
 
 @dataclass(frozen=True)
 class ReadingStats:
-    """The numbers the dashboard's stats panel renders."""
+    """The numbers the dashboard's stats panel renders.
+
+    :attr:`measured` says whether any reading record backed those numbers. With
+    a Calibre-only install there is no KOReader ``statistics.sqlite``, so every
+    book reads as UNREAD and every per-day row is missing — and the eight totals
+    below are all zero. Zero-because-nothing-was-counted and
+    zero-because-nothing-was-read render identically without this flag, and the
+    panel presented the first as the second. Same discriminator as
+    :attr:`app.diversity.DiversityReport.shelf_fallback`.
+    """
 
     books_finished: int
     books_reading: int
@@ -32,6 +41,10 @@ class ReadingStats:
     theme_mix: tuple[tuple[str, int], ...] = ()  # (theme label, count), desc
     top_authors: tuple[tuple[str, int], ...] = ()  # (author, finished count), desc
     most_annotated: tuple[tuple[str, int], ...] = ()  # (title, highlight count), desc
+    #: Any reading record at all was available to count — a per-day activity row
+    #: or a per-book stat. False means "no reading-data source is connected",
+    #: which is not a reading of zero.
+    measured: bool = True
 
     @property
     def read_time_hours(self) -> float:
@@ -107,4 +120,9 @@ def compute_stats(
         theme_mix=tuple(theme_counter.most_common()),
         top_authors=tuple(author_counter.most_common(5)),
         most_annotated=tuple(annotated.most_common(5)),
+        # Evidence, not outcome: one per-day row or one per-book stat is enough
+        # to make these totals a measurement. Neither is available from Calibre
+        # alone, and `states` being non-empty says nothing — 1,907 owned books
+        # with no reading source is precisely the case this flag exists for.
+        measured=bool(daily_activity) or any(s.stat is not None for s in states),
     )

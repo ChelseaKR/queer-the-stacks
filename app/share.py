@@ -129,7 +129,17 @@ def year_in_books_card(
 
     ``fixture`` marks a card built from the built-in demo world; see
     :attr:`ShareCard.fixture`.
+
+    Requires a measured Wrapped. :func:`build_share_cards` will not offer a year
+    card without one, and calling this directly with an unmeasured Wrapped is a
+    programming error rather than something to paper over with a placeholder —
+    the placeholder is what got posted.
     """
+    if not wrapped.measured:
+        raise ValueError(
+            "cannot compose a year-in-books card without a measured year; "
+            "build_share_cards omits it — see app.wrapped.Wrapped.unmeasured"
+        )
     lines = [
         f"{wrapped.books_finished} books · {wrapped.pages_read} pages · "
         f"{wrapped.read_time_hours} hours",
@@ -339,7 +349,14 @@ def build_share_cards(view: object) -> tuple[ShareCard, ...]:
         if diversity is not None and diversity.hide_sensitive
         else frozenset()
     )
-    cards: list[ShareCard] = [year_in_books_card(wrapped, hidden, fixture=fixture)]
+    cards: list[ShareCard] = []
+    # The year card used to be emitted unconditionally, which made
+    # `render_share_page`'s "No share cards yet" message dead code and published
+    # "My 1970 in books · 0 books · 0 pages · 0.0 hours across 0 reading days"
+    # to anyone with no reading source connected. A year with no measurement
+    # behind it is not a year to post about.
+    if wrapped.measured:
+        cards.append(year_in_books_card(wrapped, hidden, fixture=fixture))
     if finished:
         cards.append(finished_book_card(finished[0], hidden, fixture=fixture))
     return tuple(cards)

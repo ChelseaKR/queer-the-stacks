@@ -44,6 +44,16 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   ethical-catalog recommender with explanations, auth-gated self-hosted dashboard).
 
 ### Changed
+- **Public dataclass shape:** `Wrapped.year` is now `Optional[int]`, and is
+  `None` when no reading record exists to infer a year from. `Wrapped` gains
+  `unmeasured()`, `measured`, and `year_label`; `ReadingStats` gains
+  `measured`; `Goal` gains `measurable`; `ReadingState` gains a
+  `progress_recorded` property; `DashboardView` gains `to_read_taste_ranked`.
+  All are additive with defaults except the `year` widening, which any consumer
+  interpolating `wrapped.year` into text must now guard — the render sites in
+  this repo do, and `year_label` exists for exactly that use. The vocabulary
+  deliberately matches `Forecast.estimable` and `DiversityReport.shelf_fallback`
+  rather than introducing a third way to say "not measured".
 - The accessibility gate now audits every HTML document the app serves, not two
   of the three. The share-card page reached the structural checker only through
   a unit test; the pa11y/axe, light/dark, and 320 px reflow layers never loaded
@@ -81,6 +91,32 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   falling back to the weaker grep pattern set, closing the SEC-18 honesty gap (2026-07-05).
 
 ### Fixed
+- Absence is rendered as absence, not as a zero or the year 1970 (#78). With no
+  KOReader `statistics.sqlite` every book reads as `UNREAD` and `daily_activity`
+  is empty — "no reading-data source is connected", which the dashboard
+  presented as "you have read nothing". `_infer_today_and_year` had no sentinel
+  and answered **1970**, the epoch escaping through ordinal arithmetic, and that
+  reached five rendered places: "Reading Wrapped 1970", "0.0 hours read in
+  1970", "Standout reads of 1970", "Books in 1970: 0 / 52 — 0%", and — on
+  `/share`, the surface designed to be posted publicly — "My 1970 in books · 0
+  books · 0 pages · 0.0 hours across 0 reading days", because the year card was
+  emitted unconditionally and the honest "No share cards yet" fallback was dead
+  code. The reading-stats table printed eight confident zeros; all 1,907 to-read
+  books rendered "0% complete" under a filled-to-zero meter, for books with no
+  progress record at all. Measured against the real 1,907-book library: the year
+  is now unset rather than invented, every unmeasured figure renders "not
+  measured" with a note naming the missing source, the progress meter is omitted
+  where nothing measured progress, `/share` composes no card, and a new
+  data-status row says whether any reading-data source is connected — something
+  `stacks doctor` already knew and the dashboard did not.
+- The to-read shelf no longer presents alphabetical order as personalization.
+  `app.shelf.to_read` is documented as "best taste-fit first" and the OPDS blurb
+  said "ranked by fit to your sourced taste", but the taste profile is built
+  from finished books; with none, it holds 0 theme weights and 0 finished
+  authors, every fit score is 0, and the result is byte-for-byte
+  `sorted(unread, key=title)` — verified on the real library. The ordering is
+  unchanged; the claim about it is now conditional on there being a taste to
+  rank by, on both the dashboard and the OPDS feed an e-reader browses.
 - The app-state store records which world wrote it, so demo fixtures can no
   longer be served as a real library. Demo and real refreshes share one store
   path by default, and a demo refresh used to stamp its nine fixture books with

@@ -50,8 +50,18 @@ FIXED_UPDATED = "1970-01-01T00:00:00Z"
 
 #: (shelf id, nav-entry title, nav-entry blurb) for the four shelves served,
 #: in the order they're listed on the root navigation feed.
+#: The ``to-read`` blurb depends on whether the shelf was really taste-ranked.
+#: The ranking needs finished books to build a profile from; without them every
+#: fit score is 0 and the shelf is alphabetical, so the feed browsed from an
+#: e-reader must not promise a personalization it did not perform.
+TO_READ_BLURB_RANKED = "Unread, owned books ranked by fit to your sourced taste."
+TO_READ_BLURB_ALPHABETICAL = (
+    "Unread, owned books in title order. No finished books are recorded, so "
+    "there is no taste profile to rank by."
+)
+
 SHELVES: tuple[tuple[str, str, str], ...] = (
-    ("to-read", "To read", "Unread, owned books ranked by fit to your sourced taste."),
+    ("to-read", "To read", TO_READ_BLURB_RANKED),
     ("currently-reading", "Currently reading", "Books in progress right now, across devices."),
     ("series-next", "Series next", "Unread books that continue a series you've already started."),
     ("recommendations", "Recommendations", "Hybrid picks, each with a sourced why and citation."),
@@ -185,6 +195,18 @@ def fixture_subtitle(view: DashboardView, shelf_id: str = "") -> str:
     return ""
 
 
+def shelf_blurb(shelf_id: str, default: str, view: DashboardView) -> str:
+    """The nav blurb for ``shelf_id``, corrected to what the shelf actually is.
+
+    Only ``to-read`` varies: its default describes a taste ranking that does not
+    happen when the taste profile is empty. Every other shelf's blurb states its
+    contents, not a computation, so it is returned unchanged.
+    """
+    if shelf_id == "to-read" and not view.to_read_taste_ranked:
+        return TO_READ_BLURB_ALPHABETICAL
+    return default
+
+
 def _author_xml(authors: tuple[str, ...]) -> str:
     if not authors:
         return "<author><name>Unknown</name></author>"
@@ -224,7 +246,7 @@ def build_root_navigation(view: DashboardView) -> str:
         f"<id>urn:qts:{escape(shelf_id)}</id>"
         f"<updated>{FIXED_UPDATED}</updated>"
         f'<link rel="subsection" href="/opds/{escape(shelf_id)}" type="{ACQ_TYPE}"/>'
-        f'<content type="text">{escape(blurb)} '
+        f'<content type="text">{escape(shelf_blurb(shelf_id, blurb, view))} '
         f"({counts[shelf_id]} book{'' if counts[shelf_id] == 1 else 's'}.)</content>"
         "</entry>"
         for shelf_id, title, blurb in SHELVES

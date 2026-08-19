@@ -19,6 +19,7 @@ from recommender.eval import PopCandidate
 from recommender.explain import NearMiss, near_misses
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
+from recommender.model import build_taste_profile
 
 from app.diversity import DEFAULT_DIMENSIONS, DiversityReport, compute_diversity, load_lens_config
 from app.forecast import Forecast, forecast_book
@@ -72,6 +73,11 @@ class DashboardView:
     #: reads the real store for states while still substituting fixture
     #: candidates, so a page can be honest about one and lying about the other.
     fixture_candidates: bool = False
+    #: :func:`app.shelf.to_read` actually had a taste signal to rank by. The
+    #: shelf is documented as "best taste-fit first"; with an empty taste profile
+    #: every book scores 0 and the result collapses to ``sorted(unread, key=title)``.
+    #: Surfaces describe the order they got, not the one the function is named for.
+    to_read_taste_ranked: bool = False
     browse_query: str = ""
     browse_theme: str = ""
     browse_author: str = ""
@@ -81,14 +87,23 @@ class DashboardView:
 
 def _infer_today_and_year(
     states: list[ReadingState], daily_activity: list[DailyActivity]
-) -> tuple[int, int]:
-    """Derive a deterministic 'today' + Wrapped year from the data itself."""
+) -> tuple[int, Optional[int]]:
+    """Derive a deterministic 'today' + Wrapped year from the data itself.
+
+    The year is ``None`` when there is no activity to infer one from. It used to
+    be 1970 — the epoch leaking out of an ordinal arithmetic fallback — which
+    reached five rendered places on a Calibre-only library: "Reading Wrapped
+    1970", "0.0 hours read in 1970", "Standout reads of 1970", "Books in 1970:
+    0 / 52 — 0%", and a ``/share`` card composing "My 1970 in books" for public
+    posting. None of those are readings; they are one missing source, formatted.
+    """
     import datetime
 
     today_ordinal = max((d.day_ordinal for d in daily_activity), default=0)
+    if not today_ordinal:
+        return 0, None
     epoch = datetime.date(1970, 1, 1).toordinal()
-    year = datetime.date.fromordinal(epoch + today_ordinal).year if today_ordinal else 1970
-    return today_ordinal, year
+    return today_ordinal, datetime.date.fromordinal(epoch + today_ordinal).year
 
 
 def _remaining_pages(state: ReadingState) -> int:
@@ -176,6 +191,9 @@ def build_view(
         lists,
         frozenset(r.book.book_id for r in recs),
     )
+    # Built once and passed in, so the shelf's ranking and the claim the page
+    # makes about that ranking are derived from the same profile.
+    taste = build_taste_profile(states, dnf_signals=dnf_signals)
     library = sorted(states, key=lambda s: (s.title.lower(), s.authors))
     reading_now = tuple(currently_reading(states))
     forecasts = tuple(
@@ -199,7 +217,8 @@ def build_view(
         near_misses=tuple(misses),
         forecasts=forecasts,
         series_next=tuple(series_continuations(states)),
-        to_read=tuple(to_read(states)),
+        to_read=tuple(to_read(states, taste)),
+        to_read_taste_ranked=bool(taste.theme_weights),
         library=tuple(library),
         goals=goals,
         diversity=diversity,
@@ -237,6 +256,7 @@ def render_view(view: DashboardView) -> str:
         catalog_status=view.catalog_status,
         fixture_states=view.fixture_states,
         fixture_candidates=view.fixture_candidates,
+        to_read_taste_ranked=view.to_read_taste_ranked,
         browse_query=view.browse_query,
         browse_theme=view.browse_theme,
         browse_author=view.browse_author,

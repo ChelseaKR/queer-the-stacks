@@ -63,6 +63,15 @@ def to_read(states: list[ReadingState], taste: TasteProfile | None = None) -> li
 
     Fit is the count of a book's sourced themes that are in the taste profile, so
     the shelf leans toward what you already love without any inference.
+
+    **The ordering is only taste-ranked when there is a taste to rank by.** The
+    profile is built from finished books; with none — a Calibre-only library has
+    no reading status at all — ``theme_weights`` is empty, ``fit`` is 0 for every
+    book, and the sort collapses to ``sorted(unread, key=title)``. The function
+    still returns the right answer; what it must not do is let a caller describe
+    that answer as personalization. Callers check ``taste.theme_weights`` (see
+    :attr:`app.view.DashboardView.to_read_taste_ranked`) and say which order the
+    reader is actually looking at.
     """
     profile = taste or build_taste_profile(states)
     continuation_titles = {c.title for c in series_continuations(states)}

@@ -80,20 +80,35 @@ def _theme_chips(state: ReadingState, hidden: frozenset[str] = frozenset()) -> s
 
 
 def _reading_item(state: ReadingState, hidden: frozenset[str] = frozenset()) -> str:
+    """One book on a shelf, with its progress **only if progress was recorded**.
+
+    This renders the to-read shelf as well as the currently-reading one. A book
+    nothing has ever opened has no progress record, and ``percent_complete``
+    returns 0.0 for it — indistinguishable, once rendered, from a book opened
+    and not yet started. All 1,907 books of a Calibre-only library showed
+    "0% complete · last on —" under a filled-to-zero meter. A meter with no
+    measurement behind it is removed rather than drawn empty.
+    """
     authors = escape(", ".join(state.authors) or "unknown author")
-    device = escape(state.latest_device or "—")
     title = escape(state.title)
-    progress = max(0, min(100, round(state.percent_complete * 100)))
+    if not state.progress_recorded:
+        progress_block = f'<p class="progress-label">Progress: {escape(NOT_MEASURED)}</p>'
+    else:
+        device = escape(state.latest_device or "—")
+        progress = max(0, min(100, round(state.percent_complete * 100)))
+        progress_block = (
+            f'<p class="progress-label"><strong>{progress}% complete</strong>'
+            f" · last on {device}</p>"
+            f'<progress max="100" value="{progress}" '
+            f'aria-label="Reading progress for {title}">{progress}%</progress>'
+        )
     return (
         '<li class="reading">'
         '<div class="shelfmark" aria-hidden="true"><span>IN CIRCULATION</span></div>'
         '<div class="reading-copy">'
         f"<h3>{title}</h3>"
         f'<p class="byline">by {authors}</p>'
-        f'<p class="progress-label"><strong>{progress}% complete</strong>'
-        f" · last on {device}</p>"
-        f'<progress max="100" value="{progress}" '
-        f'aria-label="Reading progress for {title}">{progress}%</progress>'
+        f"{progress_block}"
         f"{_theme_chips(state, hidden)}</div>"
         "</li>"
     )
@@ -127,21 +142,50 @@ def _fixture_note(message: str) -> str:
     return f'<p class="fixture-note" role="alert">{escape(message)}</p>'
 
 
+#: Rendered in place of any figure that nothing measured. One string, so a
+#: reader who learns what it means on one panel knows it everywhere, and a test
+#: can assert a page contains no imputed zero.
+NOT_MEASURED = "not measured"
+
+#: Why the figures are unavailable, said once per panel that would otherwise
+#: show a column of zeros. Names the missing source and what connecting it does,
+#: like `app.diversity`'s shelf-fallback note.
+NO_READING_SOURCE_NOTE = (
+    "No reading-data source is connected, so nothing here has been measured. "
+    "These are not counts of zero: a Calibre library records what you own, not "
+    "what you have read. Connect KOReader to measure reading."
+)
+
+
 def _stats_table(stats: ReadingStats) -> str:
+    """The reading totals — or an honest refusal to state them.
+
+    Eight zeros presented as measurements is the failure this guards. With no
+    KOReader source every one of these is zero, and the panel said "Books
+    finished 0 · Pages read 0 · Time read 0.0" to a reader with 1,907 books.
+    """
+    values = (
+        ("Books finished", str(stats.books_finished)),
+        ("Currently reading", str(stats.books_reading)),
+        ("Pages read", str(stats.pages_read)),
+        ("Time read (hours)", str(stats.read_time_hours)),
+        ("Current streak (days)", str(stats.current_streak_days)),
+        ("Longest streak (days)", str(stats.longest_streak_days)),
+        ("Active reading days", str(stats.active_days)),
+        ("Highlights", str(stats.total_highlights)),
+    )
     rows = "".join(
-        f'<tr><th scope="row">{escape(label)}</th><td>{escape(value)}</td></tr>'
-        for label, value in (
-            ("Books finished", str(stats.books_finished)),
-            ("Currently reading", str(stats.books_reading)),
-            ("Pages read", str(stats.pages_read)),
-            ("Time read (hours)", str(stats.read_time_hours)),
-            ("Current streak (days)", str(stats.current_streak_days)),
-            ("Longest streak (days)", str(stats.longest_streak_days)),
-            ("Active reading days", str(stats.active_days)),
-            ("Highlights", str(stats.total_highlights)),
-        )
+        f'<tr><th scope="row">{escape(label)}</th>'
+        f"<td>{escape(value if stats.measured else NOT_MEASURED)}</td></tr>"
+        for label, value in values
+    )
+    note = (
+        f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)}</p>'
+        if not stats.measured
+        else ""
     )
     return (
+        f"{note}"
         "<table><caption>Reading totals (data-table equivalent of the stats panel)"
         '</caption><thead><tr><th scope="col">Metric</th>'
         f'<th scope="col">Value</th></tr></thead><tbody>{rows}</tbody></table>'
@@ -190,6 +234,17 @@ def _wrapped_table(wrapped: Wrapped) -> str:
     the column names its scope, and when the totals do exceed the year the
     caption says why before the reader has to work it out.
     """
+    if not wrapped.measured:
+        # No year was inferable, so there is no "standout reads of <year>" to
+        # rank — the caption used to name 1970 and the body claimed no finished
+        # books were recorded in it.
+        return (
+            "<table><caption>Standout reads — "
+            f"{escape(NOT_MEASURED)}. {escape(NO_READING_SOURCE_NOTE)}</caption>"
+            '<thead><tr><th scope="col">Title</th>'
+            '<th scope="col">Author</th><th scope="col">Hours (all time)</th></tr></thead>'
+            f'<tbody><tr><td colspan="3">{escape(NOT_MEASURED)}</td></tr></tbody></table>'
+        )
     standouts = "".join(
         f'<tr><th scope="row">{escape(r.title)}</th>'
         f"<td>{escape(', '.join(r.authors) or 'unknown')}</td>"
@@ -458,7 +513,10 @@ th, td {
   text-align: left; vertical-align: top; overflow-wrap: anywhere;
 }
 thead th { color: var(--plum-dark); background: var(--wash); }
-.lens-warning, .status-note, .fixture-note { padding: .75rem 1rem;
+/* `.absence-note` marks "nothing measured this", distinct from `.status-note`'s
+   "this is stale" — same visual weight, because both are the page declining to
+   let a reader believe something it cannot support. */
+.lens-warning, .status-note, .fixture-note, .absence-note { padding: .75rem 1rem;
   border-left: .3rem solid var(--plum); background: var(--wash); }
 @media (max-width: 48rem) {
   .section-heading, .recommendation-grid, .next-shelves {
@@ -541,7 +599,10 @@ def _series_table(series_next: Sequence[SeriesNext]) -> str:
 
 
 def _monthly_table(wrapped: Wrapped) -> str:
-    if not wrapped.monthly:
+    # An unmeasured Wrapped has no months, so this already renders nothing; the
+    # guard is explicit so the `wrapped.year` interpolation below is unreachable
+    # without a year rather than merely unreached.
+    if not wrapped.measured or not wrapped.monthly:
         return ""
     names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     rows = "".join(
@@ -559,16 +620,31 @@ def _monthly_table(wrapped: Wrapped) -> str:
 
 
 def _goals_section(goals: Sequence[Goal]) -> str:
+    """Goal progress — or "not measured", never an unearned 0%.
+
+    A goal whose metric nothing measured is not 0% complete. Rendering it as
+    "0 / 52 — 0%" tells a reader they are failing a target that was never
+    checked, which is worse than saying nothing.
+    """
     if not goals:
         return ""
     rows = "".join(
         f'<tr><th scope="row">{escape(g.name)}</th>'
-        f"<td>{g.current} / {g.target}</td>"
-        f"<td>{g.pct:.0%}{' ✓ met' if g.met else ''}</td></tr>"
+        + (
+            f"<td>{g.current} / {g.target}</td><td>{g.pct:.0%}{' ✓ met' if g.met else ''}</td></tr>"
+            if g.measurable
+            else f"<td>{NOT_MEASURED} / {g.target}</td><td>{NOT_MEASURED}</td></tr>"
+        )
         for g in goals
+    )
+    note = (
+        f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)}</p>'
+        if not all(g.measurable for g in goals)
+        else ""
     )
     return (
         "<h3>Goals</h3>"
+        f"{note}"
         "<table><caption>Your reading goals (set locally, shared with no one)</caption>"
         '<thead><tr><th scope="col">Goal</th><th scope="col">Progress</th>'
         f'<th scope="col">%</th></tr></thead><tbody>{rows}</tbody></table>'
@@ -871,12 +947,19 @@ def _catalog_status_section(status: CatalogPoolStatus) -> str:
     )
 
 
+#: The data-status answer to "is anything measuring my reading?". Stated
+#: positively in both directions, like the provenance rows beside it.
+READING_SOURCE_CONNECTED = "reading records present (KOReader statistics)"
+READING_SOURCE_MISSING = "none connected — Calibre metadata only, nothing measures reading"
+
+
 def _data_status_section(
     refreshed_at: Optional[int] = None,
     stale: bool = False,
     *,
     fixture_states: bool = False,
     fixture_candidates: bool = False,
+    reading_data_measured: bool = True,
 ) -> str:
     """Say what the dashboard knows and how old it is — never silently stale.
 
@@ -906,10 +989,15 @@ def _data_status_section(
     candidate_source = (
         "built-in demo fixtures" if fixture_candidates else "your stored catalog pool"
     )
+    reading_source = READING_SOURCE_CONNECTED if reading_data_measured else READING_SOURCE_MISSING
     rows += (
         f'<tr><th scope="row">Library &amp; stats source</th><td>{states_source}</td></tr>'
         '<tr><th scope="row">Recommendation candidates</th>'
         f"<td>{candidate_source}</td></tr>"
+        # `stacks doctor` has always known this; the dashboard did not, so a
+        # reader could not tell a quiet reading year from an absent source.
+        '<tr><th scope="row">Reading-data sources</th>'
+        f"<td>{escape(reading_source)}</td></tr>"
     )
     return (
         f"{banner}"
@@ -941,6 +1029,7 @@ def render_dashboard(
     catalog_status: Optional[CatalogPoolStatus] = None,
     fixture_states: bool = False,
     fixture_candidates: bool = False,
+    to_read_taste_ranked: bool = False,
     browse_query: str = "",
     browse_theme: str = "",
     browse_author: str = "",
@@ -953,6 +1042,10 @@ def render_dashboard(
     demo world rather than the reader's libraries, and are rendered as visible
     banners. They are not cosmetic: fixture books served without them are
     indistinguishable from a real ingest on every surface this function emits.
+
+    ``to_read_taste_ranked`` says whether the to-read shelf was actually ordered
+    by taste; when it is False the shelf is alphabetical and the page says so
+    instead of describing the same list as personalization.
     """
     catalog = catalog_status or CatalogPoolStatus()
     # The privacy toggle governs the whole document, not only the diversity
@@ -989,6 +1082,20 @@ def render_dashboard(
         stale,
         fixture_states=fixture_states,
         fixture_candidates=fixture_candidates,
+        reading_data_measured=stats.measured,
+    )
+    # The Wrapped summary line states figures scoped to a year. With no year
+    # there is nothing to scope them to, so the sentence is replaced rather than
+    # filled with zeros — it used to read "0 books finished · 0.0 hours read in
+    # 1970 · 0 reading days".
+    wrapped_summary = (
+        f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
+        f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
+        "locally, shared with no one.</p>"
+        if wrapped.measured
+        else f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '
+        "A year in review is scoped to a year inferred from your reading record, "
+        "so there is no year to report yet.</p>"
     )
     near_miss_cards = "".join(_near_miss_card(m) for m in near_misses)
     near_miss_section = (
@@ -1003,6 +1110,19 @@ def render_dashboard(
     )
     tbr_items = "".join(_reading_item(s, hidden_descriptors) for s in to_read[:10]) or (
         "<li>Nothing on your to-read shelf.</li>"
+    )
+    # The shelf's *order* is a claim about personalization. With no finished
+    # books the taste profile is empty, every fit score is 0, and the sort
+    # collapses to alphabetical — which the page described as "best taste-fit
+    # first". Name the order the reader is actually looking at.
+    tbr_order_note = (
+        "<p>Unread books you own, ranked by fit to your sourced themes, with "
+        "series continuations floated to the top.</p>"
+        if to_read_taste_ranked
+        else '<p class="absence-note" role="status">Listed alphabetically by title. '
+        "Ranking by taste needs finished books to build a profile from, and none "
+        "are recorded yet, so this is your unread shelf in title order — not a "
+        "personalized ranking.</p>"
     )
     library_preview = library[:LIBRARY_PREVIEW_LIMIT]
     library_complete = len(library_preview) == len(library)
@@ -1065,6 +1185,7 @@ def render_dashboard(
         '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
         f"{_series_table(series_next)}</div>"
         '<div class="shelf-block"><h3>To-read shelf</h3>'
+        f"{tbr_order_note}"
         f'<ul class="books">{tbr_items}</ul></div></div>'
         "</section>"
         '<section id="finished" class="home-section">'
@@ -1093,10 +1214,8 @@ def render_dashboard(
         '<details><summary>Stats, goals &amp; yearly history</summary><div class="details-inner">'
         "<h3>Reading stats</h3>"
         f"{_stats_table(stats)}{_theme_mix_table(stats, hidden_descriptors)}"
-        f"<h3>Reading Wrapped {wrapped.year}</h3>"
-        f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
-        f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
-        "locally, shared with no one.</p>"
+        f"<h3>Reading Wrapped {escape(wrapped.year_label)}</h3>"
+        f"{wrapped_summary}"
         f"{_wrapped_table(wrapped)}{_monthly_table(wrapped)}{_goals_section(goals)}"
         '<p><a href="/share">Make a share card for Bookwyrm or Mastodon</a> — '
         "composed locally; nothing is posted until you copy and share it yourself.</p>"
