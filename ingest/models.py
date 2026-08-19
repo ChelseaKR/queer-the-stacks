@@ -240,6 +240,17 @@ class ReadingState:
         return self.stat.percent_complete if self.stat else 0.0
 
     @property
+    def progress_recorded(self) -> bool:
+        """Whether any source recorded progress for this book at all.
+
+        :attr:`percent_complete` answers 0.0 both for a book opened and not yet
+        started and for a book no reader or device has ever touched. Only this
+        separates them, and a surface that draws a progress meter needs the
+        difference: an owned, never-opened book is not 0% read, it is unmeasured.
+        """
+        return bool(self.progress) or self.stat is not None
+
+    @property
     def latest_device(self) -> Optional[str]:
         if not self.progress:
             return None

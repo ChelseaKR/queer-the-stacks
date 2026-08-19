@@ -22,9 +22,16 @@ must say so too.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from ingest.koreader import SECONDS_PER_DAY
 from ingest.models import DailyActivity, ReadingState, ReadingStatus
+
+#: Said wherever a Wrapped year cannot be named. A year is inferred from the
+#: reading record itself, so with no reading-data source connected there is no
+#: year to infer — and the epoch fallback that used to fill the gap rendered as
+#: "Reading Wrapped 1970" over a row of confident zeros.
+UNMEASURED_YEAR_LABEL = "not measured"
 
 
 def _jan1_ordinal(year: int) -> int:
@@ -66,9 +73,17 @@ class StandoutRead:
 
 @dataclass(frozen=True)
 class Wrapped:
-    """The committed shape of a year-in-review."""
+    """The committed shape of a year-in-review.
 
-    year: int
+    :attr:`year` is ``None`` when there is no reading record to infer a year
+    from. That is a distinct state from "a year in which you read nothing", and
+    the two must not render alike: every figure below is zero in both cases, but
+    only one of them is a measurement. Mirrors :attr:`app.forecast.Forecast.estimable`
+    and :attr:`app.diversity.DiversityReport.shelf_fallback` — this module's
+    neighbours already refuse to guess; this one used to answer 1970.
+    """
+
+    year: Optional[int]
     books_finished: int
     pages_read: int
     read_time_seconds: int
@@ -79,6 +94,35 @@ class Wrapped:
     standout_reads: tuple[StandoutRead, ...]
     monthly: tuple[MonthStat, ...] = ()  # 12 entries, Jan..Dec
     pace_pages_per_day: float = 0.0  # mean pages on days you actually read
+
+    @staticmethod
+    def unmeasured() -> Wrapped:
+        """The no-source variant: no year, and nothing counted within one.
+
+        The zeros here are structural padding, never findings. :attr:`measured`
+        is the flag a surface keys off; it is False exactly when :attr:`year`
+        is None, kept as a named property so render sites read as intent rather
+        than as a null check.
+        """
+        return Wrapped(
+            year=None,
+            books_finished=0,
+            pages_read=0,
+            read_time_seconds=0,
+            days_read=0,
+            theme_breakdown=(),
+            standout_reads=(),
+        )
+
+    @property
+    def measured(self) -> bool:
+        """Whether this Wrapped describes a real year of reading records."""
+        return self.year is not None
+
+    @property
+    def year_label(self) -> str:
+        """The year as rendered — never a fabricated one."""
+        return UNMEASURED_YEAR_LABEL if self.year is None else str(self.year)
 
     @property
     def read_time_hours(self) -> float:
@@ -114,11 +158,18 @@ def _in_year(ts: int, lo: int, hi: int) -> bool:
 def compute_wrapped(
     states: list[ReadingState],
     daily_activity: list[DailyActivity],
-    year: int,
+    year: Optional[int],
     *,
     top_n: int = 5,
 ) -> Wrapped:
-    """Compute a private year-in-review for ``year`` from local reading state."""
+    """Compute a private year-in-review for ``year`` from local reading state.
+
+    ``year`` is ``None`` when no reading record exists to infer one from (see
+    :func:`app.view._infer_today_and_year`), and the result is
+    :meth:`Wrapped.unmeasured` — not a zeroed year, which would be a claim.
+    """
+    if year is None:
+        return Wrapped.unmeasured()
     lo, hi = year_bounds(year)
 
     finished_this_year = [

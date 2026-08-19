@@ -15,9 +15,20 @@ from app.wrapped import Wrapped
 
 @dataclass(frozen=True)
 class Goal:
+    """One target and progress toward it.
+
+    :attr:`measurable` is False when nothing measured the metric behind the
+    goal. Progress against an unmeasured metric is not 0% — it is unknown, and
+    "Books in 1970: 0 / 52 — 0%" told a reader with no KOReader source that they
+    were failing a goal nothing had checked.
+    """
+
     name: str
     current: int
     target: int
+    #: A reading record exists for this goal's metric. When False, :attr:`current`
+    #: is structural padding and every surface must say so instead of rendering it.
+    measurable: bool = True
 
     @property
     def pct(self) -> float:
@@ -25,7 +36,7 @@ class Goal:
 
     @property
     def met(self) -> bool:
-        return self.target > 0 and self.current >= self.target
+        return self.measurable and self.target > 0 and self.current >= self.target
 
 
 def compute_goals(
@@ -41,14 +52,26 @@ def compute_goals(
 
     Time goals are tracked in whole hours read this year (rounded from the
     sourced KOReader read-time); streak goals track your longest streak.
+
+    A year-scoped goal is named for its year only when there is one. With no
+    reading source the year is unknown, so the name drops it rather than
+    inheriting the epoch — "Books in 1970" named a year the reader never saw a
+    single figure from.
     """
     out: list[Goal] = []
+    scope = f" in {wrapped.year}" if wrapped.measured else ""
     if books_target > 0:
-        out.append(Goal(f"Books in {wrapped.year}", wrapped.books_finished, books_target))
+        out.append(Goal(f"Books{scope}", wrapped.books_finished, books_target, wrapped.measured))
     if pages_target > 0:
-        out.append(Goal(f"Pages in {wrapped.year}", wrapped.pages_read, pages_target))
+        out.append(Goal(f"Pages{scope}", wrapped.pages_read, pages_target, wrapped.measured))
     if hours_target > 0:
-        out.append(Goal(f"Hours in {wrapped.year}", round(wrapped.read_time_hours), hours_target))
+        out.append(
+            Goal(f"Hours{scope}", round(wrapped.read_time_hours), hours_target, wrapped.measured)
+        )
     if streak_target > 0:
-        out.append(Goal("Longest streak (days)", stats.longest_streak_days, streak_target))
+        # Streaks come from per-day activity via `stats`, not from the Wrapped
+        # year, so they carry their own measured flag.
+        out.append(
+            Goal("Longest streak (days)", stats.longest_streak_days, streak_target, stats.measured)
+        )
     return tuple(out)
