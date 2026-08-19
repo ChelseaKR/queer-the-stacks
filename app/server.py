@@ -428,7 +428,9 @@ def _share(request: Request) -> HTMLResponse:
 
     view = _load_view(request.app)
     cards = build_share_cards(view)
-    return HTMLResponse(content=render_share_page(cards, user=view.user))
+    return HTMLResponse(
+        content=render_share_page(cards, user=view.user, fixture_states=view.fixture_states)
+    )
 
 
 def _share_card_svg(request: Request, kind: str = "year") -> Response:
