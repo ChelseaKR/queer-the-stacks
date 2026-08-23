@@ -358,7 +358,7 @@ class Store:
                 if isinstance(item, dict):
                     try:
                         books.append(book_from_dict(item))
-                    except KeyError, TypeError, ValueError:
+                    except (KeyError, TypeError, ValueError):
                         continue
         from recommender.catalogs import merge_candidates
 

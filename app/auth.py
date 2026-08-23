@@ -121,7 +121,7 @@ def verify_session(
         return False
     try:
         issued_at = int(base64.urlsafe_b64decode(issued_at_b64.encode("ascii")).decode("ascii"))
-    except ValueError, UnicodeDecodeError:
+    except (ValueError, UnicodeDecodeError):
         return False
     age = now - issued_at
     return not (age < 0 or age > SESSION_TTL_SECONDS)

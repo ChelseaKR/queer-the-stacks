@@ -359,7 +359,7 @@ class ResponseCache:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     self._mem = {str(k): str(v) for k, v in loaded.items()}
-            except ValueError, OSError:  # pragma: no cover - corrupt cache is non-fatal
+            except (ValueError, OSError):  # pragma: no cover - corrupt cache is non-fatal
                 self._mem = {}
 
     def get(self, url: str) -> Optional[str]:
