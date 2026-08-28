@@ -13,6 +13,19 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Fixed
+- **The a11y gate's page list was three hand-maintained lists that nothing tied
+  together.** `test_build_all_writes_every_audited_document` never called
+  `build_all()` — it hand-called the three builders, so `build_all` could stop
+  writing `docs/audits/share.html` with the test green. Because that file is
+  committed, `make a11y`'s existence guard would keep passing on the stale copy
+  and the share page would go unaudited indefinitely. Separately, the
+  `Makefile`'s `A11Y_PAGES` literal was compared to neither `build_all()` nor
+  `HTML_ROUTE_COVERAGE`, so a fourth user-facing document added to two of the
+  three lists would simply never be loaded by the gate. `build_all()` now takes
+  an optional output directory so the test can call the function itself, and a
+  new test asserts all three lists are the same set.
+
+### Fixed
 - **The CSP drift test was a closed tautology, and the external-link check was
   existential.** Both in `tests/test_security_headers.py`.
   - The drift test recomputed `sha256(_STYLE)` and compared it to
