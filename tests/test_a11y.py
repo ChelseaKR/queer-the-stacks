@@ -9,6 +9,8 @@ from app.render import render_dashboard
 from app.server import _render_login_page
 from app.view import demo_view
 
+from tests.makefilevars import makefile_list, makefile_variables
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -146,29 +148,6 @@ def test_build_all_writes_every_audited_document(tmp_path: Path) -> None:
         assert check_html(path.read_text(encoding="utf-8")) == [], path.name
 
 
-def _makefile_variables() -> dict[str, str]:
-    """Expand the ``NAME := value`` assignments in the Makefile.
-
-    Only the two forms this Makefile uses are handled: simple ``:=``
-    assignment, and ``$(NAME)`` references to earlier assignments. Anything
-    else is left as written, which would show up as an unexpanded ``$(`` in
-    the value and fail the assertion that consumes it.
-    """
-    values: dict[str, str] = {}
-    for line in (REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines():
-        if line.startswith(("\t", " ")) or ":=" not in line:
-            continue
-        name, _, raw = line.partition(":=")
-        name = name.strip()
-        if not name.replace("_", "").isalnum():
-            continue
-        expanded = raw.split("#")[0].strip()
-        for known, value in values.items():
-            expanded = expanded.replace(f"$({known})", value)
-        values[name] = expanded
-    return values
-
-
 def test_the_makefile_scans_exactly_the_documents_build_all_writes(tmp_path: Path) -> None:
     """Tie the gate's page list to the generator, so neither can drift alone.
 
@@ -181,13 +160,7 @@ def test_the_makefile_scans_exactly_the_documents_build_all_writes(tmp_path: Pat
     """
     from app import build_static
 
-    variables = _makefile_variables()
-    assert "A11Y_PAGES" in variables, "Makefile no longer defines A11Y_PAGES"
-    scanned = set(variables["A11Y_PAGES"].split())
-    assert scanned, "the a11y gate's page list is empty"
-    assert not any("$(" in page for page in scanned), (
-        f"A11Y_PAGES did not fully expand: {sorted(scanned)}"
-    )
+    scanned = set(makefile_list("A11Y_PAGES"))
 
     generated = {
         (build_static.DEFAULT_OUT_DIR / path.name).as_posix()
@@ -206,9 +179,8 @@ def test_the_makefile_scans_exactly_the_documents_build_all_writes(tmp_path: Pat
 
 def test_the_makefile_variable_expander_works() -> None:
     """The expander is measured, so an empty result cannot pass as agreement."""
-    variables = _makefile_variables()
-    assert variables.get("A11Y_HTML") == "docs/audits/dashboard.html"
-    assert variables.get("A11Y_PAGES", "").split() == [
+    assert makefile_variables().get("A11Y_HTML") == "docs/audits/dashboard.html"
+    assert makefile_list("A11Y_PAGES") == [
         "docs/audits/dashboard.html",
         "docs/audits/login.html",
         "docs/audits/share.html",

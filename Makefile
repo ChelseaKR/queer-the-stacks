@@ -1,6 +1,9 @@
 # Queer the Stacks — single source of truth for the local + CI gates.
-# `make verify` runs the same checkable gates CI enforces (QUALITY-AND-METRICS
-# STANDARD §"enforcement pipeline"), in order.
+# `make verify` runs the checkable gates CI enforces (QUALITY-AND-METRICS
+# STANDARD §"enforcement pipeline"), in order, with two documented exceptions:
+# `ci.yml` additionally runs `make perf-load` and `make lighthouse` as
+# non-conditional blocking steps, and `verify` does not, because both need a
+# booted server or a downloaded Chromium. Run `make perf-gates` for those.
 
 PYTHON  ?= .venv/bin/python
 PIP     ?= .venv/bin/pip
@@ -43,23 +46,46 @@ lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset) + mark
 	$(PYTHON) -m ruff check .
 	@$(MAKE) --no-print-directory marker-hygiene
 
+# Every directory the marker scan covers. Named once, so `tests/test_polish.py`
+# can assert this list still matches the packages that exist — a scan that
+# silently stops covering a directory is the failure this variable prevents.
+MARKER_ROOTS := ingest recommender app tests
+
 # CQ-34/35: state is already clean (verified 2026-07-05) — freeze it. Bare
 # TODO/FIXME/HACK and un-coded noqa/type-ignore suppressions are the AUTO
 # check; the standard's issue-link requirement is warn-only for now (ratchet
-# later). `|| true` on the grep itself just avoids grep's "no match" exit
-# code tripping `set -e` — the real gate is the line count check after it.
+# later).
+#
+# grep exits 0 on a match, 1 on no match, and 2 on an *error* — an unreadable
+# file, or a directory that is not there. The previous `|| true` swallowed all
+# three alike, so renaming any scanned directory made every scan return empty
+# and the target print "0 bare markers" and exit 0, having read nothing.
+# Verified: `grep -rnE ... ingest recommender app_RENAMED tests` exits 2, and a
+# planted `# TODO` inside a renamed directory went unreported. Each scan below
+# keeps its exit code and treats anything above 1 as a failure.
 marker-hygiene:
-	@bare_markers=$$(grep -rnE '\b(TODO|FIXME|HACK)\b' --include='*.py' ingest recommender app tests || true); \
-	uncoded_noqa=$$(grep -rnE '# *noqa($$|[^:])' --include='*.py' ingest recommender app tests || true); \
-	uncoded_ignore=$$(grep -rnE 'type: *ignore($$|[^[])' --include='*.py' ingest recommender app tests || true); \
-	if [ -n "$$bare_markers$$uncoded_noqa$$uncoded_ignore" ]; then \
-		echo "marker-hygiene: found bare TODO/FIXME/HACK or un-coded noqa/type-ignore suppressions:"; \
-		[ -n "$$bare_markers" ] && echo "$$bare_markers"; \
-		[ -n "$$uncoded_noqa" ] && echo "$$uncoded_noqa"; \
-		[ -n "$$uncoded_ignore" ] && echo "$$uncoded_ignore"; \
+	@for root in $(MARKER_ROOTS); do \
+		test -d "$$root" || { echo "marker-hygiene: scan root '$$root' does not exist" >&2; exit 1; }; \
+	done; \
+	scanned=$$(find $(MARKER_ROOTS) -name '*.py' -type f | wc -l | tr -d ' '); \
+	if [ "$$scanned" -eq 0 ]; then \
+		echo "marker-hygiene: no Python files under $(MARKER_ROOTS); the scan would pass vacuously" >&2; \
 		exit 1; \
-	fi
-	@echo "marker-hygiene: 0 bare markers, 0 un-coded suppressions"
+	fi; \
+	rc=0; bare_markers=$$(grep -rnE '\b(TODO|FIXME|HACK)\b' --include='*.py' $(MARKER_ROOTS)) || rc=$$?; \
+	if [ "$$rc" -gt 1 ]; then echo "marker-hygiene: marker scan errored (grep exit $$rc)" >&2; exit 1; fi; \
+	rc=0; uncoded_noqa=$$(grep -rnE '# *noqa($$|[^:])' --include='*.py' $(MARKER_ROOTS)) || rc=$$?; \
+	if [ "$$rc" -gt 1 ]; then echo "marker-hygiene: noqa scan errored (grep exit $$rc)" >&2; exit 1; fi; \
+	rc=0; uncoded_ignore=$$(grep -rnE 'type: *ignore($$|[^[])' --include='*.py' $(MARKER_ROOTS)) || rc=$$?; \
+	if [ "$$rc" -gt 1 ]; then echo "marker-hygiene: type-ignore scan errored (grep exit $$rc)" >&2; exit 1; fi; \
+	if [ -n "$$bare_markers$$uncoded_noqa$$uncoded_ignore" ]; then \
+		echo "marker-hygiene: found bare TODO/FIXME/HACK or un-coded noqa/type-ignore suppressions:" >&2; \
+		[ -n "$$bare_markers" ] && echo "$$bare_markers" >&2; \
+		[ -n "$$uncoded_noqa" ] && echo "$$uncoded_noqa" >&2; \
+		[ -n "$$uncoded_ignore" ] && echo "$$uncoded_ignore" >&2; \
+		exit 1; \
+	fi; \
+	echo "marker-hygiene: 0 bare markers, 0 un-coded suppressions across $$scanned files"
 
 typecheck: ## Stage 2 — strict static typing (mypy --strict)
 	$(PYTHON) -m mypy
@@ -76,7 +102,13 @@ security: ## Stage 4 — dependency vulnerability + secret scan + lockfile CVE s
 	@if command -v osv-scanner >/dev/null 2>&1; then \
 		osv-scanner --lockfile=uv.lock; \
 	else \
-		echo "osv-scanner not installed locally — CI installs a pinned binary and runs this blocking (ci.yml); install it (https://google.github.io/osv-scanner) to match CI locally"; \
+		echo "" >&2; \
+		echo "  !! secure gate SKIPPED: osv-scanner is not installed." >&2; \
+		echo "  !! uv.lock was NOT scanned. CI installs a pinned binary and runs this" >&2; \
+		echo "  !! blocking (ci.yml), so a lockfile advisory this leg would have caught" >&2; \
+		echo "  !! will fail your pull request instead of failing here." >&2; \
+		echo "  !! Install it: https://google.github.io/osv-scanner" >&2; \
+		echo "" >&2; \
 	fi
 
 a11y: ## Stage 5 — audit every served page at desktop/mobile/light/dark (blocking)
