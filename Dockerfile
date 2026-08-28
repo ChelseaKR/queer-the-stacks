@@ -8,7 +8,7 @@
 # base as the runtime stage (the standalone `ghcr.io/astral-sh/uv` image has no
 # shell, so `RUN uv export` needs a normal base — just grab the `uv` binary
 # from it via `COPY --from`).
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS export
+FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS export
 COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -18,7 +18,20 @@ RUN uv export --frozen --extra app --no-dev --no-emit-project -o requirements.lo
 # Pinned by digest (Scorecard Pinned-Dependencies; bump both the tag and the
 # digest together when upgrading — `docker pull python:3.14-slim && docker
 # inspect --format='{{index .RepoDigests 0}}' python:3.14-slim`).
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1
+FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
+
+# Apply Debian security updates for OpenSSL. The base image is pinned by
+# digest, so it lags trixie-security by however long it has been since Docker
+# last rebuilt it; on 2026-08-27 that gap was CVE-2026-14456 (openssl
+# 3.5.6-1~deb13u2, fixed in 3.5.7-1~deb13u2), which the merge-blocking Trivy
+# scan reports as a fixable HIGH. Scoped to the three OpenSSL packages and
+# left unversioned on purpose: pinning the exact patch version would break the
+# build the moment Debian rotates it out of the security pocket. Delete this
+# stanza once a base-image digest ships the fix itself.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends --only-upgrade \
+      libssl3t64 openssl openssl-provider-legacy \
+ && rm -rf /var/lib/apt/lists/*
 
 # Don't run as root.
 RUN useradd --create-home --uid 10001 stacks
@@ -35,7 +48,18 @@ COPY pyproject.toml README.md LICENSE ./
 COPY ingest ./ingest
 COPY recommender ./recommender
 COPY app ./app
-RUN pip install --no-cache-dir --no-deps .
+RUN pip install --no-cache-dir --no-deps . \
+ && pip uninstall --yes pip
+
+# The runtime image installs nothing at run time, so `pip` is removed once the
+# two installs above are done. It is not an optimisation: `pip` vendors its own
+# dependency tree under `pip/_vendor/`, and on 2026-08-27 that tree was the sole
+# source of both remaining Trivy findings in this image (msgpack 1.1.2,
+# GHSA-6v7p-g79w-8964; setuptools 70.3.0, CVE-2025-47273). Neither is a
+# dependency of this project — `uv.lock` pins msgpack >= 1.2.1 in the dev extra
+# and the image is built `--no-dev` — so neither could be fixed from
+# `pyproject.toml`. A package installer is also not something a single-user
+# service should carry in its runtime layer.
 
 # Derived app state lives here; mount a volume to persist it.
 ENV STACKS_DATA_DIR=/data

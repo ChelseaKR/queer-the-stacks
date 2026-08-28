@@ -12,6 +12,24 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Security
+- **The container CVE scan has been red on `main` since at least 2026-08-17,
+  with no tree change to explain it.** A digest-pinned base image cannot age
+  well: Debian publishes fixes, the pin does not move, and the scan goes red on
+  its own. Trivy reported 39 fixable HIGH findings against the built image
+  (0 CRITICAL). Now 0, verified locally with the same scanner and flags CI
+  uses. Three causes, all fixed in the `Dockerfile` rather than added to an
+  ignore list: the pinned `python:3.14-slim` digest moved from a Debian 13.5 to
+  a 13.6 build (36 findings); a scoped `apt-get --only-upgrade` of the three
+  OpenSSL packages closes CVE-2026-14456, which a pinned base necessarily lags
+  `trixie-security` on; and `pip` is removed from the runtime layer after the
+  build-time installs, which clears the last two findings
+  (GHSA-6v7p-g79w-8964, CVE-2025-47273) because both lived in `pip`'s own
+  vendored tree and neither was reachable from `pyproject.toml`. A single-user
+  service has no need of a package installer at run time. Recorded in
+  `docs/audits/residual-risk.md`, whose scanner list also now names Trivy and
+  `osv-scanner` rather than only `pip-audit` and `gitleaks`.
+
 ### Fixed
 - **The a11y gate's page list was three hand-maintained lists that nothing tied
   together.** `test_build_all_writes_every_audited_document` never called
