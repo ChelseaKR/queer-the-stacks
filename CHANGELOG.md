@@ -44,6 +44,29 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   new test asserts all three lists are the same set.
 
 ### Fixed
+- **Two more invariants were screened rather than asserted.**
+  - `Author` was checked against a denylist of eight exact field names.
+    `Author` has only ever had two fields, so the equality was available and
+    strictly stronger, and the denylist let through every near miss:
+    `gender_identity`, `pronoun` singular, `queerness`, `identity_labels`,
+    `demographic`, `lgbtq`, `author_race`. Each is exactly the label the
+    README's hardest rule forbids. The field set is now pinned as an equality,
+    with a differential test that builds each near-miss class and shows the old
+    denylist accepting it and the pin rejecting it.
+  - The reproducibility gate rendered a different document than the app serves.
+    It called `render_dashboard` with five of its twenty-three arguments,
+    leaving the goals section, library table, data-status panel, diversity
+    report, near-miss shelf, forecasts and authored lists out of the byte
+    comparison — 27,197 of the served page's 37,315 bytes, 72.9%. Worse, two
+    renders in one process cannot establish build reproducibility at all, since
+    Python randomizes string hashing per process: set-iteration order is stable
+    within a run and varies between runs. The gate now compares `render_view`,
+    the function the server and the static builder both call, and anchors it
+    against the committed `docs/audits/*.html`, which a previous process wrote.
+    That also makes those artifacts provably current rather than merely
+    present, which is what the accessibility gate needs of them.
+
+### Fixed
 - **The CSP drift test was a closed tautology, and the external-link check was
   existential.** Both in `tests/test_security_headers.py`.
   - The drift test recomputed `sha256(_STYLE)` and compared it to
