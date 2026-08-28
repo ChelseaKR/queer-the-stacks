@@ -52,3 +52,44 @@ def makefile_list(name: str, path: Path | None = None) -> list[str]:
     items = value.split()
     assert items, f"{name} is empty"
     return items
+
+
+def makefile_recipe(target: str, path: Path | None = None) -> str:
+    """The recipe body of one Makefile target, tabs stripped, as a single string.
+
+    Some of what keeps a gate able to fail lives in the recipe rather than in a
+    variable: ``marker-hygiene`` is only honest because it inspects each grep's
+    exit code instead of discarding it. A test can assert that here, so removing
+    the discipline is a test failure rather than a silent return to a scan that
+    reports success having read nothing.
+    """
+    lines = (path or MAKEFILE).read_text(encoding="utf-8").splitlines()
+    starts = [i for i, line in enumerate(lines) if line.split("#")[0].rstrip() == f"{target}:"]
+    assert len(starts) == 1, f"expected exactly one `{target}:` recipe, found {len(starts)}"
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line.startswith("\t"):
+            body.append(line[1:])
+            continue
+        if not line.strip() or line.startswith("#"):
+            continue
+        break
+    assert body, f"the {target} target has an empty recipe"
+    return "\n".join(body)
+
+
+def makefile_prerequisites(target: str, path: Path | None = None) -> list[str]:
+    """The prerequisites of one Makefile target, in order, comments stripped.
+
+    ``verify`` is nothing but its prerequisite list: drop a stage from it and
+    ``make verify`` still runs to completion and still prints that every gate is
+    green, having skipped one. Reading the list back lets a test tie it to the
+    stages CI runs.
+    """
+    lines = (path or MAKEFILE).read_text(encoding="utf-8").splitlines()
+    matches = [line for line in lines if line.startswith(f"{target}:")]
+    assert len(matches) == 1, f"expected exactly one `{target}:` rule, found {len(matches)}"
+    _, _, rest = matches[0].partition(":")
+    prerequisites = rest.split("##")[0].split("#")[0].split()
+    assert prerequisites, f"the {target} target has no prerequisites"
+    return prerequisites

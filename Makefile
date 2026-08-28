@@ -46,9 +46,10 @@ lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset) + mark
 	$(PYTHON) -m ruff check .
 	@$(MAKE) --no-print-directory marker-hygiene
 
-# Every directory the marker scan covers. Named once, so `tests/test_polish.py`
-# can assert this list still matches the packages that exist — a scan that
-# silently stops covering a directory is the failure this variable prevents.
+# Every directory the marker scan covers. Named once, so
+# `tests/test_gate_lists.py` can assert this list still matches the packages
+# that exist — a scan that silently stops covering a directory is the failure
+# this variable prevents.
 MARKER_ROOTS := ingest recommender app tests
 
 # CQ-34/35: state is already clean (verified 2026-07-05) — freeze it. Bare
