@@ -12,6 +12,22 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Fixed
+- **The `standards` check could not go green on a forked pull request.**
+  `.github/workflows/standards.yml` skips the private policy fetch on forks,
+  by design, because GitHub withholds repository secrets from them. What was
+  left was a single assertion, `test -s .standards-version` — against a file
+  this repository has never contained in its history, so that lane exited 1
+  every time, for a reason unrelated to the missing credential. `README.md`
+  and `CONTRIBUTING.md` also both linked to the file. `.standards-version` now
+  exists and records `v1.0.1`, the ref the workflow already checks the policy
+  repository out at, which repairs the fork lane and both links at once.
+- **The documented lockstep between the pin and the workflow was not
+  enforced.** `standards.yml`'s `ref:` carries the comment "bump in lockstep
+  with .standards-version" and nothing checked it. `tests/test_standards_pin.py`
+  now reads both files and fails when either moves alone. It needs no
+  credential and no network, so it runs inside `make verify` on forks too.
+
 ### Added
 - A "Why not others?" near-miss section on the recommendation shelf: the
   best-scoring candidates that didn't make the cut, each with the same
