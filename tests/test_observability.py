@@ -136,7 +136,21 @@ def test_request_emits_valid_json_log_without_pii(
         logger.removeHandler(capture)
 
     assert capture.records, "the middleware emitted no log record"
-    line = JsonLogFormatter().format(capture.records[-1])
+
+    # Format *every* record this request produced, not just the last one. The
+    # middleware logs after the route handler returns, so its own record is
+    # always last; a record emitted by the handler sits before it and was never
+    # inspected. app/server.py already emits records of its own on this logger,
+    # so `get_logger().info(f"browse q={q}")` inside the /browse handler would
+    # have written the search term to stdout with this assertion still green.
+    lines = [JsonLogFormatter().format(record) for record in capture.records]
+    emitted = "\n".join(lines)
+
+    request_lines = [line for line in lines if json.loads(line).get("msg") == "http_request"]
+    assert len(request_lines) == 1, (
+        f"expected exactly one access-log record for one request, got {len(request_lines)}"
+    )
+    line = request_lines[0]
     obj = json.loads(line)  # one valid JSON object per line
 
     expected_fields = {"ts", "level", "msg", "request_id", "method", "path", "status", "latency_ms"}
@@ -149,11 +163,12 @@ def test_request_emits_valid_json_log_without_pii(
     assert isinstance(obj["latency_ms"], (int, float))
     assert isinstance(obj["request_id"], str) and obj["request_id"]
 
-    # PRIVACY / no-egress: reading terms and the auth token never appear.
-    assert "A Very Private Reading Title" not in line
-    assert "Some Secret Author" not in line
-    assert "demo-token" not in line
-    assert "?" not in line and "q=" not in line  # no query string anywhere in the line
+    # PRIVACY / no-egress: reading terms and the auth token never appear — in
+    # ANY record this request emitted, not merely in the access-log line.
+    assert "A Very Private Reading Title" not in emitted
+    assert "Some Secret Author" not in emitted
+    assert "demo-token" not in emitted
+    assert "?" not in emitted and "q=" not in emitted  # no query string anywhere
 
 
 def test_json_formatter_serializes_only_the_allowlisted_fields() -> None:

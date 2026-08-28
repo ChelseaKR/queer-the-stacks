@@ -32,12 +32,24 @@ def test_allowlisted_hosts_pass() -> None:
     ],
 )
 def test_blocked_hosts_raise(url: str) -> None:
-    with pytest.raises(SourceNotAllowed):
+    """Denied by the *blocked* branch, not merely by falling off the allowlist.
+
+    ``assert_allowed`` has two independent deny branches, and no Goodreads or
+    Amazon host is in ``ALLOWED_HOSTS``, so the default-deny branch already
+    raises for every URL here. A bare ``pytest.raises(SourceNotAllowed)`` cannot
+    tell the two apart, which left the values-based exclusion this file's
+    docstring claims to prove — "explicitly excluded, not merely absent" —
+    untested: reorder the two checks, or let the blocked branch become
+    unreachable, and nothing failed. Matching the message pins which branch
+    fired.
+    """
+    with pytest.raises(SourceNotAllowed, match="blocked source"):
         assert_allowed(url)
 
 
 def test_unknown_host_is_default_denied() -> None:
-    with pytest.raises(SourceNotAllowed):
+    """And the other branch is pinned too, so the two cannot be confused."""
+    with pytest.raises(SourceNotAllowed, match="default-deny"):
         assert_allowed("https://some-random-tracker.example/api")
 
 
@@ -65,6 +77,21 @@ def test_goodreads_is_blocked_not_allowlisted() -> None:
     assert "goodreads.com" in BLOCKED_HOSTS
     assert not any("goodreads" in h for h in ALLOWED_HOSTS)
     assert not any("amazon" in h for h in ALLOWED_HOSTS)
+
+
+def test_the_blocked_branch_is_reachable_at_all() -> None:
+    """Every blocked host must be denied *as blocked*, for every entry.
+
+    ``BLOCKED_HOSTS`` is small today, but the parametrized cases above name
+    three URLs by hand. Iterating the frozenset means a host added to it later
+    is held to the same standard without anyone remembering to add a case, and
+    an emptied ``BLOCKED_HOSTS`` fails the non-emptiness assertion rather than
+    passing a loop over nothing.
+    """
+    assert BLOCKED_HOSTS, "BLOCKED_HOSTS is empty; the values-based exclusion is gone"
+    for host in sorted(BLOCKED_HOSTS):
+        with pytest.raises(SourceNotAllowed, match="blocked source"):
+            assert_allowed(f"https://{host}/anything")
 
 
 # --- The same allowlist, applied to what the page renders as a link ----------

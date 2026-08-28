@@ -13,6 +13,40 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Fixed
+- **Four privacy guardrails were green and could not fail.** Each is listed
+  with the violation it used to let through, and each fix is proved by
+  injecting that violation and watching the old check pass and the new one
+  fail.
+  - *No reading content in logs* (`tests/test_log_safety.py`) scanned the
+    source text for four tokens and exempted files by basename. `from logging
+    import warning` in `app/render.py` contains none of the four; a new
+    `ingest/server.py` inherited `app/server.py`'s exemption by name
+    collision; and the confinement assertion was a subset, so both audited
+    files could stop logging and it still passed. Imports are now resolved
+    with `ast` through the shared `tests/importscan.py`, the allowlist is
+    repository-relative, and both boundaries are equalities. A second
+    boundary is now asserted that did not exist before: which modules can
+    *emit* a record at all, which is the route `app/server.py` actually takes
+    (it contains no `import logging`).
+  - *Structured logs carry no PII* (`tests/test_observability.py`) formatted
+    only `records[-1]`. The middleware logs last, so anything the route
+    handler logged sat before it and was never read. Every record the request
+    emits is scanned now.
+  - *Goodreads is excluded, not merely absent* (`tests/test_source_allowlist.py`)
+    used a bare `pytest.raises(SourceNotAllowed)`, which cannot tell the
+    blocked-source branch from default-deny — and default-deny already raises
+    for every Goodreads and Amazon URL. Reordering the two checks made the
+    values-based exclusion dead code with the suite green. The expected
+    message is now matched, and every entry in `BLOCKED_HOSTS` is exercised
+    rather than three URLs named by hand.
+  - *No route opens a socket* (`tests/test_no_egress.py`) issued `GET` only,
+    so `POST /login` — the one route that takes user input, and the natural
+    home for a failed-login notification — was never driven. Every registered
+    (path, method) pair is driven now, non-GET routes with a real body so the
+    handler is actually reached, and the set driven is asserted equal to the
+    set registered.
+
+### Fixed
 - **The `standards` check could not go green on a forked pull request.**
   `.github/workflows/standards.yml` skips the private policy fetch on forks,
   by design, because GitHub withholds repository secrets from them. What was
