@@ -13,6 +13,24 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Fixed
+- **The CSP drift test was a closed tautology, and the external-link check was
+  existential.** Both in `tests/test_security_headers.py`.
+  - The drift test recomputed `sha256(_STYLE)` and compared it to
+    `app/security_headers.py`'s `sha256(_STYLE)`. Same pure function, same
+    constant: it matched by construction and never opened a rendered document.
+    A sixth inline block added to a page with no hash in the CSP is blocked by
+    every browser and was invisible here. The check now extracts every inline
+    `<script>` and `<style>` from the four documents the app serves and
+    asserts set equality against the CSP's hashes, so an unhashed block and a
+    stale hash both fail.
+  - The `rel` check was `'href="http' in html` and
+    `'rel="noopener noreferrer external"' in html` — two substring searches
+    over one page, which never established that they belonged to the same
+    anchor. Every external anchor on every served document is now checked
+    individually, with a separate non-vacuity test so a demo dataset that
+    stops producing citations fails loudly instead of emptying the loop.
+
+### Fixed
 - **Four privacy guardrails were green and could not fail.** Each is listed
   with the violation it used to let through, and each fix is proved by
   injecting that violation and watching the old check pass and the new one
