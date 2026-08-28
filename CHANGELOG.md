@@ -298,5 +298,10 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
 - `standards remediation`: `persist-credentials: false` on checkouts (#9).
 
 ### Security
+- `uv.lock`: `pip` 26.1.2 -> 26.2.1, clearing PYSEC-2026-3721. The advisory was
+  published after the last green run on `main`, so `make security`'s
+  `osv-scanner --lockfile=uv.lock` stage went red on an unchanged tree. `pip`
+  reaches the lock as a transitive of `pip-api`, which `pip-audit` itself
+  requires; nothing this project imports at runtime changed.
 - `pip-audit` clean (0 known vulnerabilities) on the Python 3.14 floor; empty accepted-advisory
   list (`docs/audits/residual-risk.md`).
