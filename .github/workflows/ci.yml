@@ -48,11 +48,14 @@ jobs:
           version: "0.11.26"
           enable-cache: true # CI job only — release.yml keeps caching off (§8c)
 
-      # `--frozen` fails the build on any drift between pyproject.toml and the
+      # `--locked` fails the build on any drift between pyproject.toml and the
       # committed uv.lock, instead of silently re-resolving (CQ-09, SEC-13).
+      # It has to be `--locked`, not `--frozen`: `--frozen` never reads
+      # pyproject.toml, so it exits 0 on a drifted lock and installs the stale
+      # set. This comment claimed the drift was gated while it was not.
       - name: Install project (dev + app extras, locked)
         run: |
-          uv sync --frozen --extra dev --extra app
+          uv sync --locked --extra dev --extra app
           npm install -g pa11y@9.1.1
 
       # Pinned, checksum-verified gitleaks binary (no GitHub Action / license

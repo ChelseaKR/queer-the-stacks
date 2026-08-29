@@ -114,7 +114,7 @@ jobs:
 
       - name: Install project (dev + app extras, locked)
         run: |
-          uv sync --frozen --extra dev --extra app
+          uv sync --locked --extra dev --extra app
           npm install -g pa11y@9.1.1
 
       - name: Install gitleaks (pinned v8.30.1, checksum-verified)
@@ -200,7 +200,7 @@ jobs:
       # for the shipped package.
       - name: Generate CycloneDX SBOM
         run: |
-          uv sync --frozen --extra app --no-dev
+          uv sync --locked --extra app --no-dev
           uvx --from cyclonedx-bom==7.3.0 cyclonedx-py environment .venv \
             --sv 1.7 --of JSON --pyproject pyproject.toml \
             --output-reproducible --validate -o dist/sbom.cdx.json
