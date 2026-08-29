@@ -13,6 +13,55 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Security
+- **The committed branch-protection ruleset would have locked the owner out of
+  this repository, and `.github/rulesets/README.md` walked a reader through
+  applying it.** `main.proposed.json` carried `"bypass_actors": []` from the day
+  it was written, and the README's own
+  `gh api -X POST .../rulesets --input .github/rulesets/main.proposed.json`
+  posts exactly that. GitHub answers such a request with `201 Created` like any
+  other, so nothing warns you. An empty bypass list is not a stricter gate: it
+  changes none of the rules, and the only thing it changes is whether anybody
+  can recover when the gate itself is wrong. Applying a no-bypass ruleset
+  elsewhere in this portfolio took a manual recovery sweep across eighteen
+  repositories. The file now carries the owner's standing bypass,
+  `{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}`,
+  and `tests/test_ruleset.py` fails if it is removed, emptied, retyped,
+  narrowed to `bypass_mode: "pull_request"`, or replaced by a different actor.
+  The mode is `always` and not the `pull_request` CICD-15 asks for, deliberately:
+  a bypass scoped to pull requests cannot help when the pull request is the
+  thing that is wedged. The guard parses the JSON rather than grepping it,
+  because a truncated file still contains the literal string `bypass_actors`,
+  and it fails on a missing or unparseable file rather than passing with
+  nothing to look at.
+
+### Fixed
+- **The ruleset README said no protection was active, and a ruleset had been
+  active for seven weeks.** The claim ("as of 2026-07-05, no branch protection
+  or ruleset is actually active on this repo") justified the whole `.proposed`
+  artifact, so a reader had no reason to expect a POST to collide with
+  anything. Read back from the API: ruleset `18752854`, `protect-main`, active
+  since 2026-07-09 and last updated 2026-08-26, requiring `standards` and
+  `verify`. The README now records that, and warns that POST *adds* a ruleset
+  rather than replacing one, so applying this file without first deleting the
+  existing one leaves two rulesets over `main` whose rules combine. Two further
+  disagreements are recorded rather than silently reconciled: the live ruleset
+  carries a second bypass actor (`User:3114598`, scoped `pull_request`) that no
+  commit accounts for, and the live `strict_required_status_checks_policy` is
+  `false` where this file proposes `true`.
+- **The committed ruleset required a status check that does not report on most
+  pull requests.** `trivy` was listed as required, but `container-scan.yml` only
+  runs when a pull request touches `Dockerfile`, `.dockerignore`,
+  `pyproject.toml`, `uv.lock`, or itself; on any other pull request it files no
+  check run at all, and a required check that never reports does not fail a
+  pull request, it suspends one at "Expected -- waiting for status to be
+  reported". Observed rather than inferred: PR #89 touched `Dockerfile` and
+  `uv.lock` and produced a `trivy` check run, PR #79 touched neither and did
+  not. Had `trivy` been required, PR #79 could never have merged. It is
+  removed; `standards`, which is required live and reports on every pull
+  request including forks, is added; and the required list is now pinned by a
+  test against the set of contexts whose jobs run on every pull request.
+
+### Security
 - **The container CVE scan has been red on `main` since at least 2026-08-17,
   with no tree change to explain it.** A digest-pinned base image cannot age
   well: Debian publishes fixes, the pin does not move, and the scan goes red on
