@@ -31,25 +31,58 @@ Nine open PRs, read against `origin/main` at `66ee334`.
 > - **#83 through #88 are byte-identical to `main` on every non-CHANGELOG
 >   file**, compared blob hash by blob hash, with exactly one exception below.
 >
-> ### The one exception: do not resolve #86 toward the PR
+> ### The one exception: do not resolve #86, #87 or #88 toward the PR
 >
-> `tests/test_a11y.py` differs between #86 and `main`, and **`main` is the newer
-> side**. #89 extracted the Makefile `:=` expander into `tests/makefilevars.py`
-> (present on `main`, absent on #86); `main`'s `tests/test_a11y.py` imports
-> `makefile_list, makefile_variables` from it, while #86 still carries the
-> inlined `_makefile_variables` helper that predates the extraction.
+> `tests/test_a11y.py` differs from `main` on **three** of the branches, and
+> **`main` is the newer side** in every case. #89 extracted the Makefile `:=`
+> expander into `tests/makefilevars.py` (present on `main`, absent on all three
+> branches); `main`'s `tests/test_a11y.py` imports `makefile_list,
+> makefile_variables` from it, while the branches still carry the inlined
+> `_makefile_variables` helper that predates the extraction.
 >
-> Taking #86's side would delete the import and re-inline the helper, reverting
-> the refactor. Close #86; do not merge it and do not "resolve" the file toward
-> it.
+> Blob identities, which is why this is not a judgement call:
+>
+> | Ref | `tests/test_a11y.py` |
+> | --- | --- |
+> | `66ee334` (the old common base) | `4a59231` |
+> | `main` (`2ac9d24`) | `d526d83` — **newest**, imports `tests.makefilevars` |
+> | #86, #87 and #88 heads | `ec2d168` — inlined helper, superseded |
+>
+> #87 and #88 do not *touch* the file in their own diffs, so a per-PR file
+> listing makes them look clean; they inherit `ec2d168` from #86 further down
+> the stack. Taking any of their sides deletes the import and re-inlines the
+> helper, reverting the refactor. **Close all three; do not merge them and do
+> not "resolve" this file toward the PR.**
+>
+> ### "CLEAN" on #83 through #88 is measured against the wrong base
+>
+> GitHub reports #83 through #88 as `CLEAN`. That is computed against each PR's
+> **own base branch**, which is the PR below it in the stack, not against
+> `main`. Merged into `main` they are not clean at all:
+>
+> | PR | `git merge-tree --write-tree 2ac9d24 <head>` |
+> | --- | --- |
+> | #82 | tree `61aae0ed` == `main`'s tree. **Empty diff, a true no-op.** |
+> | #83, #84, #85 | **CONFLICT** in `CHANGELOG.md` |
+> | #86, #87 | **CONFLICT** in `CHANGELOG.md` *and* `tests/test_a11y.py` |
+> | #88 | **CONFLICT** in `tests/test_a11y.py` |
+>
+> The content is all landed; the conflicts are the squash's rewritten history
+> meeting the branches' stale copies. This is another reason the disposition is
+> *close*, not *retarget and merge*.
 >
 > ### Closing hazard: the stack is chained
 >
-> #82 through #88 are a linear chain, each based on the one below. **Close them
-> individually, and do not pass `--delete-branch`.** Deleting a merged or closed
-> base branch makes GitHub retarget its child onto `main`, so a
-> close-with-delete on #82 cascades down the chain and leaves the children open
-> against `main` with diffs that are no longer no-ops relative to their new base.
+> #82 through #88 are a linear chain, each PR based on the branch below it.
+> **Close them individually, and do not pass `--delete-branch`.** Each PR's head
+> branch *is* the next PR's base, so deleting one removes the branch the next PR
+> is measured against, and GitHub reacts by retargeting or auto-closing the
+> child. Either way the action propagates down a chain of six, and a retargeted
+> child lands on `main` in the conflicting state tabulated above rather than the
+> clean one it shows today.
+>
+> `delete_branch_on_merge` is `false` on this repository, so nothing deletes a
+> branch unless it is asked to. Do not ask.
 
 ## The one thing to know first
 
