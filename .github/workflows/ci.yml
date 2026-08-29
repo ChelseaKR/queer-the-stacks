@@ -99,6 +99,12 @@ jobs:
       - name: Tests
         run: make test
 
+      # 3b. the committed docs/audits/coverage.xml is what the run above wrote.
+      #     `make test` regenerates that artifact every run; without this step
+      #     nothing ever compared it, so a stale committed report could not fail.
+      - name: Committed coverage report matches the run
+        run: make coverage-check
+
       # 4. dependency vulnerability scan (installed env) + lockfile CVE scan
       #    (osv-scanner against uv.lock) + secret scan (all merge-blocking).
       #    `make security` runs pip-audit, scripts/secret-scan.sh (finds the
@@ -117,7 +123,7 @@ jobs:
 
       # 7. responsible-tech: offline eval must beat the popularity baseline
       - name: Eval
-        run: make eval
+        run: make eval-check
 
       - name: Performance load smoke
         run: make perf-load

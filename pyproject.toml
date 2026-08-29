@@ -78,6 +78,15 @@ max-complexity = 10
                                                        # stdlib XML parse of our own output
 "ingest/cli.py" = ["T20"]                     # CLI prints to stdout by design
 "app/build_static.py" = ["T20"]              # build script prints its output path
+# A gate reports to a person, reads the committed artifact through git, and
+# parses XML this repository wrote in the step before. Same three allowances
+# the lines above and the tests entry already make, for the same reasons.
+"scripts/coverage_check.py" = [
+    "T20",   # a gate prints its finding; that is the whole output
+    "S603",  # subprocess with a fixed argv, no shell, no user input
+    "S607",  # `git` resolved from PATH, as every other gate in this repo does
+    "S314",  # stdlib XML parse of our own coverage report
+]
 
 # ---------------------------------------------------------------------------
 # Type-check gate (CI stage 2) — strict.
