@@ -92,7 +92,9 @@ per-book theme chips, the library table, the theme mix, the diversity
 descriptors, and any share card composed while it is on. It defaults to **true**,
 so a lens you add without saying is treated as sensitive rather than as safe;
 mark a lens `sensitive = false` to show it in full.
-`make verify` runs every checkable gate (CI parity). See
+`make verify` runs every gate `ci.yml` runs except `perf-load` and
+`lighthouse`, which need a booted server or a downloaded Chromium; `make
+perf-gates` runs those two locally. See
 [`docs/ROADMAP-FUTURE.md`](./docs/ROADMAP-FUTURE.md) for the expansion plan.
 
 ## Guardrails
@@ -123,16 +125,19 @@ gate. Maintainer branches also check the pinned portfolio policy version in
 [`.standards-version`](./.standards-version). Forked pull requests cannot
 receive credentials for that private policy repository, so they run the full
 local verification gate instead. Every policy area is declared below. *Last
-verified: 2026-07-16.*
+full-table verification: 2026-07-16. The Quality & Metrics, Security &
+Supply-Chain, CI/CD and Accessibility rows were re-derived on 2026-08-29 and
+are now checked against the tree by `tests/test_published_claims.py`; the
+other rows still carry the July date.*
 
 | Standard | State | Notes |
 |---|---|---|
-| Quality & Metrics | Applies | `make verify` = lint → typecheck → test (≥85% branch coverage) → security → a11y → eval, identical locally and in CI (`ci.yml`). |
+| Quality & Metrics | Applies | `make verify` = lint → typecheck → test → security → a11y → eval. The coverage gate is `--cov-fail-under=85`, which coverage.py compares against the combined line-and-branch total rather than against branches alone. `ci.yml` runs those same stages and additionally `perf-load` and `lighthouse`, which need a booted server or a downloaded Chromium; `make perf-gates` runs those two locally. Every figure in this row is derived in `tests/test_published_claims.py`. |
 | Code Quality | Applies | ruff (incl. bandit `S` + mccabe `C90` complexity) + `mypy --strict`, both blocking; `.pre-commit-config.yaml` mirrors the fast checks locally. |
-| Security & Supply-Chain | Applies | `pip-audit` (empty ignore list) + gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) + Trivy container CVE scan, all merge-blocking; see `docs/audits/residual-risk.md`. |
-| CI/CD | Applies | 3 workflows, all least-privilege (`permissions: contents: read`), all `uses:` SHA-pinned. |
+| Security & Supply-Chain | Applies | `pip-audit` (empty ignore list), `osv-scanner` against `uv.lock`, and gitleaks (pinned binary in CI, `scripts/secret-scan.sh`) all run inside `make security`, a `make verify` stage, and `verify` is a required status check — so those three block a merge. The Trivy container CVE scan runs in `container-scan.yml`, which is path-filtered to the image inputs and is **not** a required status check, so it does not block a merge; see [`.github/rulesets/README.md`](.github/rulesets/README.md) and `docs/audits/residual-risk.md`. |
+| CI/CD | Applies | 7 workflows; every `uses:` is SHA-pinned. 6 of them declare `permissions: contents: read` at the workflow level. `scorecard.yml` declares `read-all` instead, because the OpenSSF scanner reads repository settings a build does not, and individual jobs in `codeql.yml`, `release.yml` and `scorecard.yml` elevate to the write scopes their steps need (`security-events`, `id-token`, `attestations`, `packages`, `contents`). The count, the pinning and the exception are derived in `tests/test_published_claims.py`. |
 | Release & Versioning | Applies — automated lifecycle shipped; first release pending | Pre-1.0 (`0.1.x` is the current, unreleased line per `SECURITY.md`). Signed annotated `v*` tags trigger exact-commit verification, package/SBOM and GHCR builds, keyless signing/provenance, GitHub Release publication, and post-publication verification. |
-| Accessibility | Applies | Two blocking layers cover dashboard + login: structural checks and Chromium/axe at desktop/mobile, explicit light/dark preferences, and asserted 320px reflow. Human screen-reader and magnification sign-offs remain pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
+| Accessibility | Applies | Two blocking layers cover every document the app serves — dashboard, login and share: structural checks and Chromium/axe at desktop/mobile, explicit light/dark preferences, and asserted 320px reflow. Human screen-reader and magnification sign-offs remain pending first release — see [`docs/audits/accessibility-2026-06-05.md`](docs/audits/accessibility-2026-06-05.md). |
 | Observability | Applies — Tier C | Local-only, single-user, no network surface. Structured JSON logs, `/livez`, fail-closed `/readyz`, `/version` — see [`docs/ROADMAP.md` §Observability](docs/ROADMAP.md#observability) for the full per-signal N/A-with-reason declaration. |
 | Internationalization | Applies — deferred to backlog #17 | [`docs/I18N.md`](docs/I18N.md) now reconciles the manifest and prior single-user assumption; ADR 0007 defines the audience/fork decision paths and the first localization boundary. |
 | AI Evaluation | N/A — no LLM/GenAI SDK anywhere; the recommender is a classic content/co-occurrence model | Has its own merge-blocking offline eval regardless (`make eval` — beats the popularity baseline); see [`docs/RESPONSIBLE-TECH-AUDITS.md`](docs/RESPONSIBLE-TECH-AUDITS.md#applicability--ai-evaluation-and-internationalization). |

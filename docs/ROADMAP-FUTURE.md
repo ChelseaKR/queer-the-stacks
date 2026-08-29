@@ -4,8 +4,12 @@
 > **Last verified: 2026-06-06 · Recheck cadence: per phase kickoff.**
 >
 > **Status (2026-06-06): N1–N6 shipped.** All phases below are implemented with
-> `make verify` green (167 tests @ ~96% coverage, `mypy --strict`, lint,
-> `pip-audit` 0 vulns, a11y 0 violations, recommender beats popularity). Deeper
+> `make verify` green (`mypy --strict`, lint, `pip-audit` 0 vulns, a11y 0
+> violations, recommender beats popularity). A test count and a coverage
+> percentage used to sit in that list; they were transcribed once and never
+> again, and by 2026-08 they understated the suite by a factor of four. The
+> floor that is actually enforced is `--cov-fail-under=85` in `pyproject.toml`,
+> and the current measurement is `docs/audits/coverage.xml`. Deeper
 > follow-ups remain open and are noted inline: a real (still-local) embedding
 > model, Lighthouse/k6 in CI, and sidecar highlight-*text* import. Live-network
 > contract cassettes shipped 2026-07-03 (see §0).

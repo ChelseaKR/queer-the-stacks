@@ -40,6 +40,7 @@ overclaim on its behalf:
 from __future__ import annotations
 
 import inspect
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -576,17 +577,54 @@ def test_kosync_progress_is_not_fetched_when_unconfigured(
     assert attempts == []
 
 
-def test_reading_privacy_audit_cites_the_checks_that_exist() -> None:
-    """The audit doc must name real tests — a citation to a deleted test is worse
-    than none, because a reader stops at the name."""
-    audit = (REPO_ROOT / "docs" / "audits" / "reading-privacy.md").read_text(encoding="utf-8")
-    here = Path(__file__).read_text(encoding="utf-8")
-    cited: set[str] = set()
-    for line in audit.splitlines():
-        if "tests/test_no_egress.py::" in line:
-            for chunk in line.split("`"):
-                if chunk.startswith("tests/test_no_egress.py::"):
-                    cited.add(chunk.split("::", 1)[1])
-    assert cited, "the privacy audit no longer cites this guardrail at all"
-    missing: Optional[list[str]] = sorted(name for name in cited if f"def {name}(" not in here)
-    assert missing == [], f"the privacy audit cites tests that do not exist: {missing}"
+#: Directories holding nothing this repository authored.
+_NOT_OURS = frozenset({".git", ".venv", "node_modules", ".ruff_cache", ".pytest_cache", "htmlcov"})
+
+
+def _authored_markdown() -> list[Path]:
+    return [
+        path
+        for path in sorted(REPO_ROOT.rglob("*.md"))
+        if not _NOT_OURS.intersection(path.relative_to(REPO_ROOT).parts)
+    ]
+
+
+def test_audit_docs_cite_only_tests_that_exist() -> None:
+    """A citation to a deleted test is worse than none: a reader stops at the name.
+
+    This started life as a guard over one file citing one other file — it read
+    ``docs/audits/reading-privacy.md`` and resolved only the citations that
+    began ``tests/test_no_egress.py::``. That predicate was narrow enough that
+    two live defects sat just outside it while it stayed green: the same
+    document's line 90 cited ``tests/test_log_safety.py::test_core_is_log_free``
+    and ``docs/audits/source-ethics.md`` cited
+    ``tests/test_sourced_tags.py::test_author_has_no_identity_fields``, both
+    renamed by the commit that made those two files' checks falsifiable, and
+    neither existing on ``main`` afterwards. A gate whose scope is one file and
+    one prefix cannot notice the rename it was written to notice.
+
+    So the predicate is widened rather than the two names hand-corrected:
+    every ``tests/<file>.py::<name>`` in every authored markdown document has to
+    resolve to a ``def`` in that file. Hand-correcting would have fixed two
+    lines and left the next rename to be found by a reader.
+    """
+    pattern = re.compile(r"tests/[A-Za-z0-9_./-]+\.py::[A-Za-z0-9_]+")
+    sources: dict[str, str] = {}
+    broken: list[str] = []
+    cited = 0
+    for document in _authored_markdown():
+        for number, line in enumerate(document.read_text(encoding="utf-8").splitlines(), 1):
+            for citation in pattern.findall(line):
+                cited += 1
+                relative, _, name = citation.partition("::")
+                where = f"{document.relative_to(REPO_ROOT)}:{number} {citation}"
+                target = REPO_ROOT / relative
+                if not target.is_file():
+                    broken.append(f"{where} (no such file)")
+                    continue
+                if relative not in sources:
+                    sources[relative] = target.read_text(encoding="utf-8")
+                if f"def {name}(" not in sources[relative]:
+                    broken.append(f"{where} (no such test)")
+    assert cited, "no document cites a test any more; this check would pass vacuously"
+    assert broken == [], f"published docs cite tests that do not exist: {broken}"

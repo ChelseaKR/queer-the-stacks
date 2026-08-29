@@ -362,7 +362,7 @@ Accessed **2026-06-30**.
   merged without weakening the guardrails.
 - **Values today:** clear architecture (`ingest/` · `recommender/` · `app/`); a single
   network choke point with a default-deny allowlist; a generated sources doc; green
-  `make verify` (lint, `mypy --strict`, ~167 tests @ ~96%, a11y, eval) as a contract.
+  `make verify` (lint, `mypy --strict`, the test suite with its coverage floor, a11y, eval) as a contract.
 - **Gets stuck:** there's no documented *adapter contract* or conformance test, so a
   new source could drift from the provenance/allowlist/sourced-tags invariants; unsure
   how to add a source without tripping the no-egress test.

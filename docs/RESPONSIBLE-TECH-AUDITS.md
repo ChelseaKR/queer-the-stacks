@@ -44,11 +44,23 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. Reading is sensitive �
 - **ASVS 5.0 level:** **L2** (reading history = sensitive personal data). Rationale: single-user
   auth-gated app handling data that can out a reader — above L1 baseline, below L3 (no
   high-value/regulated transaction surface). Declared 2026-07-05.
-- **Container scan:** ✓ blocking Trivy scan (`.github/workflows/container-scan.yml`), HIGH/CRITICAL,
-  fixable-only.
-- **SBOM / signing:** not yet produced — no release pipeline exists yet (see `docs/ROADMAP.md` and
-  the tracked gap noted in `CHANGELOG.md`/README §Standards). Will be generated (CycloneDX) and
-  signed (cosign keyless + SLSA provenance) by the release workflow once built.
+- **Container scan:** Trivy, HIGH/CRITICAL, fixable-only
+  (`.github/workflows/container-scan.yml`). It is **not merge-blocking**, on two counts: it is not
+  one of the `protect-main` ruleset's required status checks, and its `pull_request` trigger is
+  path-filtered to the image inputs, so on a pull request that touches none of them the job never
+  starts. This entry used to carry a ✓ and the word "blocking". See
+  `.github/rulesets/README.md` for the live required-check list and the command that establishes
+  it. The scans that *do* block a merge are `pip-audit`, `osv-scanner` and gitleaks, which run
+  inside `make security`, a stage of the required `verify` check.
+- **SBOM / signing:** the release pipeline exists — `.github/workflows/release.yml`, shipped
+  2026-07-09 — and generates a schema-validated CycloneDX 1.7 SBOM, keyless cosign signatures over
+  the GHCR image digest, and GitHub build-provenance attestations for both the packages and the
+  image. It is tag-triggered, no `v*` tag has been pushed, so **no SBOM or signature has actually
+  been produced yet**. This entry denied the pipeline's existence for the seven weeks after the
+  workflow landed, while README §Standards said the opposite in the same tree; see `CHANGELOG.md`
+  for the release status of record, and
+  `tests/test_published_claims.py::test_the_responsible_tech_audit_describes_the_release_pipeline_that_exists`
+  for the check that now ties this entry to whether `release.yml` is committed.
 - **VEX policy:** none needed; empty ignore-list policy in `docs/audits/residual-risk.md` (no
   accepted advisories exist to VEX against).
 

@@ -25,7 +25,10 @@ To see the dashboard without a real library, `make dev` runs it in demo mode (no
 
 ## Branch model & pull requests
 
-- `main` is the released, protected branch. Do not push to it directly.
+- `main` is the protected branch: the `protect-main` ruleset blocks force-pushes and deletion and
+  requires the `standards` and `verify` checks (see `.github/rulesets/README.md`). Nothing is
+  released from it yet — no `v*` tag exists; `CHANGELOG.md` has the status of record. Do not push
+  to it directly.
 - Work on a short-lived branch named for the change (e.g. `feat/series-browse`, `fix/kosync-retry`,
   `docs/...`). Open a PR into `main`.
 - Keep a PR to one logical change. Before requesting review:

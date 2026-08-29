@@ -4,7 +4,13 @@ message: "If you use this work, please cite it."
 authors:
   - family-names: Kelly-Reif
     given-names: Chelsea
+# `version` mirrors the in-development version in pyproject.toml (single source of truth;
+# tests/test_published_claims.py asserts the two agree).
+# `date-released` is deliberately omitted: no `git tag` and no GitHub Release exist for this
+# project (a prior 2026-06-30 date here implied a release that never happened, while
+# CHANGELOG.md said in the same tree that nothing had been tagged). Add `date-released` back
+# only once a version is actually tagged — tests/test_published_claims.py ties its presence to
+# a dated release section in CHANGELOG.md, in both directions.
 version: 0.1.0
-date-released: 2026-06-30
 license: AGPL-3.0-or-later
 repository-code: "https://github.com/ChelseaKR/queer-the-stacks"
