@@ -50,6 +50,7 @@ GitHub workflow files checked:
 - `.github/workflows/ci.yml`
 - `.github/workflows/codeql.yml`
 - `.github/workflows/container-scan.yml`
+- `.github/workflows/release.yml` (added 2026-07-09, after this pass)
 - `.github/workflows/scorecard.yml`
 - `.github/workflows/standards.yml`
 - `.github/workflows/zizmor.yml`
@@ -68,7 +69,7 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked 28 hand-authored doc or metadata files, 37 test files, and 6 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and large generated artifact history.
+This pass checked 28 hand-authored doc or metadata files on `main`, excluding vendored provider licenses, dependency folders, generated cache files, and large generated artifact history. It also carried a test-file and a workflow-file count. Those are now derived instead: 57 test files (`tests/test_*.py`) and 7 workflow files, asserted against the tree by `tests/test_published_claims.py::test_stated_file_counts_match_the_tree`. The figures this sentence used to carry counted every `.py` under `tests/`, where `docs/DOCUMENTATION-AUDIT.md` from the same pass counted only `test_*.py`, so the two documents disagreed by two files without either being wrong. Deriving both from one definition removes the ambiguity along with the staleness.
 
 Primary docs checked:
 

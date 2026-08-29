@@ -108,8 +108,10 @@ jobs:
       - name: Security (deps + lockfile + secrets)
         run: make security
 
-      # 5. accessibility — dashboard + login, structural and Chromium/axe,
-      #    desktop/mobile/light/dark plus asserted 320px reflow — all blocking.
+      # 5. accessibility — every document the app serves (dashboard, login,
+      #    share), structural and Chromium/axe, desktop/mobile/light/dark plus
+      #    asserted 320px reflow — all blocking. The page list is the Makefile's
+      #    A11Y_PAGES, which tests/test_a11y.py ties to what build_all writes.
       - name: Accessibility
         run: make a11y
 

@@ -82,7 +82,7 @@ the full per-seed distribution behind the summary above.)
 |-------|------|
 | Goodreads/Amazon raise; unknown hosts default-denied | `tests/test_source_allowlist.py` |
 | No inference-shaped source kind; `ThemeTag` requires a source | `tests/test_sourced_tags.py` |
-| `Author` exposes no identity field | `tests/test_sourced_tags.py::test_author_has_no_identity_fields` |
+| `Author` exposes no identity field | `tests/test_sourced_tags.py::test_author_carries_exactly_a_name_and_a_sort_key`, `tests/test_sourced_tags.py::test_a_near_miss_field_passed_the_denylist_and_fails_the_pin` |
 | Content recommender beats popularity, with margin, across 10 synthetic seeds | `tests/test_synth_eval.py::test_run_battery_default_seeds_passes` |
 | The eval gate is actually falsifiable (`AUTHOR_BONUS=0` fails it) | `tests/test_synth_eval.py::test_author_bonus_zero_narrows_uplift` |
 | Illustrative single-fixture eval (informational, not merge-blocking) | `tests/test_eval.py::test_content_beats_popularity` |

@@ -47,13 +47,18 @@ Several 0-scores are expected and not concerning for a single-maintainer persona
 for OSS projects with multiple contributors, and this repo declares itself single-user/personal in
 `README.md` and `SECURITY.md`. The two that matter and are actionable:
 
-- **Branch-Protection = 0** — real gap, not a scoring artifact. `ci.yml`'s header comment claims
-  branch protection with no admin bypass; Scorecard confirms it is not actually configured on
-  GitHub. ⛔ **BLOCKED (manual action needed)** — see the remediation log for the exact settings.
+- **Branch-Protection = 0** — real gap when this report was written. **Resolved since:** the
+  `protect-main` ruleset was applied on 2026-07-09 and is active, requiring the `standards` and
+  `verify` checks and blocking force-pushes and deletion. It does allow admin bypass, which this
+  score also measures. See `.github/rulesets/README.md` for the live configuration and the command
+  that establishes it.
 - **Pinned-Dependencies = 3** — partially addressed this pass (Docker base image now pinned by
   digest); re-run Scorecard after pushing to confirm the improved score.
 
 ## Next report
 
-Due next: **2026-08** (or sooner, on demand — `scorecard.yml` also runs weekly and on every
-`branch_protection_rule` change).
+`scorecard.yml` runs on a schedule and uploads its SARIF to this repository's code scanning, which is
+the live record; this file is a point-in-time transcription of one run and is the only one committed.
+A line here used to promise a **2026-08** transcription. None was made, and nothing could notice: a
+dated promise inside a committed file goes false on the calendar rather than on a change anyone
+reviews. The promise is gone rather than re-dated.

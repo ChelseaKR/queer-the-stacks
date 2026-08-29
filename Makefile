@@ -35,7 +35,7 @@ dev: install ## Run the dashboard in demo mode (serves an existing real store if
 	STACKS_DEMO=1 $(PYTHON) -m uvicorn app.server:app --host 127.0.0.1 --port 8765
 
 # --- The verify pipeline (each stage is merge-blocking) ----------------------
-verify: lint typecheck test security a11y eval ## Run every checkable gate (CI parity)
+verify: lint typecheck test security a11y eval ## Every gate CI runs except perf-load + lighthouse
 	@echo "✓ all checkable gates green"
 
 format: ## Auto-format the code

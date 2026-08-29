@@ -87,7 +87,7 @@ unauthenticated; (b) reading data sent to a third party; (c) telemetry.
 | Catalog refresh is explicit and TTL-bounded | `tests/test_catalog_pool_refresh.py::test_catalog_refresh_is_opt_in_and_ttl_bounded` |
 | Obsolete raw-response cache is removed in every outbound mode | `tests/test_catalog_pool_refresh.py::test_refresh_removes_legacy_raw_response_cache` |
 | Failed source refresh retains visible last-good state | `tests/test_catalog_pool_refresh.py::test_catalog_failure_keeps_last_good_pool_and_exposes_degraded_status` |
-| Core is log-free (no reading content can leak to logs) | `tests/test_log_safety.py::test_core_is_log_free` |
+| Core is log-free (no reading content can leak to logs) | `tests/test_log_safety.py::test_logging_machinery_is_reached_by_exactly_one_module`, `tests/test_log_safety.py::test_log_emitters_are_exactly_the_audited_boundary` |
 | The privacy toggle redacts the reader's *configured* lenses, not just the built-ins | `tests/test_diversity.py::test_hide_sensitive_redacts_a_readers_own_vocabulary_under_a_shipped_lens_name` |
 | An unmarked or renamed custom lens fails closed | `tests/test_diversity.py::test_hide_sensitive_fails_closed_on_renamed_lenses`, `tests/test_diversity.py::test_unmarked_lenses_in_a_config_file_default_to_sensitive` |
 | A custom lens file cannot un-redact a built-in sensitive descriptor | `tests/test_diversity.py::test_a_custom_lens_file_cannot_unredact_a_builtin_sensitive_descriptor` |
