@@ -9,6 +9,10 @@ from app.render import render_dashboard
 from app.server import _render_login_page
 from app.view import demo_view
 
+from tests.makefilevars import makefile_list, makefile_variables
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def _html(tmp_path: Path) -> str:
     view = demo_view(tmp_path)
@@ -114,16 +118,70 @@ def test_every_html_route_is_covered_by_an_audited_document() -> None:
 
 
 def test_build_all_writes_every_audited_document(tmp_path: Path) -> None:
+    """``build_all`` itself is called, not the three builders it happens to call.
+
+    The previous version hand-called ``build``, ``build_login`` and
+    ``build_share`` and never invoked ``build_all``. That made the one thing
+    the function exists to guarantee untested: change it to
+    ``return build(), build_login()`` and this stayed green. ``make a11y``
+    would then stop regenerating ``docs/audits/share.html`` — but that file is
+    committed, so the stale copy still satisfies the Makefile's ``test -s``
+    check and the share page silently goes unaudited forever. That is exactly
+    the regression ``app/build_static.py``'s docstring says the design exists
+    to prevent.
+    """
     from app import build_static
 
-    written = {
-        build_static.build(tmp_path / "dashboard.html"),
-        build_static.build_login(tmp_path / "login.html"),
-        build_static.build_share(tmp_path / "share.html"),
-    }
+    written = build_static.build_all(tmp_path)
     expected_names = {Path(p).name for p in HTML_ROUTE_COVERAGE.values()}
 
-    assert {p.name for p in written} == expected_names
+    assert {p.name for p in written} == expected_names, (
+        f"build_all() wrote {sorted(p.name for p in written)}, but the audited "
+        f"document set is {sorted(expected_names)}"
+    )
+    assert len(written) == len(expected_names), (
+        f"build_all() returned {len(written)} paths for {len(expected_names)} "
+        "documents; a duplicate would hide a missing one"
+    )
     for path in written:
         assert path.is_file() and path.stat().st_size > 0
         assert check_html(path.read_text(encoding="utf-8")) == [], path.name
+
+
+def test_the_makefile_scans_exactly_the_documents_build_all_writes(tmp_path: Path) -> None:
+    """Tie the gate's page list to the generator, so neither can drift alone.
+
+    ``Makefile``'s ``A11Y_PAGES`` is a hand-maintained literal. Nothing
+    compared it to ``build_static.build_all()`` or to ``HTML_ROUTE_COVERAGE``,
+    so a fourth user-facing document could be added to two of the three and the
+    a11y gate would simply never load it — no failure anywhere, because the
+    Makefile's own Layer 0 guard only checks that the pages it *does* list are
+    present and non-empty.
+    """
+    from app import build_static
+
+    scanned = set(makefile_list("A11Y_PAGES"))
+
+    generated = {
+        (build_static.DEFAULT_OUT_DIR / path.name).as_posix()
+        for path in build_static.build_all(tmp_path)
+    }
+    assert scanned == generated, (
+        f"the a11y gate scans {sorted(scanned)} but build_all writes "
+        f"{sorted(generated)}. A page in one list and not the other is either "
+        "never audited, or audited as a stale committed file."
+    )
+    assert scanned == {str(path) for path in HTML_ROUTE_COVERAGE.values()}, (
+        f"the a11y gate scans {sorted(scanned)} but HTML_ROUTE_COVERAGE maps "
+        f"routes to {sorted(str(p) for p in HTML_ROUTE_COVERAGE.values())}"
+    )
+
+
+def test_the_makefile_variable_expander_works() -> None:
+    """The expander is measured, so an empty result cannot pass as agreement."""
+    assert makefile_variables().get("A11Y_HTML") == "docs/audits/dashboard.html"
+    assert makefile_list("A11Y_PAGES") == [
+        "docs/audits/dashboard.html",
+        "docs/audits/login.html",
+        "docs/audits/share.html",
+    ]

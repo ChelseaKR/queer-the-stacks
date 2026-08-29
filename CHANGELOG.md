@@ -12,6 +12,128 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Security
+- **The container CVE scan has been red on `main` since at least 2026-08-17,
+  with no tree change to explain it.** A digest-pinned base image cannot age
+  well: Debian publishes fixes, the pin does not move, and the scan goes red on
+  its own. Trivy reported 39 fixable HIGH findings against the built image
+  (0 CRITICAL). Now 0, verified locally with the same scanner and flags CI
+  uses. Three causes, all fixed in the `Dockerfile` rather than added to an
+  ignore list: the pinned `python:3.14-slim` digest moved from a Debian 13.5 to
+  a 13.6 build (36 findings); a scoped `apt-get --only-upgrade` of the three
+  OpenSSL packages closes CVE-2026-14456, which a pinned base necessarily lags
+  `trixie-security` on; and `pip` is removed from the runtime layer after the
+  build-time installs, which clears the last two findings
+  (GHSA-6v7p-g79w-8964, CVE-2025-47273) because both lived in `pip`'s own
+  vendored tree and neither was reachable from `pyproject.toml`. A single-user
+  service has no need of a package installer at run time. Recorded in
+  `docs/audits/residual-risk.md`, whose scanner list also now names Trivy and
+  `osv-scanner` rather than only `pip-audit` and `gitleaks`.
+
+### Fixed
+- **The a11y gate's page list was three hand-maintained lists that nothing tied
+  together.** `test_build_all_writes_every_audited_document` never called
+  `build_all()` — it hand-called the three builders, so `build_all` could stop
+  writing `docs/audits/share.html` with the test green. Because that file is
+  committed, `make a11y`'s existence guard would keep passing on the stale copy
+  and the share page would go unaudited indefinitely. Separately, the
+  `Makefile`'s `A11Y_PAGES` literal was compared to neither `build_all()` nor
+  `HTML_ROUTE_COVERAGE`, so a fourth user-facing document added to two of the
+  three lists would simply never be loaded by the gate. `build_all()` now takes
+  an optional output directory so the test can call the function itself, and a
+  new test asserts all three lists are the same set.
+
+### Fixed
+- **Two more invariants were screened rather than asserted.**
+  - `Author` was checked against a denylist of eight exact field names.
+    `Author` has only ever had two fields, so the equality was available and
+    strictly stronger, and the denylist let through every near miss:
+    `gender_identity`, `pronoun` singular, `queerness`, `identity_labels`,
+    `demographic`, `lgbtq`, `author_race`. Each is exactly the label the
+    README's hardest rule forbids. The field set is now pinned as an equality,
+    with a differential test that builds each near-miss class and shows the old
+    denylist accepting it and the pin rejecting it.
+  - The reproducibility gate rendered a different document than the app serves.
+    It called `render_dashboard` with five of its twenty-three arguments,
+    leaving the goals section, library table, data-status panel, diversity
+    report, near-miss shelf, forecasts and authored lists out of the byte
+    comparison — 27,197 of the served page's 37,315 bytes, 72.9%. Worse, two
+    renders in one process cannot establish build reproducibility at all, since
+    Python randomizes string hashing per process: set-iteration order is stable
+    within a run and varies between runs. The gate now compares `render_view`,
+    the function the server and the static builder both call, and anchors it
+    against the committed `docs/audits/*.html`, which a previous process wrote.
+    That also makes those artifacts provably current rather than merely
+    present, which is what the accessibility gate needs of them.
+
+### Fixed
+- **The CSP drift test was a closed tautology, and the external-link check was
+  existential.** Both in `tests/test_security_headers.py`.
+  - The drift test recomputed `sha256(_STYLE)` and compared it to
+    `app/security_headers.py`'s `sha256(_STYLE)`. Same pure function, same
+    constant: it matched by construction and never opened a rendered document.
+    A sixth inline block added to a page with no hash in the CSP is blocked by
+    every browser and was invisible here. The check now extracts every inline
+    `<script>` and `<style>` from the four documents the app serves and
+    asserts set equality against the CSP's hashes, so an unhashed block and a
+    stale hash both fail.
+  - The `rel` check was `'href="http' in html` and
+    `'rel="noopener noreferrer external"' in html` — two substring searches
+    over one page, which never established that they belonged to the same
+    anchor. Every external anchor on every served document is now checked
+    individually, with a separate non-vacuity test so a demo dataset that
+    stops producing citations fails loudly instead of emptying the loop.
+
+### Fixed
+- **Four privacy guardrails were green and could not fail.** Each is listed
+  with the violation it used to let through, and each fix is proved by
+  injecting that violation and watching the old check pass and the new one
+  fail.
+  - *No reading content in logs* (`tests/test_log_safety.py`) scanned the
+    source text for four tokens and exempted files by basename. `from logging
+    import warning` in `app/render.py` contains none of the four; a new
+    `ingest/server.py` inherited `app/server.py`'s exemption by name
+    collision; and the confinement assertion was a subset, so both audited
+    files could stop logging and it still passed. Imports are now resolved
+    with `ast` through the shared `tests/importscan.py`, the allowlist is
+    repository-relative, and both boundaries are equalities. A second
+    boundary is now asserted that did not exist before: which modules can
+    *emit* a record at all, which is the route `app/server.py` actually takes
+    (it contains no `import logging`).
+  - *Structured logs carry no PII* (`tests/test_observability.py`) formatted
+    only `records[-1]`. The middleware logs last, so anything the route
+    handler logged sat before it and was never read. Every record the request
+    emits is scanned now.
+  - *Goodreads is excluded, not merely absent* (`tests/test_source_allowlist.py`)
+    used a bare `pytest.raises(SourceNotAllowed)`, which cannot tell the
+    blocked-source branch from default-deny — and default-deny already raises
+    for every Goodreads and Amazon URL. Reordering the two checks made the
+    values-based exclusion dead code with the suite green. The expected
+    message is now matched, and every entry in `BLOCKED_HOSTS` is exercised
+    rather than three URLs named by hand.
+  - *No route opens a socket* (`tests/test_no_egress.py`) issued `GET` only,
+    so `POST /login` — the one route that takes user input, and the natural
+    home for a failed-login notification — was never driven. Every registered
+    (path, method) pair is driven now, non-GET routes with a real body so the
+    handler is actually reached, and the set driven is asserted equal to the
+    set registered.
+
+### Fixed
+- **The `standards` check could not go green on a forked pull request.**
+  `.github/workflows/standards.yml` skips the private policy fetch on forks,
+  by design, because GitHub withholds repository secrets from them. What was
+  left was a single assertion, `test -s .standards-version` — against a file
+  this repository has never contained in its history, so that lane exited 1
+  every time, for a reason unrelated to the missing credential. `README.md`
+  and `CONTRIBUTING.md` also both linked to the file. `.standards-version` now
+  exists and records `v1.0.1`, the ref the workflow already checks the policy
+  repository out at, which repairs the fork lane and both links at once.
+- **The documented lockstep between the pin and the workflow was not
+  enforced.** `standards.yml`'s `ref:` carries the comment "bump in lockstep
+  with .standards-version" and nothing checked it. `tests/test_standards_pin.py`
+  now reads both files and fails when either moves alone. It needs no
+  credential and no network, so it runs inside `make verify` on forks too.
+
 ### Added
 - A "Why not others?" near-miss section on the recommendation shelf: the
   best-scoring candidates that didn't make the cut, each with the same
@@ -298,5 +420,10 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
 - `standards remediation`: `persist-credentials: false` on checkouts (#9).
 
 ### Security
+- `uv.lock`: `pip` 26.1.2 -> 26.2.1, clearing PYSEC-2026-3721. The advisory was
+  published after the last green run on `main`, so `make security`'s
+  `osv-scanner --lockfile=uv.lock` stage went red on an unchanged tree. `pip`
+  reaches the lock as a transitive of `pip-api`, which `pip-audit` itself
+  requires; nothing this project imports at runtime changed.
 - `pip-audit` clean (0 known vulnerabilities) on the Python 3.14 floor; empty accepted-advisory
   list (`docs/audits/residual-risk.md`).

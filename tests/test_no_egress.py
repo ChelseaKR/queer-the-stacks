@@ -39,7 +39,6 @@ overclaim on its behalf:
 
 from __future__ import annotations
 
-import ast
 import inspect
 import time
 from pathlib import Path
@@ -53,6 +52,7 @@ from ingest.kosync import KosyncClient, SyncNotAllowed
 from recommender.catalog_pool import fetch_catalog_pool
 from recommender.catalogs import ALLOWED_HOSTS, BookwyrmClient, OpenLibraryClient, SourceNotAllowed
 
+from tests.importscan import denied_imports
 from tests.netguard import EgressAttempted, capture_requests, no_network
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -141,63 +141,14 @@ def _relative(path: Path) -> str:
     return path.resolve().relative_to(REPO_ROOT).as_posix()
 
 
-def _module_prefixes(name: str) -> list[str]:
-    """``a.b.c`` -> ``['a.b.c', 'a.b', 'a']`` (longest first)."""
-    parts = name.split(".")
-    return [".".join(parts[: len(parts) - i]) for i in range(len(parts))]
-
-
-def _classify(name: str, denied: frozenset[str], exceptions: frozenset[str]) -> bool:
-    """True if ``name`` resolves to a denied namespace, most-specific rule wins."""
-    for prefix in _module_prefixes(name):
-        if prefix in exceptions:
-            return False
-        if prefix in denied:
-            return True
-    return False
-
-
-def imported_modules(source: str) -> set[str]:
-    """Every module name a source file can pull in, resolved statically.
-
-    Covers ``import x.y``, ``from x.y import z`` (recording ``x.y`` and
-    ``x.y.z``, since the imported name may itself be a submodule), and a literal
-    ``importlib.import_module("x")`` / ``__import__("x")``. Relative imports are
-    first-party and skipped.
-    """
-    found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.add(node.module)
-            found.update(f"{node.module}.{alias.name}" for alias in node.names)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
-            if called in {"__import__", "import_module"} and node.args:
-                first = node.args[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    found.add(first.value)
-    return found
-
-
 def network_imports(source: str) -> set[str]:
     """The imports in ``source`` that can open an outbound connection."""
-    return {
-        name
-        for name in imported_modules(source)
-        if _classify(name, NETWORK_MODULE_PREFIXES, NETWORK_MODULE_EXCEPTIONS)
-    }
+    return denied_imports(source, NETWORK_MODULE_PREFIXES, NETWORK_MODULE_EXCEPTIONS)
 
 
 def telemetry_imports(source: str) -> set[str]:
     """The imports in ``source`` that belong to an analytics/telemetry SDK."""
-    return {
-        name
-        for name in imported_modules(source)
-        if _classify(name, TELEMETRY_MODULE_PREFIXES, frozenset())
-    }
+    return denied_imports(source, TELEMETRY_MODULE_PREFIXES, frozenset())
 
 
 # --- Layer 1: the import scan ------------------------------------------------
@@ -328,10 +279,56 @@ def test_ingest_and_render_open_no_socket(tmp_path: Path, monkeypatch: pytest.Mo
     assert "Queer the Stacks" in html
 
 
+def _registered_routes(app_obj: object) -> set[tuple[str, str]]:
+    """Every (path, method) the app serves, ignoring HEAD/OPTIONS bookkeeping.
+
+    Same shape as ``tests/test_auth.py::_registered_routes``: the route table is
+    read off the app rather than hand-listed here, so a route added tomorrow is
+    driven by this guardrail without anyone remembering to add it.
+    """
+    found: set[tuple[str, str]] = set()
+    for route in app_obj.routes:  # type: ignore[attr-defined] # FastAPI/Starlette app
+        path: Optional[str] = getattr(route, "path", None)
+        methods = getattr(route, "methods", None) or {"GET"}
+        if not path:
+            continue
+        found.update((path, method) for method in methods if method not in {"HEAD", "OPTIONS"})
+    return found
+
+
+#: Form bodies for the routes that need one, so the handler actually runs
+#: instead of being rejected at validation. Each non-GET route must appear here
+#: (asserted below), which makes adding one a deliberate edit to this file: a
+#: route driven without a valid body never reaches its own code, and proves
+#: nothing about what that code does.
+#:
+#: ``POST /login`` gets both branches. The failure branch is the interesting
+#: one — a lockout notification or an alerting webhook would live there.
+NON_GET_BODIES: dict[tuple[str, str], tuple[dict[str, str], ...]] = {
+    ("/login", "POST"): ({"token": "wrong-token"}, {"token": "demo-token"}),
+}
+
+
 def test_every_dashboard_route_opens_no_socket(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Serving any route — authenticated or not — opens no connection."""
+    """Serving any route, by any method, authenticated or not, opens no connection.
+
+    This used to issue ``client.get(path)`` only. ``POST /login`` — the single
+    non-GET route, and the only one that takes user input — was therefore never
+    driven, so a call out from the failed-login path was invisible here. Layer 1
+    would not have caught it either, as long as the call went through an
+    already-declared client such as ``ingest/kosync.py`` rather than through a
+    new import in ``app/server.py``.
+
+    Driving ``POST /login`` is not enough on its own: with no form body, FastAPI
+    rejects the request at validation and the handler never executes. So the
+    non-GET routes are driven with a real body, and the status codes are checked
+    to confirm the handler was reached rather than short-circuited.
+
+    The set of pairs actually driven is asserted afterwards, because a loop that
+    iterated nothing would satisfy ``attempts == []`` just as well.
+    """
     pytest.importorskip("fastapi")
     from app.server import create_app
     from fastapi.testclient import TestClient
@@ -340,18 +337,49 @@ def test_every_dashboard_route_opens_no_socket(
 
     _demo_env(tmp_path, monkeypatch)
     seed_store_from_env()
-    client = TestClient(create_app(), base_url="https://testserver")
+    app_obj = create_app()
+    registered = _registered_routes(app_obj)
+    # Redirects are not followed: each route is measured on its own response,
+    # not on whatever it hands the browser next.
+    client = TestClient(app_obj, base_url="https://testserver", follow_redirects=False)
     auth = {"Authorization": "Bearer demo-token"}
 
+    non_get = {(path, method) for path, method in registered if method != "GET"}
+    assert non_get == set(NON_GET_BODIES), (
+        f"every non-GET route needs a request body here or it is driven without "
+        f"reaching its handler: {sorted(non_get ^ set(NON_GET_BODIES))}"
+    )
+
+    driven: set[tuple[str, str]] = set()
+    statuses: dict[tuple[str, str], list[int]] = {}
     with no_network() as attempts:
-        for route in create_app().routes:
-            path = getattr(route, "path", "")
-            if not path or "{" in path:
+        for path, method in sorted(registered):
+            if "{" in path:
                 continue
-            client.get(path, headers=auth)
-            client.get(path)  # and unauthenticated
+            codes: list[int] = []
+            for body in NON_GET_BODIES.get((path, method), ({},)):
+                data = body or None
+                codes.append(client.request(method, path, headers=auth, data=data).status_code)
+                codes.append(client.request(method, path, data=data).status_code)
+            statuses[(path, method)] = codes
+            driven.add((path, method))
 
     assert attempts == [], f"serving a route attempted egress: {attempts}"
+    assert driven == registered, (
+        f"routes registered but never driven: {sorted(registered - driven)}. "
+        "An undriven route is unproven, not proven safe."
+    )
+    # 422 means FastAPI rejected the request before the handler ran, so nothing
+    # in the handler was measured. No driven route may answer that way.
+    unreached = {pair: codes for pair, codes in statuses.items() if 422 in codes}
+    assert unreached == {}, (
+        f"these routes were driven but never reached their handler (HTTP 422): "
+        f"{unreached}. A request rejected at validation measures nothing."
+    )
+    assert statuses[("/login", "POST")] == [401, 401, 303, 303], (
+        "POST /login must be driven through both its failure and success "
+        f"branches inside the egress trap; got {statuses[('/login', 'POST')]}"
+    )
 
 
 def test_catalog_refresh_with_egress_off_opens_no_socket(

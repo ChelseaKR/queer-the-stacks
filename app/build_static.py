@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from app.view import demo_view, render_view
 
@@ -60,9 +61,27 @@ def build_share(out: Path = DEFAULT_SHARE_OUT) -> Path:
     return out
 
 
-def build_all() -> tuple[Path, ...]:
-    """Write every HTML document covered by the blocking accessibility gate."""
-    return build(), build_login(), build_share()
+#: Where the committed audit artifacts live. Every default output below sits
+#: here, and ``Makefile``'s ``A11Y_PAGES`` names the same three files.
+DEFAULT_OUT_DIR = DEFAULT_OUT.parent
+
+
+def build_all(out_dir: Optional[Path] = None) -> tuple[Path, ...]:
+    """Write every HTML document covered by the blocking accessibility gate.
+
+    ``out_dir`` exists so a test can call *this function* rather than
+    reimplementing it by calling the three builders in turn. That distinction
+    is the whole point of the function: a test that hand-calls the builders
+    stays green when ``build_all`` stops calling one of them, and the page it
+    dropped then goes unaudited while its stale committed copy keeps
+    satisfying the Makefile's existence check.
+    """
+    base = DEFAULT_OUT_DIR if out_dir is None else Path(out_dir)
+    return (
+        build(base / DEFAULT_OUT.name),
+        build_login(base / DEFAULT_LOGIN_OUT.name),
+        build_share(base / DEFAULT_SHARE_OUT.name),
+    )
 
 
 if __name__ == "__main__":
