@@ -61,6 +61,11 @@ into the local app-state store:
 ```sh
 export STACKS_CALIBRE_DB=/path/to/Calibre/metadata.db
 export STACKS_KOREADER_DB=/path/to/koreader/statistics.sqlite
+# optional: a Kobo's own database, and Calibre-Web's read-state beside your library
+export STACKS_KOBO_DB=/path/to/.kobo/KoboReader.sqlite
+export STACKS_CALIBRE_WEB_DB=/path/to/calibre-web/app.db
+# ...and, only if several people share that Calibre-Web, whose read-state to import:
+export STACKS_CALIBRE_WEB_USER=you
 # optional cross-device progress (key from the env, never a file):
 export STACKS_KOSYNC_HOST=https://sync.koreader.rocks STACKS_KOSYNC_USER=you STACKS_KOSYNC_KEY=…
 stacks doctor     # validate paths + confirm snapshot-first read-only access (mutates nothing)

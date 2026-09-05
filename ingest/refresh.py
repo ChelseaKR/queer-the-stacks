@@ -28,12 +28,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from ingest import calibre_web
 from ingest.calibre import load_library
 from ingest.config import KNOWN_STACKS_ENV, Config
 from ingest.kobo import load_stats as load_kobo_stats
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
-from ingest.models import DailyActivity, DeviceProgress, ReadingStat, ReadingState
+from ingest.models import Book, DailyActivity, DeviceProgress, ReadingStat, ReadingState
 from ingest.snapshot import columns, has_sidecar, open_snapshot
 from ingest.store import ORIGIN_DEMO, ORIGIN_REAL, CatalogSourceUpdate, Store
 from ingest.unify import unify
@@ -192,6 +193,7 @@ def source_mtimes(config: Config) -> dict[str, int]:
         ("calibre", config.calibre_db),
         ("koreader", config.koreader_db),
         ("kobo", config.kobo_db),
+        ("calibre_web", config.calibre_web_db),
     ):
         if path is not None and path.is_file():
             out[name] = int(path.stat().st_mtime)
@@ -228,6 +230,43 @@ def _retrieval_date(now: int) -> str:
     return dt.datetime.fromtimestamp(now, tz=dt.UTC).strftime("%Y-%m-%d")
 
 
+def _load_calibre_web(config: Config, books: list[Book]) -> calibre_web.CalibreWebState:
+    """Read Calibre-Web's read-state, if one is configured and can be named.
+
+    Calibre-Web's ``app.db`` holds no titles — its rows point at Calibre book
+    ids — so with no Calibre library configured there is nothing its read-state
+    could be attached to, and reading it would produce nothing but a snapshot.
+    """
+    if config.calibre_web_db is None or not books:
+        return calibre_web.CalibreWebState()
+    return calibre_web.load_state(
+        config.calibre_web_db,
+        config.snapshot_dir,
+        books,
+        user=config.calibre_web_user,
+    )
+
+
+def _merge_progress(
+    primary: dict[str, DeviceProgress], secondary: dict[str, DeviceProgress]
+) -> dict[str, DeviceProgress]:
+    """Combine two progress maps, freshest timestamp winning; ties go to ``primary``.
+
+    ``primary`` is kosync, the reader's own sync server and the source with a
+    real per-device clock. ``secondary`` is Calibre-Web, which reports when its
+    read-state row was last written. The two only ever collide on a book both
+    describe, and then the more recent assertion is the true one.
+    """
+    if not secondary:
+        return primary
+    merged = dict(primary)
+    for key, progress in secondary.items():
+        held = merged.get(key)
+        if held is None or progress.timestamp > held.timestamp:
+            merged[key] = progress
+    return merged
+
+
 def _ingest_real(
     config: Config, store: Optional[Store] = None, now: int = 0
 ) -> tuple[list[ReadingState], list[DailyActivity], ProgressFetchResult]:
@@ -241,10 +280,19 @@ def _ingest_real(
     stats = load_stats(config.koreader_db, snap) if config.koreader_db else []
     stats = stats + (load_kobo_stats(config.kobo_db, snap) if config.kobo_db else [])
     activity = load_daily_activity(config.koreader_db, snap) if config.koreader_db else []
+    # Kosync is asked about the device-sourced stats only, exactly as before:
+    # Calibre-Web's keys are title-derived and its server would have nothing to
+    # say about them, so adding them here would send book titles to the sync
+    # server for no answer.
     progress_result = _resolve_progress(
         _kosync(config), stats, store, now, config.kosync_progress_ttl_seconds
     )
-    states = unify(books, stats, FixtureKosync(progress_result.progress))
+    web_state = _load_calibre_web(config, books)
+    # Appended last so a KOReader/Kobo stat for the same book wins the `unify`
+    # join: those measure pages and time, Calibre-Web measures read-state.
+    merged_stats = stats + list(web_state.stats)
+    progress = _merge_progress(progress_result.progress, web_state.progress)
+    states = unify(books, merged_stats, FixtureKosync(progress))
     return states, activity, progress_result
 
 
@@ -434,6 +482,48 @@ def _check_source(label: str, path: Optional[Path], required_table: str) -> list
     return checks
 
 
+def _calibre_web_checks(config: Config) -> list[Check]:
+    """Validate the Calibre-Web read-state source, when one is configured."""
+    if config.calibre_web_db is None:
+        return []
+    checks = _check_source("Calibre-Web", config.calibre_web_db, "book_read_link")
+    checks.append(_check_calibre_web_reader(config))
+    return checks
+
+
+def _check_calibre_web_reader(config: Config) -> Check:
+    """Answer "whose read-state would `refresh` import?" before it imports any.
+
+    Two things can go wrong only at ingest time otherwise: the configured reader
+    is not a user of this Calibre-Web, or several readers share it and none was
+    configured. Both raise from ``refresh``, so ``doctor`` — the preflight — is
+    where a person should meet them.
+    """
+    path = config.calibre_web_db
+    if path is None or not path.is_file():
+        return Check("Calibre-Web reader", False, "no readable app.db configured")
+    if config.calibre_db is None:
+        return Check(
+            "Calibre-Web reader",
+            False,
+            "Calibre-Web read-state is keyed by Calibre book id and app.db stores no "
+            "titles, so it needs STACKS_CALIBRE_DB set to name anything",
+        )
+    try:
+        with (
+            tempfile.TemporaryDirectory(prefix="stacks-doctor-") as tmp,
+            open_snapshot(path, Path(tmp)) as conn,
+        ):
+            user_id = calibre_web.resolve_user_id(conn, config.calibre_web_user)
+    except Exception as exc:  # noqa: BLE001 - surface any access problem to the user
+        return Check("Calibre-Web reader", False, f"{type(exc).__name__}: {exc}")
+    if config.calibre_web_user:
+        return Check(
+            "Calibre-Web reader", True, f"importing {config.calibre_web_user!r} (user id {user_id})"
+        )
+    return Check("Calibre-Web reader", True, "one reader's read-state in this app.db")
+
+
 def _check_env(env: Mapping[str, str]) -> list[Check]:
     """Flag unrecognized ``STACKS_*`` variables — typos are silently ignored otherwise."""
     unknown = sorted(k for k in env if k.startswith("STACKS_") and k not in KNOWN_STACKS_ENV)
@@ -458,6 +548,7 @@ def doctor(
         checks.extend(_check_source("KOReader", config.koreader_db, "book"))
         if config.kobo_db is not None:
             checks.extend(_check_source("Kobo", config.kobo_db, "content"))
+        checks.extend(_calibre_web_checks(config))
         checks.append(
             Check(
                 "kosync",

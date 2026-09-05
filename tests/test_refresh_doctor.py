@@ -656,3 +656,168 @@ def test_open_readonly_refuses_a_live_source_with_sidecars(tmp_path: Path) -> No
         assert titles == {"Nevada"}
     finally:
         writer.close()
+
+
+# --- Calibre-Web read-state -------------------------------------------------
+#
+# app.db is a *dependent* source: it stores no titles, only Calibre book ids, so
+# these fixtures point at ids 7 and 9 of the demo Calibre library ("Oryx and
+# Crake", "Parable of the Talents") — two books the demo KOReader stats say
+# nothing about, so what surfaces below can only have come from Calibre-Web.
+
+
+def _make_calibre_web_db(
+    path: Path, *, users: tuple[tuple[int, str], ...] = ((1, "reader"),)
+) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE user (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE book_read_link (
+            id INTEGER PRIMARY KEY, book_id INTEGER, user_id INTEGER,
+            read_status INTEGER, last_modified DATETIME,
+            last_time_started_reading DATETIME, times_started_reading INTEGER
+        );
+        INSERT INTO book_read_link
+            (id, book_id, user_id, read_status, last_modified,
+             last_time_started_reading, times_started_reading)
+        VALUES
+            (1, 7, 1, 1, '2026-05-01 12:00:00.000000', '2026-04-20 19:00:00.000000', 2),
+            (2, 9, 1, 2, '2026-05-02 12:00:00.000000', '2026-05-02 12:00:00.000000', 1);
+        """
+    )
+    conn.executemany("INSERT INTO user (id, name) VALUES (?, ?)", users)
+    conn.commit()
+    conn.close()
+
+
+def _real_config_with_calibre_web(
+    tmp_path: Path, *, with_koreader: bool = True, **env: str
+) -> Config:
+    """A non-demo config with Calibre + a Calibre-Web app.db (KOReader optional).
+
+    ``with_koreader=False`` is the Calibre-Web-beside-Calibre setup with no
+    e-reader syncing: the only thing that knows anything about reading is
+    Calibre-Web, so whatever surfaces can only have come from it.
+    """
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    app_db = tmp_path / "lib" / "app.db"
+    _make_calibre_web_db(app_db)
+    resolved = {
+        "STACKS_CALIBRE_DB": str(metadata_db),
+        "STACKS_CALIBRE_WEB_DB": str(app_db),
+        "STACKS_DATA_DIR": str(tmp_path / "data"),
+        **env,
+    }
+    if with_koreader:
+        resolved["STACKS_KOREADER_DB"] = str(statistics_db)
+    return load_config(env=resolved, config_path=tmp_path / "absent.toml")
+
+
+def test_real_refresh_merges_calibre_web_read_state_through_unify(tmp_path: Path) -> None:
+    """Calibre-Web read-state flows through the same `unify` join, unchanged."""
+    cfg = _real_config_with_calibre_web(tmp_path, with_koreader=False)
+    states, _ = ingest_states(cfg)
+    by_title = {s.title: s for s in states}
+
+    finished = by_title["Oryx and Crake"]
+    assert finished.status.value == "finished"
+    assert finished.latest_device == "Calibre-Web"
+    assert finished.percent_complete == 1.0
+    # No page count was invented on the way through.
+    assert finished.stat is not None
+    assert (finished.stat.pages_read, finished.stat.total_pages) == (0, 0)
+
+    # The in-progress row measured nothing, so it stays unmeasured rather than
+    # arriving as a 0% meter.
+    started = by_title["Parable of the Talents"]
+    assert started.progress_recorded is False
+
+    # Positive control: a book Calibre-Web says nothing about stays unmeasured.
+    assert by_title["Kindred"].progress_recorded is False
+
+
+def test_koreader_measurement_wins_over_calibre_web_read_state(tmp_path: Path) -> None:
+    """A source that measured pages and time outranks one that only knows "read"."""
+    cfg = _real_config_with_calibre_web(tmp_path)
+    states, _ = ingest_states(cfg)
+    oryx = next(s for s in states if s.title == "Oryx and Crake")
+    assert oryx.stat is not None
+    # KOReader's stat, not Calibre-Web's 0/0 placeholder.
+    assert oryx.stat.total_pages > 0
+    assert oryx.stat.sessions > 0
+
+
+def test_source_mtimes_includes_calibre_web(tmp_path: Path) -> None:
+    cfg = _real_config_with_calibre_web(tmp_path)
+    assert "calibre_web" in source_mtimes(cfg)
+
+
+def test_doctor_reports_calibre_web_when_configured(tmp_path: Path) -> None:
+    cfg = _real_config_with_calibre_web(tmp_path)
+    by_name = {c.name: c for c in doctor(cfg)}
+    assert by_name["Calibre-Web file"].ok
+    assert by_name["Calibre-Web read-only access"].ok
+    assert by_name["Calibre-Web reader"].ok
+
+
+def test_doctor_omits_calibre_web_when_unconfigured(tmp_path: Path) -> None:
+    cfg = _real_config(tmp_path)
+    assert not any(c.name.startswith("Calibre-Web") for c in doctor(cfg))
+
+
+def test_doctor_flags_a_shared_calibre_web_with_no_reader_chosen(tmp_path: Path) -> None:
+    """The ambiguity surfaces in the preflight, not as a crash mid-refresh."""
+    metadata_db, statistics_db = build_demo_dbs(tmp_path / "lib")
+    app_db = tmp_path / "lib" / "app.db"
+    _make_calibre_web_db(app_db, users=((1, "reader"), (2, "housemate")))
+    conn = sqlite3.connect(app_db)
+    conn.execute(
+        "INSERT INTO book_read_link (id, book_id, user_id, read_status, last_modified,"
+        " last_time_started_reading, times_started_reading)"
+        " VALUES (3, 4, 2, 1, '2026-05-03 12:00:00.000000', NULL, 0)"
+    )
+    conn.commit()
+    conn.close()
+    cfg = load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_CALIBRE_WEB_DB": str(app_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    reader = {c.name: c for c in doctor(cfg)}["Calibre-Web reader"]
+    assert reader.ok is False
+    assert "STACKS_CALIBRE_WEB_USER" in reader.detail
+
+    # ...and naming the reader resolves it.
+    named = load_config(
+        env={
+            "STACKS_CALIBRE_DB": str(metadata_db),
+            "STACKS_KOREADER_DB": str(statistics_db),
+            "STACKS_CALIBRE_WEB_DB": str(app_db),
+            "STACKS_CALIBRE_WEB_USER": "reader",
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    assert {c.name: c for c in doctor(named)}["Calibre-Web reader"].ok
+
+
+def test_doctor_says_calibre_web_needs_a_calibre_library_to_name_anything(
+    tmp_path: Path,
+) -> None:
+    app_db = tmp_path / "app.db"
+    _make_calibre_web_db(app_db)
+    cfg = load_config(
+        env={
+            "STACKS_CALIBRE_WEB_DB": str(app_db),
+            "STACKS_DATA_DIR": str(tmp_path / "data"),
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    reader = {c.name: c for c in doctor(cfg)}["Calibre-Web reader"]
+    assert reader.ok is False
+    assert "STACKS_CALIBRE_DB" in reader.detail

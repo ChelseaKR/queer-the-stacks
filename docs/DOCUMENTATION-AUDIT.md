@@ -12,7 +12,7 @@ This audit records the documentation sweep and remediation loop for this reposit
 | Security/process docs | pass | CONTRIBUTING.md, SECURITY.md, CHANGELOG.md |
 | Architecture/planning docs | pass | 7 architecture/interface docs; 2 planning/research docs |
 | Safety/privacy/audit docs | pass | 8 safety/privacy/accessibility/audit docs |
-| Validation surface | pass | 58 test files; 7 workflow files. Both figures are derived from the tree by `tests/test_published_claims.py::test_stated_file_counts_match_the_tree`, which fails if any authored doc states a count the tree no longer supports — this row said 35 and 6 long after both had moved. |
+| Validation surface | pass | 59 test files; 7 workflow files. Both figures are derived from the tree by `tests/test_published_claims.py::test_stated_file_counts_match_the_tree`, which fails if any authored doc states a count the tree no longer supports — this row said 35 and 6 long after both had moved. |
 | Local doc links | pass | Every relative link in every authored doc resolves, checked case-sensitively so a link that only opens on macOS still fails: `tests/test_published_claims.py::test_every_relative_link_in_an_authored_doc_resolves`. No count is recorded here any more — the check is exhaustive by construction, and the count this row used to carry went on reporting a clean sweep of a link set that had since grown and acquired a broken one (`docs/README.md` linked `roadmap.md` beside `ROADMAP.md`). |
 
 ## Root-Level Documentation Audit

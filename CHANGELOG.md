@@ -12,6 +12,32 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Added
+- **Calibre-Web read-state is now a read-only ingest source** (`ingest/calibre_web.py`,
+  `[calibre_web] path`/`user`, `STACKS_CALIBRE_WEB_DB`/`STACKS_CALIBRE_WEB_USER`).
+  A Calibre library that is served through Calibre-Web already records which
+  books are finished, and — where Kobo sync has run — how long they were read
+  and how far in the reader got; none of it reached the dashboard. It is read
+  snapshot-first through `ingest.snapshot`, like every other source, and merged
+  through the existing `unify` join with **zero changes to `ingest/unify.py`**.
+  Three things are deliberate. Calibre-Web's `app.db` stores no titles — its
+  rows are Calibre book ids — so it is a *dependent* source that annotates a
+  configured Calibre library and is not counted by `Config.has_real_sources`;
+  a row whose Calibre book is missing is dropped rather than surfaced under an
+  invented title. It records no page counts either, so a finished book arrives
+  with `0/0` pages and its "finished" travels as a `DeviceProgress` from the
+  `Calibre-Web` device, because a page total made up to force a percentage is
+  exactly the kind of number this project refuses to publish. And a row that
+  says *in progress* while measuring neither a position nor a reading time is
+  skipped: emitting it would set `progress_recorded` and draw a 0% meter,
+  asserting a measurement nobody took. Multi-user `app.db` files raise
+  `CalibreWebUserError` instead of blending a housemate's reading into yours,
+  and `stacks doctor` now answers "whose read-state would `refresh` import?"
+  before `refresh` imports any. Three recorded schema eras (`0.6.4`'s legacy
+  `is_read`, `0.6.7` with the Kobo tables present but empty, and current with
+  them populated) are in `tests/schemas/calibre_web/` and the
+  `tests/test_schema_drift.py` matrix.
+
 ### Security
 - **The committed branch-protection ruleset would have locked the owner out of
   this repository, and `.github/rulesets/README.md` walked a reader through

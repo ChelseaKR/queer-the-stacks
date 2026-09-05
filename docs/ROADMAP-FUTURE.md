@@ -78,7 +78,23 @@ your real library" before adding features.
    (`ContentType = 6`, chapter-row dedup, schema-drift tolerant), merged through
    the existing `unify` join with zero changes to `ingest/unify.py`; wired into
    `ingest/config.py` (`[kobo]` / `STACKS_KOBO_DB`) and `ingest/refresh.py`.
-   Readest, Calibre-Web read-state, and sideloaded EPUB/PDF remain open.
+   **Calibre-Web read-state (`ingest/calibre_web.py`) done (2026-09-05)** —
+   snapshot-first reader over Calibre-Web's own `app.db` (`book_read_link`,
+   across both the `read_status` and the legacy `is_read` eras, plus
+   `kobo_reading_state`/`kobo_statistics`/`kobo_bookmark` when Kobo sync has
+   written them), again with zero changes to `ingest/unify.py`; wired into
+   `ingest/config.py` (`[calibre_web]` / `STACKS_CALIBRE_WEB_DB`,
+   `STACKS_CALIBRE_WEB_USER`) and `ingest/refresh.py`, with three recorded
+   schema eras in `tests/schemas/calibre_web/`. Two design notes worth keeping:
+   `app.db` stores no titles (its rows are Calibre book ids), so it is a
+   *dependent* source that adds read-state to a configured Calibre library and
+   is deliberately not part of `Config.has_real_sources`; and because it records
+   no page counts, "finished" travels as a `DeviceProgress` from the
+   `Calibre-Web` device rather than as an invented page total. A row that says
+   *in progress* while measuring neither a position nor a reading time is
+   dropped rather than rendered as "0% read" — the one thing the shared
+   status vocabulary cannot express, noted here rather than papered over.
+   **Readest and sideloaded EPUB/PDF remain open.**
 2. **Annotations & highlights** — surface a private, searchable "commonplace book"
    from KOReader highlights; never synced anywhere.
 3. **Series & TBR intelligence** — "next in a series you own," progress through a
