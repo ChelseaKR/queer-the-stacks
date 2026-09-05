@@ -25,6 +25,7 @@ jobs:
   analysis:
     name: scorecard
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write # upload SARIF to this public repo's code scanning
       id-token: write # sigstore-sign the results file
