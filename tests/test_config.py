@@ -195,3 +195,44 @@ def test_lens_config_toml_section(tmp_path: Path) -> None:
     toml.write_text(f'[lenses]\npath = "{lens_path}"\n', encoding="utf-8")
     cfg = load_config(env={}, config_path=toml)
     assert cfg.lens_config == lens_path
+
+
+def test_calibre_web_is_configurable_from_toml_and_env(tmp_path: Path) -> None:
+    toml = tmp_path / "stacks.toml"
+    toml.write_text(
+        """
+        [calibre_web]
+        path = "/srv/calibre-web/app.db"
+        user = "from-toml"
+        """,
+        encoding="utf-8",
+    )
+    cfg = load_config(env={}, config_path=toml)
+    assert cfg.calibre_web_db == Path("/srv/calibre-web/app.db")
+    assert cfg.calibre_web_user == "from-toml"
+
+    overridden = load_config(
+        env={"STACKS_CALIBRE_WEB_USER": "from-env"},
+        config_path=toml,
+    )
+    assert overridden.calibre_web_user == "from-env"
+
+
+def test_calibre_web_alone_is_not_a_real_source(tmp_path: Path) -> None:
+    """app.db stores no titles, so on its own it can name nothing — not a source."""
+    cfg = load_config(
+        env={"STACKS_CALIBRE_WEB_DB": "/srv/calibre-web/app.db"},
+        config_path=tmp_path / "absent.toml",
+    )
+    assert cfg.calibre_web_db == Path("/srv/calibre-web/app.db")
+    assert cfg.calibre_web_user is None
+    assert cfg.has_real_sources is False
+    # Positive control: paired with the Calibre library it annotates, it is.
+    paired = load_config(
+        env={
+            "STACKS_CALIBRE_DB": "/books/metadata.db",
+            "STACKS_CALIBRE_WEB_DB": "/srv/calibre-web/app.db",
+        },
+        config_path=tmp_path / "absent.toml",
+    )
+    assert paired.has_real_sources is True
