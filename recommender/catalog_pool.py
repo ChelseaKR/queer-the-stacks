@@ -9,16 +9,18 @@ explicitly selects ``public-metadata`` mode.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from ingest.config import Config
 from ingest.models import Book
 from ingest.store import CatalogSourceUpdate
 
+from recommender.adapters.contract import SUBJECT_SLUG
 from recommender.catalogs import BookwyrmClient, OpenLibraryClient, SourceNotAllowed, assert_allowed
 
-_OL_SUBJECT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
+#: The same object the adapter contract builds URLs from, imported rather than
+#: re-spelled: two copies of one pattern is two things to keep in step.
+_OL_SUBJECT = SUBJECT_SLUG
 
 
 @dataclass(frozen=True)

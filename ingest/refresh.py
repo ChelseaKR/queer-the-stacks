@@ -579,6 +579,22 @@ def _check_env(env: Mapping[str, str]) -> list[Check]:
     ]
 
 
+def _adapter_checks() -> list[Check]:
+    """One check per registered catalog adapter, reporting its compliance card.
+
+    The card is where a source's licence, attribution, auth and rate-limit
+    obligations are recorded, and those differ materially between sources. An
+    adapter registered without one fails here rather than being discovered by a
+    reader, because the obligations are the thing a person has to honour.
+    """
+    from recommender.adapters.registry import adapter_card_statuses
+
+    return [
+        Check(f"catalog adapter {status.adapter}", status.ok, status.detail)
+        for status in adapter_card_statuses()
+    ]
+
+
 def doctor(
     config: Config,
     store: Optional[Store] = None,
@@ -631,6 +647,7 @@ def doctor(
                     "never reading-derived queries",
                 )
             )
+    checks.extend(_adapter_checks())
     checks.append(Check("data dir", True, str(config.data_dir)))
     if store is not None:
         if store.is_populated:
