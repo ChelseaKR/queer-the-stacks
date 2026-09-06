@@ -31,6 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          # tests/test_release_claims.py compares the version pyproject.toml declares
+          # against `git tag --list`. The default depth fetches no tags, which would
+          # make an untagged repository and an unfetched one look identical and turn
+          # that gate into one that always passes. It refuses to answer from a shallow
+          # checkout for the same reason, so this is not optional: without it the
+          # verify job fails rather than passing blind.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
