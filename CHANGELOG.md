@@ -31,9 +31,11 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   says *in progress* while measuring neither a position nor a reading time is
   skipped: emitting it would set `progress_recorded` and draw a 0% meter,
   asserting a measurement nobody took. Multi-user `app.db` files raise
-  `CalibreWebUserError` instead of blending a housemate's reading into yours,
-  and `stacks doctor` now answers "whose read-state would `refresh` import?"
-  before `refresh` imports any. Three recorded schema eras (`0.6.4`'s legacy
+  `CalibreWebUserError` instead of blending a housemate's reading into yours —
+  counted across *every* per-user table the adapter reads, `book_read_link` and
+  `kobo_reading_state` alike, because a reader present in only one of them is
+  still a second reader — and `stacks doctor` now answers "whose read-state
+  would `refresh` import?" before `refresh` imports any. Three recorded schema eras (`0.6.4`'s legacy
   `is_read`, `0.6.7` with the Kobo tables present but empty, and current with
   them populated) are in `tests/schemas/calibre_web/` and the
   `tests/test_schema_drift.py` matrix.

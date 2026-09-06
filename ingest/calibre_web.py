@@ -49,7 +49,11 @@ Multi-user is a privacy question, not a merge question: ``app.db`` can hold
 several people's read-state, and blending a housemate's into this reader's
 dashboard would be silently wrong. With more than one reader present and no
 ``user`` configured, this raises :class:`CalibreWebUserError` rather than
-guessing.
+guessing. "Present" is counted across *every* per-user table read here — both
+``book_read_link`` and ``kobo_reading_state`` (see
+:func:`_user_ids_with_read_state`) — because a reader in only one of them is
+still a second reader, and every query is then scoped to the resolved reader
+(see :func:`_scoped_rows`) rather than left unscoped.
 """
 
 from __future__ import annotations
@@ -157,29 +161,68 @@ def _known_user_names(conn: sqlite3.Connection) -> list[str]:
     return [str(r["name"]) for r in rows if str(r["name"]).strip()]
 
 
+#: Every per-user table this module goes on to read, with the whole query that
+#: enumerates its readers. The guard must count readers across all of them: a
+#: reader present in only one of these is still a second reader, and their
+#: measurements are still not this reader's. Written as complete literals, never
+#: assembled from a table name, so no query here is built from a variable.
+_PER_USER_READER_QUERIES = (
+    ("book_read_link", "SELECT DISTINCT user_id FROM book_read_link WHERE user_id IS NOT NULL"),
+    (
+        "kobo_reading_state",
+        "SELECT DISTINCT user_id FROM kobo_reading_state WHERE user_id IS NOT NULL",
+    ),
+)
+
+
+def _distinct_user_ids(conn: sqlite3.Connection, table: str, query: str) -> set[int]:
+    """Every user id ``table`` attributes a row to; empty when it cannot say."""
+    if not table_exists(conn, table) or "user_id" not in columns(conn, table):
+        return set()
+    return {int(r["user_id"]) for r in conn.execute(query).fetchall()}
+
+
 def _user_ids_with_read_state(conn: sqlite3.Connection) -> list[int]:
-    if "user_id" not in columns(conn, "book_read_link"):
-        return []
-    rows = conn.execute(
-        "SELECT DISTINCT user_id FROM book_read_link WHERE user_id IS NOT NULL ORDER BY user_id"
-    ).fetchall()
-    return [int(r["user_id"]) for r in rows]
+    """Readers this ``app.db`` holds state for, across every per-user table.
+
+    ``book_read_link`` alone is not enough. ``kobo_reading_state`` is a
+    *separate* per-user table carrying the only measured numbers the adapter
+    imports — minutes read and a position percentage — and a reader can appear
+    in it while absent from ``book_read_link``. Calibre-Web 0.6.13's
+    ``cps/admin.py::_delete_user`` bulk-deletes a user's ``ReadBook`` rows with
+    no ``KoboReadingState`` cleanup (that loop arrives in 0.6.21), so deleting a
+    housemate's account leaves exactly that shape behind, and nothing reaps the
+    orphans across upgrades. Counting one table let those orphaned minutes and
+    percentage ride into this reader's dashboard on an otherwise-empty row.
+    """
+    ids: set[int] = set()
+    for table, query in _PER_USER_READER_QUERIES:
+        ids |= _distinct_user_ids(conn, table, query)
+    return sorted(ids)
 
 
 def resolve_user_id(conn: sqlite3.Connection, user: Optional[str] = None) -> Optional[int]:
-    """Decide whose read-state to import; ``None`` means "every row in the file".
+    """Decide whose read-state to import; ``None`` means "no row names a user".
 
     A configured ``user`` is matched case-insensitively against ``user.name``.
-    With no name configured, a file holding exactly one reader's read-state needs
-    no choice; a file holding more than one raises rather than blending them.
+    With no name configured, a file naming exactly one reader needs no choice and
+    resolves *to that reader* — every query is scoped to them, so a row belonging
+    to nobody (or to an account whose read-state was only half-deleted) cannot
+    ride in. A file naming more than one raises rather than blending them.
+
+    ``None`` is returned only when no per-user table names anyone at all — the
+    pre-``user_id`` schema era, where there is nothing to scope by and exactly
+    one reader to be. Scoping by nothing must never mean scoping to everyone.
     """
-    if not table_exists(conn, "book_read_link"):
+    if not any(table_exists(conn, table) for table, _ in _PER_USER_READER_QUERIES):
         return None
     if user and user.strip():
         return _named_user_id(conn, user.strip())
     user_ids = _user_ids_with_read_state(conn)
-    if len(user_ids) <= 1:
+    if not user_ids:
         return None
+    if len(user_ids) == 1:
+        return user_ids[0]
     raise CalibreWebUserError(
         f"{len(user_ids)} Calibre-Web users have read-state in this app.db; "
         "set [calibre_web] user (or STACKS_CALIBRE_WEB_USER) to say whose to import, "
@@ -247,24 +290,59 @@ def _kobo_percent_by_state(conn: sqlite3.Connection) -> dict[int, float]:
     return out
 
 
+def _scoped_rows(
+    conn: sqlite3.Connection,
+    cols: frozenset[str],
+    user_id: Optional[int],
+    *,
+    unscoped: str,
+    nobody: str,
+    named: str,
+) -> list[sqlite3.Row]:
+    """Read one per-user table, restricted to the resolved reader.
+
+    Three cases, three whole queries — never a base string with a ``WHERE``
+    glued on, which is both what ruff's ``S608`` flags and how the meanings blur:
+
+    * no ``user_id`` column: the pre-``user_id`` schema era. The rows name
+      nobody and cannot be scoped, and that era holds exactly one reader.
+    * column present, reader unresolved: scope to ``user_id IS NULL``. Running
+      ``unscoped`` here instead would silently widen "whose rows are these?"
+      from *nobody's* to *everybody's* — the substitution that imported a
+      housemate's reading time as this reader's own.
+    * column present, reader resolved: scope to them.
+    """
+    if "user_id" not in cols:
+        return list(conn.execute(unscoped).fetchall())
+    if user_id is None:
+        return list(conn.execute(nobody).fetchall())
+    return list(conn.execute(named, (user_id,)).fetchall())
+
+
 def _kobo_sync_by_book(conn: sqlite3.Connection, user_id: Optional[int]) -> dict[int, _KoboSync]:
     """Map ``book_id`` → the Kobo-sync measurements Calibre-Web holds for it.
 
     Empty for any install without Kobo-sync support (the tables are absent) or
     that has simply never synced a Kobo — in both cases the read-state rows
     still carry finished/unfinished, just nothing measured.
+
+    Scoped to ``user_id`` in every case the column allows. These rows are the
+    only *measured* numbers this adapter imports, so an unscoped read here is
+    what turns a housemate's 300 minutes into this reader's reading time.
     """
     if not table_exists(conn, "kobo_reading_state"):
         return {}
     state_cols = columns(conn, "kobo_reading_state")
     if "book_id" not in state_cols:
         return {}
-    query = "SELECT * FROM kobo_reading_state"
-    params: tuple[int, ...] = ()
-    if user_id is not None and "user_id" in state_cols:
-        query += " WHERE user_id = ?"
-        params = (user_id,)
-    rows = conn.execute(query + " ORDER BY id", params).fetchall()
+    rows = _scoped_rows(
+        conn,
+        state_cols,
+        user_id,
+        unscoped="SELECT * FROM kobo_reading_state ORDER BY id",
+        nobody="SELECT * FROM kobo_reading_state WHERE user_id IS NULL ORDER BY id",
+        named="SELECT * FROM kobo_reading_state WHERE user_id = ? ORDER BY id",
+    )
     if not rows:
         return {}
 
@@ -339,12 +417,14 @@ def read_state(
     by_calibre_id = _books_by_calibre_id(books)
     kobo_sync = _kobo_sync_by_book(conn, user_id)
 
-    query = "SELECT * FROM book_read_link"
-    params: tuple[int, ...] = ()
-    if user_id is not None and "user_id" in cols:
-        query += " WHERE user_id = ?"
-        params = (user_id,)
-    rows = conn.execute(query + " ORDER BY book_id", params).fetchall()
+    rows = _scoped_rows(
+        conn,
+        cols,
+        user_id,
+        unscoped="SELECT * FROM book_read_link ORDER BY book_id",
+        nobody="SELECT * FROM book_read_link WHERE user_id IS NULL ORDER BY book_id",
+        named="SELECT * FROM book_read_link WHERE user_id = ? ORDER BY book_id",
+    )
 
     stats: list[ReadingStat] = []
     progress: dict[str, DeviceProgress] = {}
