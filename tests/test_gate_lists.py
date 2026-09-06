@@ -485,3 +485,78 @@ def test_every_verify_stage_has_a_recipe_that_runs_something() -> None:
             f"the {stage} stage has no command in its recipe, so `make verify` "
             "would run it and check nothing"
         )
+
+
+# --- The gate that runs, versus the gate that is cancelled --------------------
+
+#: The interpolation that gives a branch push one concurrency group per commit
+#: while keeping one group per pull request.
+PER_COMMIT_KEY = "github.event_name == 'pull_request' && 'pr' || github.sha"
+
+WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+
+#: Workflows that trigger on a push to a branch and cancel runs sharing their
+#: group. Named rather than discovered so that a workflow dropping off the list
+#: is a failing test rather than one fewer thing checked.
+BRANCH_PUSH_WORKFLOWS = ("ci.yml", "standards.yml", "container-scan.yml")
+
+
+def _concurrency_block(name: str) -> tuple[str, str]:
+    """``(group, cancel-in-progress)`` for one workflow, read as text."""
+    text = (WORKFLOW_DIR / name).read_text(encoding="utf-8")
+    match = re.search(r"^concurrency:\n((?:[ \t]+.*\n)+)", text, re.MULTILINE)
+    assert match is not None, f"{name} declares no top-level `concurrency:` block"
+    body = match.group(1)
+    group = re.search(r"^\s*group:\s*(.+)$", body, re.MULTILINE)
+    cancel = re.search(r"^\s*cancel-in-progress:\s*(\S+)", body, re.MULTILINE)
+    assert group is not None, f"{name}: concurrency block has no `group:`"
+    return group.group(1).strip(), (cancel.group(1) if cancel else "false")
+
+
+def test_the_branch_push_workflow_list_still_describes_the_workflows() -> None:
+    """A floor. Every assertion below iterates this list, so an empty or stale
+    list would check nothing and pass — the failure mode this whole file is
+    about, applied to itself."""
+    present = {path.name for path in WORKFLOW_DIR.glob("*.yml")}
+    assert set(BRANCH_PUSH_WORKFLOWS) <= present, sorted(present)
+    for name in BRANCH_PUSH_WORKFLOWS:
+        text = (WORKFLOW_DIR / name).read_text(encoding="utf-8")
+        assert re.search(r"^  push:\n(?:    .*\n)*    branches:", text, re.MULTILINE), (
+            f"{name} no longer triggers on a push to a branch; either the list "
+            "above is stale or the workflow stopped gating main"
+        )
+
+
+def test_a_push_to_main_cannot_cancel_the_commit_before_it() -> None:
+    """A concurrency group keyed on ``github.ref`` alone puts every commit on
+    ``main`` in one group, so the second push cancels the first commit's run.
+
+    That is not a red build. A cancelled run's conclusion is neither success nor
+    failure: no check goes red, nobody is told, and the commit is on ``main``
+    having been examined by nothing. It is the same shape as the silent skips
+    the rest of this file guards — a signal identical whether the work happened
+    — except that here the gate does not even start.
+    """
+    offenders: list[str] = []
+    for name in BRANCH_PUSH_WORKFLOWS:
+        group, cancel = _concurrency_block(name)
+        if cancel == "false":
+            # Queues instead of cancelling; the earlier commit's run survives.
+            continue
+        if "github.sha" not in group:
+            offenders.append(f"{name}: group: {group}")
+    assert not offenders, (
+        "these workflows run on a branch push and cancel in-progress runs in "
+        "their own group, but the group does not name the commit, so a push to "
+        f"main discards the previous commit's only verdict: {offenders}. "
+        f"Append -${{{{ {PER_COMMIT_KEY} }}}} to the group."
+    )
+
+
+def test_the_three_fixed_workflows_use_the_agreed_key() -> None:
+    """The scan above says "nothing is wrong"; this says "these three were wrong
+    and are fixed", so a workflow leaving the scan's reach fails here instead of
+    passing there."""
+    for name in BRANCH_PUSH_WORKFLOWS:
+        group, _ = _concurrency_block(name)
+        assert PER_COMMIT_KEY in group, f"{name} does not use the agreed key: {group}"
