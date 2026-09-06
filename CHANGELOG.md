@@ -12,6 +12,38 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Added
+- **`tests/test_release_claims.py`, which checks the release claim against the
+  release.** `pyproject.toml` declares `0.1.0` and `git tag --list` is empty here
+  and on `origin`, so the number names no artifact. `tests/test_published_claims.py`
+  already binds `CITATION.cff` to `pyproject.toml` and its `date-released` to a dated
+  section in `CHANGELOG.md`, and both of those compare a document against a document:
+  the version, the changelog heading and the citation date can be moved together in
+  one commit, agree perfectly, and all three be false. That is not hypothetical.
+  Elsewhere in this portfolio, measured 2026-09-06, a repository's `main` carried a
+  "first tagged release" README, a dated changelog section, a citation release date
+  and two install commands pinned to a tag nobody had cut, with a passing
+  document-to-document gate over the top. Twenty public repositories declare a version
+  nothing was tagged for.
+
+  The new file reads `git tag --list`. With no tags it passes only while the README
+  says so where a reader arrives, in the `**Status:**` line or the Release &
+  Versioning row, in a sentence naming the declared version. That row said "`0.1.x` is
+  the current, unreleased line", which is true and is not the declared version: it
+  would have gone on reading correctly after a bump to `0.2.0`, the shape of every
+  stale claim `test_published_claims.py` exists to catch. The row now names `0.1.0`.
+  With tags present and none naming the declared version the gate fails, reporting the
+  declared version and the numerically newest tag.
+
+  The failing branch is unreachable here today, so it runs on synthetic input every
+  time, beside a positive control so the rule cannot pass by never passing, and a
+  sabotage of the real README that asserts the substitution landed before reading the
+  result. The tag read refuses a shallow or `--no-tags` checkout, because "none found"
+  from a checkout that was never given tags is the vacuous pass the file exists to
+  prevent; `ci.yml` now checks out with `fetch-depth: 0`. No tag was created: `v0.1.0`
+  is pending the sign-offs named above and cutting it is not a decision a test gets to
+  make by passing.
+
 ### Fixed
 - **A Kobo-only or Calibre-Web-only reader was shown "Longest streak 0 / 30 —
   0%"** (`app/stats.py`, `app/goals.py`, `app/render.py`). `ReadingStats.measured`
