@@ -288,6 +288,13 @@ def test_an_unknown_user_names_the_users_that_do_exist(tmp_path: Path) -> None:
 
 
 def test_one_reader_needs_no_configuration(tmp_path: Path) -> None:
+    """One reader is no choice to make — and is still resolved *to that reader*.
+
+    Returning ``None`` here would mean "read every row in the file", which is
+    only the same thing while the file really does hold one reader. Naming the
+    reader keeps every query scoped, so an orphaned row belonging to nobody (or
+    to a half-deleted account) cannot ride in on the unscoped path.
+    """
     db = _modern_db(
         tmp_path / "app.db",
         """
@@ -299,7 +306,107 @@ def test_one_reader_needs_no_configuration(tmp_path: Path) -> None:
         """,
     )
     with open_readonly(db) as conn:
+        assert resolve_user_id(conn) == 1
+    # Positive control: the one reader's own row still comes through unasked.
+    with open_readonly(db) as conn:
+        assert [s.title for s in read_state(conn, BOOKS).stats] == ["Stone Butch Blues"]
+
+
+def test_rows_that_name_nobody_are_still_this_readers_rows(tmp_path: Path) -> None:
+    """Scoping tightened, but a file where nothing names a user still reads.
+
+    The guard-and-scope pair must not become a way to drop real rows: with a
+    `user_id` column present but null throughout, no reader is named, there is
+    no second reader to confuse this one with, and the rows are hers. This is
+    the case that distinguishes "scoped to nobody" from "scoped to everybody" —
+    the same query shape, opposite meanings, and only one of them is safe.
+    """
+    db = _modern_db(
+        tmp_path / "app.db",
+        """
+        INSERT INTO user (id, name) VALUES (1, 'reader');
+        INSERT INTO book_read_link
+            (id, book_id, user_id, read_status, last_modified,
+             last_time_started_reading, times_started_reading)
+        VALUES (1, 1, NULL, 1, '2026-03-02 09:15:00.000000', NULL, 0);
+        """,
+    )
+    with open_readonly(db) as conn:
         assert resolve_user_id(conn) is None
+    with open_readonly(db) as conn:
+        assert [s.title for s in read_state(conn, BOOKS).stats] == ["Stone Butch Blues"]
+
+
+#: A housemate who exists *only* in `kobo_reading_state`. Calibre-Web 0.6.13's
+#: `_delete_user` clears a user's `book_read_link` rows but not their
+#: `KoboReadingState` (that loop arrives in 0.6.21), so deleting an account on
+#: such an install leaves precisely this: one user in `book_read_link`, two in
+#: `kobo_reading_state`, and nothing to reap the orphans across upgrades.
+_HOUSEMATE_ONLY_IN_KOBO_STATE = """
+INSERT INTO user (id, name) VALUES (1, 'chelsea'), (2, 'housemate');
+-- chelsea: in progress, with nothing whatever measured.
+INSERT INTO book_read_link
+    (id, book_id, user_id, read_status, last_modified,
+     last_time_started_reading, times_started_reading)
+VALUES (1, 1, 1, 2, '2026-03-02 09:15:00.000000', NULL, 0);
+-- housemate: no book_read_link row at all; 300 minutes and 62% of book 1.
+INSERT INTO kobo_reading_state (id, user_id, book_id, last_modified, priority_timestamp)
+VALUES (10, 2, 1, '2026-03-04 10:00:00.000000', NULL);
+INSERT INTO kobo_statistics (id, kobo_reading_state_id, spent_reading_minutes)
+VALUES (1, 10, 300);
+INSERT INTO kobo_bookmark (id, kobo_reading_state_id, progress_percent) VALUES (1, 10, 62.0);
+"""
+
+#: The same file, but the housemate has the `book_read_link` row `_delete_user`
+#: took away. Their 300 minutes and 62% are real measurements of a real book —
+#: the positive control that keeps "scope harder" from passing by suppressing
+#: everything.
+_HOUSEMATE_WITH_THEIR_OWN_READ_ROW = (
+    _HOUSEMATE_ONLY_IN_KOBO_STATE
+    + """
+INSERT INTO book_read_link
+    (id, book_id, user_id, read_status, last_modified,
+     last_time_started_reading, times_started_reading)
+VALUES (2, 1, 2, 2, '2026-03-04 10:00:00.000000', NULL, 0);
+"""
+)
+
+
+def test_a_reader_only_in_kobo_reading_state_still_trips_the_guard(tmp_path: Path) -> None:
+    """The guard counts readers across every per-user table, not just one.
+
+    `book_read_link` sees one user here and `kobo_reading_state` sees another.
+    Counting only the first let the housemate's 300 minutes and 62% import as
+    this reader's own — and they were the *only* measurements on the row, so it
+    survived the "unmeasured is not zero" drop solely because they rode in.
+    """
+    db = _modern_db(tmp_path / "app.db", _HOUSEMATE_ONLY_IN_KOBO_STATE)
+    with open_readonly(db) as conn, pytest.raises(CalibreWebUserError) as excinfo:
+        read_state(conn, BOOKS)
+    assert "2 Calibre-Web users" in str(excinfo.value)
+
+
+def test_the_other_readers_measurements_are_never_imported(tmp_path: Path) -> None:
+    """Naming the reader imports nothing, because she measured nothing.
+
+    The decisive control for the case above: scoping to the actual reader emits
+    no stat and no progress at all, which is what proves the 18000 s and 62%
+    that used to appear were wholly the other user's.
+    """
+    db = _modern_db(tmp_path / "app.db", _HOUSEMATE_ONLY_IN_KOBO_STATE)
+    with open_readonly(db) as conn:
+        mine = read_state(conn, BOOKS, user="chelsea")
+    assert mine.stats == ()
+    assert mine.progress == {}
+
+    # Positive control, so "scope harder" cannot pass by suppressing everything:
+    # give the housemate the read-state row they were missing and those same
+    # 300 minutes and 62% surface in full — for the person who actually read them.
+    owned = _modern_db(tmp_path / "owned.db", _HOUSEMATE_WITH_THEIR_OWN_READ_ROW)
+    with open_readonly(owned) as conn:
+        theirs = read_state(conn, BOOKS, user="housemate")
+    assert [(s.title, s.read_time_seconds) for s in theirs.stats] == [("Stone Butch Blues", 18000)]
+    assert theirs.progress[theirs.stats[0].key].percentage == pytest.approx(0.62)
 
 
 # --- schema drift and the read-only entry point -----------------------------
