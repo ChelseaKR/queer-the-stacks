@@ -21,6 +21,43 @@ def test_content_beats_popularity(states: list, candidates: tuple, lists: tuple)
     assert results["content"].map_at_k > results["popularity"].map_at_k
 
 
+def test_no_ground_truth_is_not_a_win(states: list, candidates: tuple, lists: tuple) -> None:
+    """With nothing flagged ``on_canon`` the verdict is absent, not True.
+
+    Every metric is zero over an empty ``positives`` set, so the tie-break in
+    ``to_report`` answered True and ``stacks eval`` exited 0: the claim read the same
+    whether the content model beat popularity or nothing was compared at all. Three
+    ways to reach that state, all of which used to publish a win.
+    """
+    from dataclasses import replace
+
+    unflagged = [replace(c, on_canon=False) for c in candidates]
+    for label, these_states, these_candidates in (
+        ("no candidate is on_canon", states, unflagged),
+        ("no candidates at all", states, []),
+        ("no reading history and no ground truth", [], unflagged),
+    ):
+        report = to_report(evaluate(these_states, these_candidates, lists=lists, k=5))
+        assert report["n_positives"] == 0, label
+        assert report["content_beats_popularity"] is None, label
+
+
+def test_a_real_loss_is_still_reported_as_one(
+    states: list, candidates: tuple, lists: tuple
+) -> None:
+    """The absent verdict must not swallow a genuine failure to beat the baseline.
+
+    Ground truth exists here, so the comparison happened; only its answer is bad.
+    """
+    from dataclasses import replace
+
+    results = evaluate(states, list(candidates), lists=lists, k=5)
+    beaten = replace(results["content"], map_at_k=0.0, recall_at_k=0.0)
+    report = to_report({**results, "content": beaten})
+    assert report["n_positives"] > 0
+    assert report["content_beats_popularity"] is False
+
+
 def test_popularity_ranking_orders_by_readers(candidates: tuple) -> None:
     ranked = popularity_ranking(list(candidates))
     # The mega-popular distractors come first under the baseline.

@@ -153,8 +153,19 @@ def to_report(
         "k": content.k,
         "n_positives": content.n_positives,
         "models": {name: asdict(res) for name, res in results.items()},
+        # ``None`` when there was no ground truth to compare against. Every metric
+        # here is zero over an empty ``positives`` set, so the tie-break below used to
+        # answer ``True``: this report's headline claim read the same whether the
+        # content model beat popularity or nothing was ever compared, and
+        # ``stacks eval`` exited 0 on it. ``recommender.battery.run_battery`` already
+        # refuses its own empty input -- "run_battery requires at least one seed" --
+        # and gates on a median uplift no vacuous world can clear; that discipline
+        # never reached the single-fixture report it was built to replace.
+        # ``n_positives`` is published beside this, and is 0 exactly when it is None.
         "content_beats_popularity": (
-            content.map_at_k > popularity.map_at_k
+            None
+            if content.n_positives == 0
+            else content.map_at_k > popularity.map_at_k
             or (
                 content.map_at_k == popularity.map_at_k
                 and content.recall_at_k >= popularity.recall_at_k
