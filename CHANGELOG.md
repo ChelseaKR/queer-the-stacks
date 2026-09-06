@@ -13,6 +13,24 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Fixed
+- **A Kobo-only or Calibre-Web-only reader was shown "Longest streak 0 / 30 —
+  0%"** (`app/stats.py`, `app/goals.py`, `app/render.py`). `ReadingStats.measured`
+  was a single OR over eight metrics drawn from three different kinds of source.
+  Three of them — `current_streak_days`, `longest_streak_days` and `active_days`
+  — are computed *only* from per-day activity, and `ingest/refresh.py` builds
+  that from KOReader alone (Kobo records no per-session log; Calibre-Web records
+  none either). So a reader on a documented, supported source that is not
+  KOReader got three metrics no configured source can produce, presented as
+  measurements, and a streak goal reported 0% complete against a target nothing
+  had checked — the exact failure `Goal.measurable` exists to prevent. Issue #78
+  fixed the no-source-at-all case; this is the partial-source residual it left.
+  `ReadingStats.activity_measured` now carries the per-day evidence separately:
+  those three rows and the streak goal render "not measured", while `Pages read`
+  and `Books finished` still show their real values. The page also no longer
+  contradicts itself — a reader with measured pages is not told "No reading-data
+  source is connected … Connect KOReader to measure reading", and the data-status
+  row no longer reports "KOReader statistics" present for a reader who has none.
+
 - **Calibre-Web read-state was silently dropped for every book KOReader also
   knew** (`ingest/refresh.py`). Calibre-Web files its `DeviceProgress` under the
   title-derived join key — the only key `app.db` can build — but `unify` looks

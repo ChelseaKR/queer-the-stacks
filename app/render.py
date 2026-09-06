@@ -156,6 +156,51 @@ NO_READING_SOURCE_NOTE = (
     "what you have read. Connect KOReader to measure reading."
 )
 
+#: The *partial*-source absence. A reader on Kobo or Calibre-Web has a real
+#: reading source, so `NO_READING_SOURCE_NOTE` would be false beside their
+#: measured pages — it renders "nothing here has been measured" next to "Pages
+#: read 300" and tells them to connect a source to measure reading they can
+#: already see. What they are actually missing is *per-day* activity, which only
+#: KOReader records, and which is the sole input to streaks and active days.
+NO_DAILY_ACTIVITY_NOTE = (
+    "Streaks and active reading days are not measured here. They are counted "
+    "from per-day reading activity, which only KOReader records; the reading "
+    "sources connected here report per-book totals instead."
+)
+
+
+#: Why a Wrapped year is missing for a reader who *does* have reading records.
+#: The year is inferred from per-day activity alone (`app.view._infer_today_and_year`),
+#: so a Kobo-only reader has none — but telling them "no reading-data source is
+#: connected" on the same page as "Pages read 300" is a contradiction the reader
+#: can see, and the panel that contradicts itself is the one asking to be trusted.
+NO_WRAPPED_YEAR_NOTE = (
+    "A year in review is scoped to a year taken from per-day reading activity, "
+    "which only KOReader records. The reading sources connected here report "
+    "per-book totals with no per-day log, so there is no year to report yet."
+)
+
+
+def _absence_reason(stats: ReadingStats) -> str:
+    """The sentence that is true of *this* reader's sources.
+
+    Ordered by how much is missing: nothing measured at all outranks the partial
+    case, and the two are never rendered together — a page carrying both would
+    say "no source is connected" and "the other figures are measured" in the
+    same breath. Every surface picks its wording from here so the page cannot
+    contradict itself panel by panel.
+    """
+    if not stats.measured:
+        return NO_READING_SOURCE_NOTE
+    return NO_DAILY_ACTIVITY_NOTE
+
+
+def _absence_note(stats: ReadingStats) -> str:
+    """:func:`_absence_reason` as a rendered note, or nothing when all is measured."""
+    if stats.measured and stats.activity_measured:
+        return ""
+    return f'<p class="absence-note" role="status">{escape(_absence_reason(stats))}</p>'
+
 
 def _stats_table(stats: ReadingStats) -> str:
     """The reading totals — or an honest refusal to state them.
@@ -163,29 +208,31 @@ def _stats_table(stats: ReadingStats) -> str:
     Eight zeros presented as measurements is the failure this guards. With no
     KOReader source every one of these is zero, and the panel said "Books
     finished 0 · Pages read 0 · Time read 0.0" to a reader with 1,907 books.
+
+    One flag was not enough. Three of the eight — the two streaks and the active
+    day count — are computed only from per-day activity, which only KOReader
+    records; the other five come from per-book stats, which Kobo and Calibre-Web
+    supply too. Keyed off a single OR'd flag, a Kobo-only reader saw "Pages read
+    300" beside "Longest streak (days) 0", with nothing saying that the second
+    number had no source at all. Each row now carries its own evidence.
     """
     values = (
-        ("Books finished", str(stats.books_finished)),
-        ("Currently reading", str(stats.books_reading)),
-        ("Pages read", str(stats.pages_read)),
-        ("Time read (hours)", str(stats.read_time_hours)),
-        ("Current streak (days)", str(stats.current_streak_days)),
-        ("Longest streak (days)", str(stats.longest_streak_days)),
-        ("Active reading days", str(stats.active_days)),
-        ("Highlights", str(stats.total_highlights)),
+        ("Books finished", str(stats.books_finished), stats.measured),
+        ("Currently reading", str(stats.books_reading), stats.measured),
+        ("Pages read", str(stats.pages_read), stats.measured),
+        ("Time read (hours)", str(stats.read_time_hours), stats.measured),
+        ("Current streak (days)", str(stats.current_streak_days), stats.activity_measured),
+        ("Longest streak (days)", str(stats.longest_streak_days), stats.activity_measured),
+        ("Active reading days", str(stats.active_days), stats.activity_measured),
+        ("Highlights", str(stats.total_highlights), stats.measured),
     )
     rows = "".join(
         f'<tr><th scope="row">{escape(label)}</th>'
-        f"<td>{escape(value if stats.measured else NOT_MEASURED)}</td></tr>"
-        for label, value in values
-    )
-    note = (
-        f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)}</p>'
-        if not stats.measured
-        else ""
+        f"<td>{escape(value if row_measured else NOT_MEASURED)}</td></tr>"
+        for label, value, row_measured in values
     )
     return (
-        f"{note}"
+        f"{_absence_note(stats)}"
         "<table><caption>Reading totals (data-table equivalent of the stats panel)"
         '</caption><thead><tr><th scope="col">Metric</th>'
         f'<th scope="col">Value</th></tr></thead><tbody>{rows}</tbody></table>'
@@ -223,7 +270,7 @@ def _theme_mix_table(stats: ReadingStats, hidden: frozenset[str] = frozenset()) 
     )
 
 
-def _wrapped_table(wrapped: Wrapped) -> str:
+def _wrapped_table(wrapped: Wrapped, stats: ReadingStats) -> str:
     """The standout-reads table, with the scope of its hours stated in the caption.
 
     These hours are all-time per book, while the panel around them is scoped to
@@ -233,14 +280,19 @@ def _wrapped_table(wrapped: Wrapped) -> str:
     can check in five seconds, and then stop believing the rest of the page. So
     the column names its scope, and when the totals do exceed the year the
     caption says why before the reader has to work it out.
+
+    ``stats`` names the reason there is no year. A Kobo-only reader has reading
+    records but no per-day activity, and this caption used to tell them no
+    reading-data source was connected while the panel above showed their pages.
     """
     if not wrapped.measured:
         # No year was inferable, so there is no "standout reads of <year>" to
         # rank — the caption used to name 1970 and the body claimed no finished
         # books were recorded in it.
+        reason = NO_READING_SOURCE_NOTE if not stats.measured else NO_WRAPPED_YEAR_NOTE
         return (
             "<table><caption>Standout reads — "
-            f"{escape(NOT_MEASURED)}. {escape(NO_READING_SOURCE_NOTE)}</caption>"
+            f"{escape(NOT_MEASURED)}. {escape(reason)}</caption>"
             '<thead><tr><th scope="col">Title</th>'
             '<th scope="col">Author</th><th scope="col">Hours (all time)</th></tr></thead>'
             f'<tbody><tr><td colspan="3">{escape(NOT_MEASURED)}</td></tr></tbody></table>'
@@ -619,12 +671,17 @@ def _monthly_table(wrapped: Wrapped) -> str:
     )
 
 
-def _goals_section(goals: Sequence[Goal]) -> str:
+def _goals_section(goals: Sequence[Goal], stats: ReadingStats) -> str:
     """Goal progress — or "not measured", never an unearned 0%.
 
     A goal whose metric nothing measured is not 0% complete. Rendering it as
     "0 / 52 — 0%" tells a reader they are failing a target that was never
     checked, which is worse than saying nothing.
+
+    ``stats`` is here only to name the *right* absence. An unmeasurable goal
+    used to draw "No reading-data source is connected" unconditionally, which is
+    false for a Kobo-only reader whose streak goal is the one unmeasurable
+    entry — they have a source; what they lack is per-day activity.
     """
     if not goals:
         return ""
@@ -637,11 +694,7 @@ def _goals_section(goals: Sequence[Goal]) -> str:
         )
         for g in goals
     )
-    note = (
-        f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)}</p>'
-        if not all(g.measurable for g in goals)
-        else ""
-    )
+    note = _absence_note(stats) if not all(g.measurable for g in goals) else ""
     return (
         "<h3>Goals</h3>"
         f"{note}"
@@ -949,8 +1002,18 @@ def _catalog_status_section(status: CatalogPoolStatus) -> str:
 
 #: The data-status answer to "is anything measuring my reading?". Stated
 #: positively in both directions, like the provenance rows beside it.
+#: Reached only when per-day activity exists, and `ingest.refresh` builds that
+#: from KOReader alone — so naming KOReader here is accurate by construction.
 READING_SOURCE_CONNECTED = "reading records present (KOReader statistics)"
 READING_SOURCE_MISSING = "none connected — Calibre metadata only, nothing measures reading"
+#: The partial case, which used to fall into `READING_SOURCE_CONNECTED` and tell
+#: a reader with no KOReader at all that "KOReader statistics" were present —
+#: the data-status panel asserting a source that is not configured, on the one
+#: row of the page whose whole job is to say where the numbers came from.
+READING_SOURCE_PER_BOOK_ONLY = (
+    "per-book reading records present; no per-day activity, so streaks and "
+    "active reading days are not measured"
+)
 
 
 def _data_status_section(
@@ -960,6 +1023,7 @@ def _data_status_section(
     fixture_states: bool = False,
     fixture_candidates: bool = False,
     reading_data_measured: bool = True,
+    daily_activity_measured: bool = True,
 ) -> str:
     """Say what the dashboard knows and how old it is — never silently stale.
 
@@ -989,7 +1053,12 @@ def _data_status_section(
     candidate_source = (
         "built-in demo fixtures" if fixture_candidates else "your stored catalog pool"
     )
-    reading_source = READING_SOURCE_CONNECTED if reading_data_measured else READING_SOURCE_MISSING
+    if not reading_data_measured:
+        reading_source = READING_SOURCE_MISSING
+    elif not daily_activity_measured:
+        reading_source = READING_SOURCE_PER_BOOK_ONLY
+    else:
+        reading_source = READING_SOURCE_CONNECTED
     rows += (
         f'<tr><th scope="row">Library &amp; stats source</th><td>{states_source}</td></tr>'
         '<tr><th scope="row">Recommendation candidates</th>'
@@ -1083,20 +1152,31 @@ def render_dashboard(
         fixture_states=fixture_states,
         fixture_candidates=fixture_candidates,
         reading_data_measured=stats.measured,
+        daily_activity_measured=stats.activity_measured,
     )
     # The Wrapped summary line states figures scoped to a year. With no year
     # there is nothing to scope them to, so the sentence is replaced rather than
     # filled with zeros — it used to read "0 books finished · 0.0 hours read in
     # 1970 · 0 reading days".
-    wrapped_summary = (
-        f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
-        f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
-        "locally, shared with no one.</p>"
-        if wrapped.measured
-        else f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '
-        "A year in review is scoped to a year inferred from your reading record, "
-        "so there is no year to report yet.</p>"
-    )
+    if wrapped.measured:
+        wrapped_summary = (
+            f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
+            f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
+            "locally, shared with no one.</p>"
+        )
+    elif not stats.measured:
+        wrapped_summary = (
+            f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '
+            "A year in review is scoped to a year inferred from your reading record, "
+            "so there is no year to report yet.</p>"
+        )
+    else:
+        # Reading records exist; only the per-day activity a year is inferred
+        # from does not. Saying "no reading-data source is connected" here put
+        # that sentence on the same page as this reader's measured pages.
+        wrapped_summary = (
+            f'<p class="absence-note" role="status">{escape(NO_WRAPPED_YEAR_NOTE)}</p>'
+        )
     near_miss_cards = "".join(_near_miss_card(m) for m in near_misses)
     near_miss_section = (
         '<details class="near-misses"><summary>Why not others?</summary>'
@@ -1216,7 +1296,7 @@ def render_dashboard(
         f"{_stats_table(stats)}{_theme_mix_table(stats, hidden_descriptors)}"
         f"<h3>Reading Wrapped {escape(wrapped.year_label)}</h3>"
         f"{wrapped_summary}"
-        f"{_wrapped_table(wrapped)}{_monthly_table(wrapped)}{_goals_section(goals)}"
+        f"{_wrapped_table(wrapped, stats)}{_monthly_table(wrapped)}{_goals_section(goals, stats)}"
         '<p><a href="/share">Make a share card for Bookwyrm or Mastodon</a> — '
         "composed locally; nothing is posted until you copy and share it yourself.</p>"
         "</div></details>"

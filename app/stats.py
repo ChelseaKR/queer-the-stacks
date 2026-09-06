@@ -28,6 +28,19 @@ class ReadingStats:
     zero-because-nothing-was-read render identically without this flag, and the
     panel presented the first as the second. Same discriminator as
     :attr:`app.diversity.DiversityReport.shelf_fallback`.
+
+    One flag was not enough, because these eight totals do not come from one
+    kind of source. Five are fed by *per-book* stats, which KOReader, Kobo and
+    Calibre-Web all supply. Three — :attr:`current_streak_days`,
+    :attr:`longest_streak_days` and :attr:`active_days` — are computed only from
+    ``daily_activity``, and ``ingest.refresh`` builds that from KOReader alone
+    (``ingest.kobo`` records no per-session log; Calibre-Web records none
+    either). So :attr:`measured` alone said "measured" to a Kobo-only or
+    Calibre-Web-only reader and rendered three metrics no configured source can
+    produce as confident zeros, beside two real ones, with nothing to tell them
+    apart. :attr:`activity_measured` is the discriminator for those three: no
+    quantity of per-book stats is even thin evidence of a streak, and zero
+    per-day rows is zero evidence.
     """
 
     books_finished: int
@@ -45,6 +58,10 @@ class ReadingStats:
     #: or a per-book stat. False means "no reading-data source is connected",
     #: which is not a reading of zero.
     measured: bool = True
+    #: Per-day reading activity was available. False means the three per-day-only
+    #: metrics above are absences, whatever :attr:`measured` says — the
+    #: partial-source case, where per-book stats are real and streaks are not.
+    activity_measured: bool = True
 
     @property
     def read_time_hours(self) -> float:
@@ -125,4 +142,8 @@ def compute_stats(
         # alone, and `states` being non-empty says nothing — 1,907 owned books
         # with no reading source is precisely the case this flag exists for.
         measured=bool(daily_activity) or any(s.stat is not None for s in states),
+        # ...but per-book stats are not evidence of a *streak*. The three
+        # per-day-only metrics rest on this and nothing else, so a Kobo-only or
+        # Calibre-Web-only reader gets absences there rather than zeros.
+        activity_measured=bool(daily_activity),
     )
