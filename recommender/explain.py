@@ -103,7 +103,12 @@ def _ensure_non_empty(book: Book, signals: list[Signal], sources: list[Source]) 
         signals.append(Signal(kind="theme", detail="appears in an ethical catalog", weight=0.0))
     if not sources:
         sources.extend(tag.source for tag in book.theme_tags)
-    if not sources:  # pragma: no cover - candidates always carry sourced tags
+    if not sources:
+        # Reachable: a catalog can return a book with no tag block at all, and
+        # an author-only match adds a signal but no source. Callers must screen
+        # such a candidate out before asking for an explanation — see
+        # ``recommender.model.recommend`` and ``near_misses`` below — because
+        # there is nothing honest to cite for it.
         raise ValueError("a recommendation must carry at least one source")
 
 
@@ -213,7 +218,8 @@ def explain_absence(taste: TasteProfile, book: Book, lists: tuple[CuratedList, .
     # even for a candidate with zero overlap and no list membership.
     if not sources:
         sources.extend(tag.source for tag in book.theme_tags)
-    if not sources:  # pragma: no cover - candidates always carry sourced tags
+    if not sources:
+        # Reachable for the same reason as in ``build_explanation`` above.
         raise ValueError("an absence explanation must carry at least one source")
 
     summary = f"Ranked as it did because it {signals[0].detail}."

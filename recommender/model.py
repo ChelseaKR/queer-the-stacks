@@ -124,6 +124,18 @@ def recommend(
         score, overlap, loved_author, lists_hit = score_candidate(taste, book, lists)
         if score <= 0.0:
             continue
+        if not book.theme_tags and not lists_hit:
+            # Nothing here can be cited. A candidate carrying no sourced theme
+            # tag and sitting on no curated list has no provenance to show, and
+            # an author-only match produces a signal but no source, so
+            # ``build_explanation`` would refuse it — the transparency guardrail
+            # working as intended. ``recommender.explain.near_misses`` already
+            # skips exactly this candidate for exactly this reason; the shelf
+            # never learned to, and raised ValueError instead of ranking.
+            # Catalog data really is like this: ``parse_hardcover_books`` and
+            # ``parse_bookwyrm_list`` both build a Book with ``theme_tags=()``
+            # when the response carries no tag block.
+            continue
         explanation = build_explanation(book, overlap, loved_author, lists_hit, score)
         scored.append(Recommendation(book=book, score=round(score, 6), explanation=explanation))
 

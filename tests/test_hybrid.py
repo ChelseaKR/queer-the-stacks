@@ -182,3 +182,34 @@ def test_collaborative_citation_is_dated_from_the_list_it_cites(
 
     assert "collaborative" in {s.kind for s in fifth.explanation.signals}
     assert dates == {"2026-08-15"}, "one citation, one date"
+
+
+def test_hybrid_skips_a_candidate_with_nothing_to_cite(states: list) -> None:
+    """Same rule as `recommender.model.recommend` and `explain.near_misses`.
+
+    An untagged, unlisted candidate matched only on a finished author scores
+    above zero and has no source, so `build_explanation` refuses it. The
+    hybrid shelf used to hand it over anyway and raise ValueError.
+    """
+    untagged = Book(
+        book_id="hardcover:untagged",
+        title="An Untagged Catalog Book",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    assert recommend_hybrid(states, (untagged,), k=10) == []
+    assert recommend_hybrid(states, (untagged,), k=10, use_embeddings=True) == []
+
+
+def test_hybrid_keeps_an_untagged_candidate_a_curated_list_can_cite(
+    states: list, lists: tuple
+) -> None:
+    listed = Book(
+        book_id=lists[0].book_ids[0],
+        title="Untagged But Listed",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    recs = recommend_hybrid(states, (listed,), lists=lists, k=5)
+    assert [r.book.book_id for r in recs] == [listed.book_id]
+    assert recs[0].explanation.sources

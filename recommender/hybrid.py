@@ -83,6 +83,12 @@ def recommend_hybrid(
         total = content + collab + emb_boost + ap_boost
         if total <= 0.0:
             continue
+        if not book.theme_tags and not lists_hit and not anchors:
+            # No sourced tag, no curated list, no co-occurrence anchor: nothing
+            # ``build_explanation`` could cite. Same rule as
+            # ``recommender.model.recommend`` and
+            # ``recommender.explain.near_misses``.
+            continue
 
         explanation = build_explanation(
             book,

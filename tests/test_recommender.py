@@ -73,3 +73,80 @@ def test_off_theme_candidate_scores_zero() -> None:
     )
     recs = recommend(states, (candidate,), k=10)
     assert recs == []  # no theme overlap, no author match -> not recommended
+
+
+def test_untagged_author_match_does_not_crash_the_shelf(states: list) -> None:
+    """A candidate the catalog returned with no tag block must not raise.
+
+    `parse_hardcover_books` and `parse_bookwyrm_list` both build a Book with
+    `theme_tags=()` when the response carries no tag block, so an untagged
+    candidate is ordinary catalog data, not a malformed fixture. Matched only
+    on a finished author it scores above zero (the author bonus) but carries
+    no source, and `build_explanation` refuses it — correctly, since there is
+    nothing honest to cite. `recommender.explain.near_misses` already screens
+    exactly this candidate out for exactly this reason; the shelf must too.
+    """
+    from recommender.catalogs import parse_bookwyrm_list, parse_hardcover_books
+
+    untagged = parse_hardcover_books(
+        {
+            "data": {
+                "books": [
+                    {
+                        "title": "An Untagged Catalog Book",
+                        "slug": "untagged-catalog-book",
+                        "contributions": [{"author": {"name": "Octavia E. Butler"}}],
+                    }
+                ]
+            }
+        },
+        "hardcover.app",
+        "2026-09-06",
+    ) + parse_bookwyrm_list(
+        {
+            "books": [
+                {"id": "bw1", "title": "Another Untagged Book", "authors": ["Octavia E. Butler"]}
+            ]
+        },
+        "bookwyrm.social",
+        "2026-09-06",
+    )
+    assert all(not b.theme_tags for b in untagged)
+
+    recs = recommend(states, untagged, k=10)
+    assert recs == []
+
+
+def test_an_untagged_candidate_does_not_hide_the_tagged_ones(
+    states: list, candidates: tuple, lists: tuple
+) -> None:
+    """The skip removes only the uncitable candidate, not the whole shelf."""
+    tagged = tuple(c.book for c in candidates)
+    baseline = [r.book.book_id for r in recommend(states, tagged, lists=lists, k=10)]
+    assert baseline
+
+    untagged = Book(
+        book_id="hardcover:untagged",
+        title="An Untagged Catalog Book",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    with_untagged = [
+        r.book.book_id for r in recommend(states, (untagged, *tagged), lists=lists, k=10)
+    ]
+    assert with_untagged == baseline
+
+
+def test_an_untagged_book_on_a_curated_list_is_still_recommendable(
+    states: list, lists: tuple
+) -> None:
+    """The list membership is a real citation, so this candidate keeps its place."""
+    listed = Book(
+        book_id=lists[0].book_ids[0],
+        title="Untagged But Listed",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    recs = recommend(states, (listed,), lists=lists, k=5)
+    assert [r.book.book_id for r in recs] == [listed.book_id]
+    assert recs[0].explanation.sources
