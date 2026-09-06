@@ -17,8 +17,12 @@ on:
 permissions:
   contents: read
 
+# A ref-only group gives every commit pushed to `main` the same group, so the second push
+# cancels the run checking the first. A cancelled run is not a failure -- nothing goes red and
+# the commit sits on `main` with no verdict at all. The SHA separates commits; a pull request
+# keeps one group per PR, so a force-push still cancels its own predecessor.
 concurrency:
-  group: standards-${{ github.ref }}
+  group: standards-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: true
 
 jobs:
