@@ -25,10 +25,12 @@ import pytest
 from app import opds
 from app.goals import compute_goals
 from app.render import (
+    NO_DAILY_ACTIVITY_NOTE,
     NO_READING_SOURCE_NOTE,
     NOT_MEASURED,
     READING_SOURCE_CONNECTED,
     READING_SOURCE_MISSING,
+    READING_SOURCE_PER_BOOK_ONLY,
 )
 from app.share import build_share_cards, render_share_page, year_in_books_card
 from app.stats import compute_stats
@@ -134,9 +136,15 @@ def test_stats_from_no_reading_source_are_not_measured() -> None:
 
 
 def test_stats_are_measured_from_a_single_per_book_stat() -> None:
-    """One stat and no per-day rows is still a measurement, just a thin one."""
+    """One stat and no per-day rows is still a measurement, just a thin one.
+
+    ...of *pages and time*. It is not a measurement of a streak, which is what
+    `activity_measured` separates out — see the partial-source tests below.
+    """
     states, _ = _read_something()
-    assert compute_stats(states, [], 0).measured
+    stats = compute_stats(states, [], 0)
+    assert stats.measured
+    assert stats.activity_measured is False
 
 
 def test_stats_table_prints_no_imputed_zero() -> None:
@@ -144,6 +152,82 @@ def test_stats_table_prints_no_imputed_zero() -> None:
     assert NO_READING_SOURCE_NOTE in html
     assert html.count(NOT_MEASURED) >= 8  # one per stats row
     assert "Books finished</th><td>0</td>" not in html
+
+
+# --- 2b. the partial-source residual: per-book stats are not a streak -------
+#
+# `measured` is one OR over eight metrics from three kinds of source. Three of
+# them — both streaks and the active-day count — are computed *only* from
+# `daily_activity`, and `ingest.refresh` builds that from KOReader alone. So a
+# reader on Kobo or Calibre-Web (both documented, supported sources) got three
+# metrics no configured source can produce, rendered as confident zeros beside
+# two real ones, and a streak goal reported 0% complete against a target
+# nothing had checked. Issue #78 fixed the no-source-at-all case; this is the
+# partial-source residual it left.
+
+
+def _kobo_only() -> list[ReadingState]:
+    """One real per-book stat and no per-day rows — the Kobo-only shape.
+
+    Kobo supplies per-book totals and no per-session log (`ingest/kobo.py` sets
+    ``sessions=0`` for exactly this reason), so `daily_activity` is empty while
+    pages and time are genuinely measured.
+    """
+    states, _ = _read_something()
+    return states
+
+
+def test_streak_metrics_are_not_measured_without_per_day_rows() -> None:
+    stats = compute_stats(_kobo_only(), [], today_ordinal=19_872)
+    # The pages and time really were measured...
+    assert stats.measured
+    assert stats.pages_read == 300
+    # ...and no quantity of per-book stats is evidence of a streak.
+    assert stats.activity_measured is False
+
+
+def test_a_kobo_only_reader_is_not_shown_a_streak_of_zero() -> None:
+    """The rendered failure: "Longest streak (days) 0 / 30 — 0%"."""
+    html = render_view(build_view(_kobo_only(), [], (), goal_streak_days=30))
+    for label in ("Current streak (days)", "Longest streak (days)", "Active reading days"):
+        assert f'<tr><th scope="row">{label}</th><td>{NOT_MEASURED}</td></tr>' in html
+    # The goal says "unknown", not "you are 0% of the way to a 30-day streak".
+    assert f"<td>{NOT_MEASURED} / 30</td>" in html
+    assert "<td>0 / 30</td>" not in html
+    assert "<td>0%</td>" not in html
+    # Positive control: the metrics that *were* measured still show their values.
+    assert '<tr><th scope="row">Pages read</th><td>300</td></tr>' in html
+    assert '<tr><th scope="row">Books finished</th><td>1</td></tr>' in html
+
+
+def test_a_partial_source_page_does_not_contradict_its_own_numbers() -> None:
+    """The page must not deny the source whose figures it is printing.
+
+    Keyed off the single OR'd flag, this reader was told "No reading-data source
+    is connected … Connect KOReader to measure reading" on the same page as
+    "Pages read 300", and the data-status row asserted "KOReader statistics"
+    were present for a reader with no KOReader at all.
+    """
+    html = render_view(build_view(_kobo_only(), [], (), goal_streak_days=30))
+    assert NO_READING_SOURCE_NOTE not in html
+    assert READING_SOURCE_CONNECTED not in html
+    assert READING_SOURCE_MISSING not in html
+    # What it says instead is specific and true: the per-day log is what is absent.
+    assert NO_DAILY_ACTIVITY_NOTE in html
+    assert READING_SOURCE_PER_BOOK_ONLY in html
+
+
+def test_a_full_koreader_reader_keeps_every_measured_streak() -> None:
+    """The control that stops "render fewer numbers" from passing this suite."""
+    states, activity = _read_something()
+    stats = compute_stats(states, activity, today_ordinal=19_872)
+    assert stats.activity_measured
+    assert stats.longest_streak_days == 1
+    html = render_view(build_view(states, activity, (), goal_streak_days=30))
+    assert '<tr><th scope="row">Longest streak (days)</th><td>1</td></tr>' in html
+    assert "<td>1 / 30</td>" in html
+    assert NO_DAILY_ACTIVITY_NOTE not in html
+    assert READING_SOURCE_CONNECTED in html
 
 
 # --- 3. the year never reaches a rendered surface ---------------------------

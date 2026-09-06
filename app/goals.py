@@ -69,9 +69,18 @@ def compute_goals(
             Goal(f"Hours{scope}", round(wrapped.read_time_hours), hours_target, wrapped.measured)
         )
     if streak_target > 0:
-        # Streaks come from per-day activity via `stats`, not from the Wrapped
-        # year, so they carry their own measured flag.
+        # Streaks come from per-day activity, not from the Wrapped year and not
+        # from per-book stats — so the flag this passes must be the per-day one.
+        # `stats.measured` is an OR over both kinds of evidence, and passing it
+        # here reported a Kobo-only reader "Longest streak (days) 0 / 30 — 0%":
+        # failing a target that no configured source could ever have checked,
+        # which is the exact thing `Goal.measurable` exists to prevent.
         out.append(
-            Goal("Longest streak (days)", stats.longest_streak_days, streak_target, stats.measured)
+            Goal(
+                "Longest streak (days)",
+                stats.longest_streak_days,
+                streak_target,
+                stats.activity_measured,
+            )
         )
     return tuple(out)
