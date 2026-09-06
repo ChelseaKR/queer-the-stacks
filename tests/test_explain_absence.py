@@ -80,3 +80,22 @@ def test_absence_signal_kinds_are_sourced_only(
             )
         for source in explanation.sources:
             assert source.citation.strip(), f"{c.book.title}: source with no citation"
+
+
+def test_absence_explanation_refuses_a_candidate_with_nothing_to_cite() -> None:
+    """The mirror of the same backstop in `build_explanation`.
+
+    `near_misses` screens this candidate out precisely because this raise is
+    reachable; the raise had a `# pragma: no cover` saying it was not.
+    """
+    import pytest
+
+    untagged = Book(
+        book_id="hardcover:untagged",
+        title="An Untagged Catalog Book",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    taste = build_taste_profile([])
+    with pytest.raises(ValueError, match="at least one source"):
+        explain_absence(taste, untagged, ())

@@ -41,3 +41,25 @@ def test_explanation_requires_summary() -> None:
     src = Source(SourceKind.CURATED_LIST, "curated-list:x", "2026-06-05")
     with pytest.raises(ProvenanceError):
         Explanation(signals=(Signal("theme", "d", 1.0),), sources=(src,), summary="  ")
+
+
+def test_build_explanation_refuses_a_candidate_with_nothing_to_cite() -> None:
+    """The guardrail this raise enforces is reachable, not theoretical.
+
+    It carried `# pragma: no cover - candidates always carry sourced tags`,
+    while `near_misses` twelve lines below said the opposite in prose and
+    screened such a candidate out. Callers must screen; the raise is the
+    backstop, and it is exercised here so the claim is checked rather than
+    asserted.
+    """
+    from ingest.models import Author, Book
+    from recommender.explain import build_explanation
+
+    untagged = Book(
+        book_id="hardcover:untagged",
+        title="An Untagged Catalog Book",
+        authors=(Author("Octavia E. Butler"),),
+        theme_tags=(),
+    )
+    with pytest.raises(ValueError, match="at least one source"):
+        build_explanation(untagged, (), "Octavia E. Butler", (), 0.0)
