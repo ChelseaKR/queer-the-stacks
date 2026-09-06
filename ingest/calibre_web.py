@@ -36,6 +36,13 @@ which is what lets this merge through the existing ``unify`` join with **zero
 changes to** :mod:`ingest.unify` — ``unify`` already classifies a book finished
 from device progress at or above its threshold.
 
+That progress is filed under the title-derived join key, which is the only key
+``app.db`` can build. ``unify`` looks progress up by the *winning* stat's key,
+and a KOReader stat's key is its md5 — so for a book KOReader also knows, the
+two disagree and the lookup misses. :func:`ingest.refresh._rekey_onto_winning_stats`
+re-files this map onto the winning key before the merge; without that step the
+carrier is unreachable for exactly the books both sources describe.
+
 The one thing this deliberately drops: a row that says ``read_status = 2``
 (in progress) while carrying no measured position and no measured time. Nothing
 in the shared vocabulary distinguishes "started, position unknown" from "0% of

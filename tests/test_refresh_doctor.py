@@ -11,6 +11,8 @@ from ingest.demo import build_demo_dbs
 from ingest.kosync import FixtureKosync
 from ingest.models import DeviceProgress, ReadingStat
 from ingest.refresh import (
+    _merge_progress,
+    _rekey_onto_winning_stats,
     _resolve_progress,
     _stat_signature,
     doctor,
@@ -20,6 +22,7 @@ from ingest.refresh import (
     source_mtimes,
 )
 from ingest.store import Store
+from ingest.unify import finished
 
 
 def _real_config(tmp_path: Path) -> Config:
@@ -662,8 +665,14 @@ def test_open_readonly_refuses_a_live_source_with_sidecars(tmp_path: Path) -> No
 #
 # app.db is a *dependent* source: it stores no titles, only Calibre book ids, so
 # these fixtures point at ids 7 and 9 of the demo Calibre library ("Oryx and
-# Crake", "Parable of the Talents") — two books the demo KOReader stats say
-# nothing about, so what surfaces below can only have come from Calibre-Web.
+# Crake", "Parable of the Talents").
+#
+# There is no such thing here as a demo book KOReader says nothing about. An
+# earlier version of this comment claimed ids 7 and 9 were two of those, and it
+# was simply wrong: the demo KOReader knows all nine books, 7 at 376/376 and 9
+# at 0/365. Isolating Calibre-Web is done with `with_koreader=False`, not by
+# choosing an id — and the overlap that could not be avoided is now asserted
+# head-on by `test_calibre_web_finished_reaches_a_book_koreader_also_knows`.
 
 
 def _make_calibre_web_db(
@@ -746,6 +755,117 @@ def test_koreader_measurement_wins_over_calibre_web_read_state(tmp_path: Path) -
     # KOReader's stat, not Calibre-Web's 0/0 placeholder.
     assert oryx.stat.total_pages > 0
     assert oryx.stat.sessions > 0
+    # Winning the *stat* slot is not licence to discard the other source's only
+    # signal. Asserting pages and sessions alone is what let the drop hide here.
+    assert oryx.status.value == "finished"
+    assert oryx.latest_device == "Calibre-Web"
+
+
+#: Calibre book 8 is "Stone Butch Blues", which the demo KOReader has part-read
+#: at 150/320. Marking it finished in Calibre-Web is the overlap case: two
+#: sources describing one book, the reader having finished it on a Kobo and
+#: KOReader not knowing that yet. 150/320 matters — a book KOReader already had
+#: at 376/376 would come out "finished" either way and the assertion could not fail.
+_CALIBRE_WEB_FINISHED_BOOK_8 = """
+INSERT INTO book_read_link
+    (id, book_id, user_id, read_status, last_modified,
+     last_time_started_reading, times_started_reading)
+VALUES (3, 8, 1, 1, '2026-05-03 12:00:00.000000', '2026-04-25 19:00:00.000000', 4);
+"""
+
+
+def test_calibre_web_finished_reaches_a_book_koreader_also_knows(tmp_path: Path) -> None:
+    """The carrier must reach the population the adapter was built for.
+
+    Calibre-Web files its progress under the title-derived join key; a KOReader
+    stat's key is its md5, and `unify` looks progress up by the winning stat's
+    own key. So for every book both sources knew — most of a real library — the
+    lookup asked for a key nothing was filed under and missed, silently. A book
+    finished on a Kobo and marked read in Calibre-Web kept showing as in
+    progress and stayed out of `finished()`, Wrapped and `books_finished`.
+    """
+    cfg = _real_config_with_calibre_web(tmp_path)
+    conn = sqlite3.connect(cfg.calibre_web_db)
+    conn.executescript(_CALIBRE_WEB_FINISHED_BOOK_8)
+    conn.commit()
+    conn.close()
+
+    states, _ = ingest_states(cfg)
+    sbb = next(s for s in states if s.title == "Stone Butch Blues")
+    assert sbb.status.value == "finished"
+    assert sbb.latest_device == "Calibre-Web"
+    assert sbb.percent_complete == 1.0
+    assert "Stone Butch Blues" in {s.title for s in finished(states)}
+    # KOReader still owns the stat slot: it measured pages and time, and nothing
+    # here invents a page count to carry the position.
+    assert sbb.stat is not None
+    assert sbb.stat.total_pages == 320
+
+    # Negative control: without the Calibre-Web row, KOReader's 150/320 stands
+    # on its own and the book is *not* finished — so the assertions above are
+    # reading Calibre-Web's assertion, not a foregone conclusion.
+    plain = _real_config_with_calibre_web(tmp_path / "plain")
+    unmarked = next(s for s in ingest_states(plain)[0] if s.title == "Stone Butch Blues")
+    assert unmarked.status.value == "reading"
+    assert unmarked.latest_device != "Calibre-Web"
+
+
+def test_a_stale_calibre_web_row_does_not_override_a_fresher_kosync_position(
+    tmp_path: Path,
+) -> None:
+    """`_merge_progress`'s recency tie-break is reachable for KOReader books.
+
+    Keyed as the two sources write them, a kosync entry (md5) and a Calibre-Web
+    entry (title key) for the same book never collided, so `held is None` was
+    always true and the recency branch was dead code for exactly the source
+    pairing it was written for. Both directions are asserted here.
+    """
+    stats = [
+        ReadingStat(
+            key="md5-feinberg-sbb",
+            title="Stone Butch Blues",
+            authors=("Leslie Feinberg",),
+            pages_read=150,
+            total_pages=320,
+            read_time_seconds=9000,
+            last_read_ts=1_777_000_000,
+            sessions=6,
+        )
+    ]
+    title_key = "stone butch blues leslie feinberg"
+    web = {
+        title_key: DeviceProgress(
+            document=title_key, percentage=1.0, device="Calibre-Web", timestamp=1_777_500_000
+        )
+    }
+    rekeyed = _rekey_onto_winning_stats(web, stats)
+    # Re-filed onto the key the join will actually ask for, document included.
+    assert set(rekeyed) == {"md5-feinberg-sbb"}
+    assert rekeyed["md5-feinberg-sbb"].document == "md5-feinberg-sbb"
+
+    fresher_kosync = {
+        "md5-feinberg-sbb": DeviceProgress(
+            document="md5-feinberg-sbb",
+            percentage=0.47,
+            device="Kobo",
+            timestamp=1_777_900_000,
+        )
+    }
+    assert _merge_progress(fresher_kosync, rekeyed)["md5-feinberg-sbb"].device == "Kobo"
+
+    staler_kosync = {
+        "md5-feinberg-sbb": DeviceProgress(
+            document="md5-feinberg-sbb",
+            percentage=0.47,
+            device="Kobo",
+            timestamp=1_777_100_000,
+        )
+    }
+    assert _merge_progress(staler_kosync, rekeyed)["md5-feinberg-sbb"].device == "Calibre-Web"
+
+    # Positive control: a book no device stat knows keeps its own title key, so
+    # re-keying cannot quietly drop Calibre-Web-only progress.
+    assert set(_rekey_onto_winning_stats(web, [])) == {title_key}
 
 
 def test_source_mtimes_includes_calibre_web(tmp_path: Path) -> None:

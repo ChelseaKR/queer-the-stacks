@@ -24,7 +24,7 @@ import datetime as dt
 import os
 import tempfile
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -37,7 +37,7 @@ from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import Book, DailyActivity, DeviceProgress, ReadingStat, ReadingState
 from ingest.snapshot import columns, has_sidecar, open_snapshot
 from ingest.store import ORIGIN_DEMO, ORIGIN_REAL, CatalogSourceUpdate, Store
-from ingest.unify import unify
+from ingest.unify import normalize_key, unify
 
 
 @dataclass(frozen=True)
@@ -247,6 +247,46 @@ def _load_calibre_web(config: Config, books: list[Book]) -> calibre_web.CalibreW
     )
 
 
+def _rekey_onto_winning_stats(
+    progress: dict[str, DeviceProgress], stats: list[ReadingStat]
+) -> dict[str, DeviceProgress]:
+    """Re-file Calibre-Web progress under the key ``unify`` will actually look up.
+
+    Calibre-Web files its :class:`DeviceProgress` under the title-derived join
+    key, because that is the only key it can build — ``app.db`` has no md5.
+    ``unify`` keeps the *first* stat per join key (deliberately: a KOReader or
+    Kobo stat measured pages and time, Calibre-Web measured read-state), then
+    looks the progress up by that winning stat's own ``key``. A KOReader stat's
+    key is its md5, not the title key, so for every book KOReader also knows,
+    the lookup asked for a key nothing was filed under and missed — silently,
+    with nothing logged. The carrier the adapter was built around was
+    unreachable for exactly the population it was built for.
+
+    Mapping each title key onto the winning stat's key fixes the lookup without
+    touching :mod:`ingest.unify`, and — because the two maps then genuinely
+    collide on a book both sources describe — it is also what makes
+    :func:`_merge_progress`'s recency tie-break reachable at all for KOReader
+    books. Kobo was never affected: ``ingest.kobo`` already keys its stats by
+    the title key, so those collided and tied-break correctly all along.
+    """
+    if not progress:
+        return progress
+    # Same rule unify applies, over the same stats in the same order: the first
+    # stat per join key is the one whose `key` the progress lookup will use.
+    winning_key: dict[str, str] = {}
+    for stat in stats:
+        winning_key.setdefault(normalize_key(stat.title, stat.authors), stat.key)
+    rekeyed: dict[str, DeviceProgress] = {}
+    for join_key, progress_row in progress.items():
+        target = winning_key.get(join_key, join_key)
+        rekeyed[target] = (
+            progress_row
+            if target == join_key
+            else replace(progress_row, document=target)  # keep document == its key
+        )
+    return rekeyed
+
+
 def _merge_progress(
     primary: dict[str, DeviceProgress], secondary: dict[str, DeviceProgress]
 ) -> dict[str, DeviceProgress]:
@@ -255,7 +295,10 @@ def _merge_progress(
     ``primary`` is kosync, the reader's own sync server and the source with a
     real per-device clock. ``secondary`` is Calibre-Web, which reports when its
     read-state row was last written. The two only ever collide on a book both
-    describe, and then the more recent assertion is the true one.
+    describe, and then the more recent assertion is the true one. That collision
+    depends on ``secondary`` having been through
+    :func:`_rekey_onto_winning_stats` first — keyed as Calibre-Web writes them,
+    the two maps never met on a KOReader book and this tie-break was dead code.
     """
     if not secondary:
         return primary
@@ -291,7 +334,11 @@ def _ingest_real(
     # Appended last so a KOReader/Kobo stat for the same book wins the `unify`
     # join: those measure pages and time, Calibre-Web measures read-state.
     merged_stats = stats + list(web_state.stats)
-    progress = _merge_progress(progress_result.progress, web_state.progress)
+    # ...and re-filed onto that winner's key, so the read-state it carries is
+    # reachable for the books the device stats also know — which, on a real
+    # library, is most of them.
+    web_progress = _rekey_onto_winning_stats(web_state.progress, stats)
+    progress = _merge_progress(progress_result.progress, web_progress)
     states = unify(books, merged_stats, FixtureKosync(progress))
     return states, activity, progress_result
 

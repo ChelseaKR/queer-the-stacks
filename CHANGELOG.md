@@ -12,6 +12,22 @@ No release has been tagged yet. `v0.1.0` is pending the pre-release
 accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
+### Fixed
+- **Calibre-Web read-state was silently dropped for every book KOReader also
+  knew** (`ingest/refresh.py`). Calibre-Web files its `DeviceProgress` under the
+  title-derived join key — the only key `app.db` can build — but `unify` looks
+  progress up by the *winning* stat's own key, and a KOReader stat's key is its
+  md5. The two never matched, so the lookup missed every time and nothing logged
+  the drop: the carrier the adapter was built around was unreachable for exactly
+  the population it was built for, books both sources describe. A book finished
+  on a Kobo and marked read in Calibre-Web kept showing as in progress, stayed
+  out of `finished()`, and was excluded from Wrapped and `books_finished`, as
+  long as KOReader had also seen it. `_rekey_onto_winning_stats` now re-files
+  Calibre-Web's map onto the key the join will ask for, before merging — which
+  also makes `_merge_progress`'s freshest-wins tie-break reachable for KOReader
+  books for the first time (Kobo was never affected: `ingest/kobo.py` already
+  keys its stats by the title key). `ingest/unify.py` is still untouched.
+
 ### Added
 - **Calibre-Web read-state is now a read-only ingest source** (`ingest/calibre_web.py`,
   `[calibre_web] path`/`user`, `STACKS_CALIBRE_WEB_DB`/`STACKS_CALIBRE_WEB_USER`).
