@@ -386,6 +386,101 @@ def _dashboard(request: Request, hide_sensitive: bool = False) -> HTMLResponse:
     return HTMLResponse(content=render_view(_load_view(request.app, hide_sensitive=hide_sensitive)))
 
 
+def _search(request: Request, q: Optional[str] = None) -> HTMLResponse:
+    """FTS5-backed search over the reader's own library (issue #104).
+
+    Renders the same accessible table ``/browse`` does, from the same template,
+    which is why this route needs no entry of its own in the a11y page set.
+
+    The index answers with a *reason* when it cannot answer with rows — never
+    built, built from a refresh this store has moved past, or no FTS5 in this
+    SQLite build. Only the last is a case where a slower scan gives the same
+    answer, so only the last falls back. The other two would have the scan
+    silently paper over a broken index and report a healthy-looking library,
+    which is the failure the index status exists to make visible.
+    """
+    import dataclasses
+
+    from ingest.search_index import search
+
+    from app.browse import filter_states
+
+    view = _load_view(request.app)
+    text = (q or "").strip()
+    if not text:
+        return HTMLResponse(content=render_view(dataclasses.replace(view, browse_query="")))
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        outcome = search(store, text)
+    finally:
+        store.close()
+
+    library = list(view.library)
+
+    if outcome.status in {"not_built", "stale"}:
+        # No search happened. The library table is therefore left ALONE: an
+        # empty one renders "Your library is empty." (app/render.py), which
+        # would turn a broken index into a false statement about what the
+        # reader owns — the exact failure this feature is built against. The
+        # page shows their real library and says search could not run.
+        html = render_view(dataclasses.replace(view, browse_query=text))
+        return HTMLResponse(
+            content=_with_notice(html, f"Search did not run: {outcome.status_detail}")
+        )
+
+    if outcome.status == "unavailable":
+        matched = filter_states(library, q=text)
+        notice = f"Searched without the index — {outcome.status_detail}."
+    else:
+        # Hits carry the position they were indexed at, and the index is only
+        # consulted when its recorded view revision still matches this store's
+        # — so a position out of range means the two disagree about the library
+        # despite the revision check. Dropping such a row is the conservative
+        # answer; naming a book by the wrong position is the failure mode this
+        # whole module is built against.
+        matched = [library[hit.position] for hit in outcome.hits if hit.position < len(library)]
+        notice = ""
+
+    if not matched:
+        # "Your library is empty." is the library table's copy for an empty
+        # list, and it is false here: the library is not empty, the query
+        # matched nothing in it. Say which.
+        notice = f"No book in your library matched “{text}”. Your library is not empty."
+
+    html = render_view(
+        dataclasses.replace(
+            view,
+            library=tuple(matched),
+            browse_query=text,
+            browse_theme="",
+            browse_author="",
+            browse_series="",
+            browse_status="",
+        )
+    )
+    return HTMLResponse(content=_with_notice(html, notice) if notice else html)
+
+
+def _with_notice(html: str, notice: str) -> str:
+    """Put a status line at the top of the main region, where it is read first.
+
+    ``role="status"`` so a screen reader announces it: a reader who cannot see
+    an empty table is exactly the reader who most needs to be told the search
+    did not run.
+    """
+    marker = "<main"
+    start = html.find(marker)
+    if start == -1:
+        return html
+    end = html.find(">", start)
+    if end == -1:
+        return html
+    banner = f'<p class="notice" role="status">{escape(notice)}</p>'
+    return html[: end + 1] + banner + html[end + 1 :]
+
+
 def _browse(
     request: Request,
     theme: Optional[str] = None,
@@ -533,6 +628,13 @@ def create_app() -> FastAPI:
     app.add_api_route(
         "/browse",
         _browse,
+        methods=["GET"],
+        response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/search",
+        _search,
         methods=["GET"],
         response_class=HTMLResponse,
         dependencies=[Depends(require_auth)],

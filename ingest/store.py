@@ -91,6 +91,19 @@ class Store:
         )
         self._conn.commit()
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """The underlying SQLite connection.
+
+        Exposed for :mod:`ingest.search_index`, which needs a *relational*
+        table (FTS5) in the same database file rather than another JSON
+        document under a key. Keeping it in this database is what lets the
+        index be rebuilt and read inside the same transactions as the state it
+        describes; keeping it out of :meth:`_put` is what stops a virtual
+        table being serialized as JSON.
+        """
+        return self._conn
+
     def close(self) -> None:
         self._conn.close()
 

@@ -99,6 +99,10 @@ HTML_ROUTE_COVERAGE: dict[str, str] = {
     "/browse": "docs/audits/dashboard.html",
     "/login": "docs/audits/login.html",
     "/share": "docs/audits/share.html",
+    # NOT dashboard.html: /search can render a status banner the dashboard
+    # template never emits, so it needs a document of its own or that banner
+    # goes unaudited. See app.build_static.build_search.
+    "/search": "docs/audits/search.html",
 }
 
 
@@ -184,4 +188,5 @@ def test_the_makefile_variable_expander_works() -> None:
         "docs/audits/dashboard.html",
         "docs/audits/login.html",
         "docs/audits/share.html",
+        "docs/audits/search.html",
     ]

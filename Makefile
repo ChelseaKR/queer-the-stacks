@@ -15,7 +15,8 @@ PYTHON3 ?= python3.14
 A11Y_HTML := docs/audits/dashboard.html
 A11Y_LOGIN_HTML := docs/audits/login.html
 A11Y_SHARE_HTML := docs/audits/share.html
-A11Y_PAGES := $(A11Y_HTML) $(A11Y_LOGIN_HTML) $(A11Y_SHARE_HTML)
+A11Y_SEARCH_HTML := docs/audits/search.html
+A11Y_PAGES := $(A11Y_HTML) $(A11Y_LOGIN_HTML) $(A11Y_SHARE_HTML) $(A11Y_SEARCH_HTML)
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev verify format lint marker-hygiene typecheck test security coverage-check a11y eval eval-check perf perf-load lighthouse perf-gates audit clean
