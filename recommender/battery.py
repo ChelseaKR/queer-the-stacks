@@ -211,9 +211,7 @@ def _run_seed(seed: int, k: int) -> SeedRow:
         content_wins=content_map >= popularity_map,
         ablation_no_lists_content_map=no_lists["content"].map_at_k,
         ablation_shuffled_content_map=shuffled["content"].map_at_k,
-        hybrid_embeddings_map=round(
-            average_precision_at_k(embeddings_ranked, positives, k), 4
-        ),
+        hybrid_embeddings_map=round(average_precision_at_k(embeddings_ranked, positives, k), 4),
         embeddable_tokens_median=tokens_median,
         embeddable_tag_token_share=tag_share,
     )
@@ -247,9 +245,7 @@ def run_battery(seeds: Iterable[int] = DEFAULT_SEEDS, k: int = 5) -> dict[str, o
     ]
     # Embeddings arm: reported, never gating. See `docs/audits/embeddings-evaluation.md`
     # and #94 — turning the signal on is a decision, not a measurement.
-    embedding_deltas = [
-        round(row["hybrid_embeddings_map"] - row["hybrid_map"], 4) for row in rows
-    ]
+    embedding_deltas = [round(row["hybrid_embeddings_map"] - row["hybrid_map"], 4) for row in rows]
 
     return {
         "k": k,
