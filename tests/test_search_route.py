@@ -127,3 +127,54 @@ def test_the_query_string_never_reaches_a_log_line(
     assert app_records, "the app logged nothing, so this proved nothing"
     assert all(secret not in r.getMessage() for r in app_records)
     assert all(secret not in str(getattr(r, "path", "")) for r in app_records)
+
+
+def test_without_fts5_the_route_still_finds_the_book_and_says_it_is_unranked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fallback answers the same query, over the same fields.
+
+    Until this landed the fallback was ``app.browse.filter_states``, which
+    does not search series, publisher or language. A reader on a SQLite build
+    without FTS5 who searched for a publisher got zero rows and was told no
+    book in their library matched — about a book that was in their library.
+    """
+    pytest.importorskip("fastapi")
+    client = _client(tmp_path, monkeypatch)
+
+    store = Store(_store_path(tmp_path))
+    try:
+        states = store.load_states()
+    finally:
+        store.close()
+    in_a_series = [s for s in states if s.book and s.book.series]
+    assert in_a_series, "the demo library records no series, so this proves nothing"
+    series = in_a_series[0].book.series
+    expected = sorted(s.title for s in states if s.book and s.book.series == series)
+
+    # The old fallback searched title / authors / status / theme tags only, so
+    # it found none of these — which is what made the page lie.
+    from app.browse import filter_states
+
+    assert filter_states(list(states), q=series) == []
+
+    monkeypatch.setattr("ingest.search_index.fts5_available", lambda conn: False)
+    body = client.get("/search", params={"q": series}).text
+
+    for title in expected:
+        assert title in body
+    assert "Searched without the index" in body
+    assert "not ranked by relevance" in body
+    # The failure this replaces: a real book reported as no match at all.
+    assert "No book in your library matched" not in body
+
+
+def test_without_fts5_a_genuine_miss_still_says_the_library_is_not_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("fastapi")
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr("ingest.search_index.fts5_available", lambda conn: False)
+    body = client.get("/search", params={"q": "zzzznotathinginanylibrary"}).text
+    assert "Your library is not empty." in body
+    assert "Your library is empty." not in body
