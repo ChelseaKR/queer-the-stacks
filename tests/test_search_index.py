@@ -544,11 +544,19 @@ def test_the_two_paths_agree_at_five_thousand_books(
 def test_a_truncated_answer_reports_the_untruncated_total(
     scale_store: Store, scale_states: list[ReadingState]
 ) -> None:
-    """A page of results must not be readable as the whole answer."""
+    """A page of results must not be readable as the whole answer.
+
+    The page size is written out as ``200`` rather than compared against
+    ``DEFAULT_LIMIT``: a test that reads the constant on both sides of its own
+    assertion moves with it, and cannot catch it being wrong. Changing
+    ``DEFAULT_LIMIT`` to 20 left this test green until this line was a literal.
+    """
+    assert DEFAULT_LIMIT == 200
     indexed = search(scale_store, "poetry")
     scanned = search_states(scale_states, "poetry")
-    assert indexed.total > DEFAULT_LIMIT
-    assert len(indexed.hits) == DEFAULT_LIMIT
+    assert indexed.total > 200
+    assert len(indexed.hits) == 200
+    assert len(scanned.hits) == 200
     assert indexed.truncated and scanned.truncated
     assert indexed.total == scanned.total
     assert f"of {indexed.total} match(es)" in indexed.status_detail
