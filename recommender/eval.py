@@ -84,20 +84,44 @@ def ndcg_at_k(ranked: list[str], positives: set[str], k: int) -> float:
     return dcg / ideal if ideal else 0.0
 
 
-def intra_list_diversity(books: list[Book], k: int) -> float:
+def diversity_pairs(books: list[Book], k: int) -> tuple[int, int]:
+    """(pairs this metric could compare, pairs the top-k slate holds).
+
+    Published beside the score so a shrinking denominator is visible. The two
+    numbers differ exactly when the slate carries books with no sourced
+    descriptor, and a reader who sees 3 of 10 knows the score speaks for three
+    pairs rather than for the slate.
+    """
+    tagsets = [b.tag_labels for b in books[:k]]
+    pairs = [(a, b) for i, a in enumerate(tagsets) for b in tagsets[i + 1 :]]
+    return sum(1 for a, b in pairs if a and b), len(pairs)
+
+
+def intra_list_diversity(books: list[Book], k: int) -> float | None:
     """1 - mean pairwise Jaccard similarity of theme sets across the top-k.
 
     Higher = a more thematically varied slate (the anti-monoculture metric).
+    ``None`` where no pair of the slate could be compared, which is not the
+    same fact as a slate that was compared and found monotonous.
+
+    A pair counts only where *both* books carry at least one sourced
+    descriptor. A book carrying none holds no theme information, and Jaccard
+    over an empty set scores it as maximally dissimilar from everything: it is
+    absence read as variety. Measured on 2026-09-06 against this function
+    before the fix — two books on the identical theme scored 0.0, adding one
+    undescribed book to them scored 0.6667, adding two scored 0.8333, and a
+    slate of three books carrying no descriptor at all scored 1.0, the top of
+    the scale, indistinguishable from three genuinely different themes.
+
+    ``app.diversity`` already refuses the mirror image of this, reporting an
+    untagged book as "no sourced descriptor" rather than silently counting it
+    as not diverse. This is the same rule applied to the eval metric.
     """
-    top = books[:k]
-    tagsets = [b.tag_labels for b in top]
-    pairs = [(a, b) for i, a in enumerate(tagsets) for b in tagsets[i + 1 :]]
-    if not pairs:
-        return 0.0
-    sims = []
-    for a, b in pairs:
-        union = a | b
-        sims.append(len(a & b) / len(union) if union else 0.0)
+    tagsets = [b.tag_labels for b in books[:k]]
+    comparable = [(a, b) for i, a in enumerate(tagsets) for b in tagsets[i + 1 :] if a and b]
+    if not comparable:
+        return None
+    sims = [len(a & b) / len(a | b) for a, b in comparable]
     return round(1.0 - sum(sims) / len(sims), 4)
 
 
@@ -162,5 +186,7 @@ def to_report(
         ),
     }
     if top_books is not None:
+        compared, in_slate = diversity_pairs(top_books, k)
         report["intra_list_diversity_at_k"] = intra_list_diversity(top_books, k)
+        report["intra_list_diversity_pairs"] = {"compared": compared, "in_slate": in_slate}
     return report
