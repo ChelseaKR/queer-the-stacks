@@ -60,6 +60,7 @@ KNOWN_STACKS_ENV = frozenset(
         "STACKS_HIDE_SENSITIVE",
         "STACKS_CALIBRE_WEB_URL",
         "STACKS_LENS_CONFIG",
+        "STACKS_RETENTION_DAYS",
     }
 )
 
@@ -101,6 +102,11 @@ class Config:
     catalog_refresh_ttl_seconds: int = 24 * 60 * 60
     openlibrary_subjects: tuple[str, ...] = ()
     bookwyrm_lists: tuple[str, ...] = ()
+    #: Reading-history horizon in days; 0 keeps everything (the default, and
+    #: today's behaviour). See :mod:`ingest.retention` for why there is no
+    #: non-zero default: a horizon deletes a reader's history, and choosing one
+    #: for them is not this code's call.
+    retention_history_days: int = 0
 
     @property
     def store_path(self) -> Path:
@@ -232,6 +238,15 @@ def load_config(
     )
     catalog_mode = _catalog_mode(pick("STACKS_CATALOG_OUTBOUND", catalogs, "outbound_mode"))
 
+    retention = _section(toml, "retention")
+    retention_days_raw = pick("STACKS_RETENTION_DAYS", retention, "history_days")
+    try:
+        # Negative is coerced to 0 (off) rather than to "delete everything":
+        # a typo in a retention horizon must never be the destructive reading.
+        retention_days = max(0, int(retention_days_raw)) if retention_days_raw else 0
+    except ValueError:
+        retention_days = 0
+
     def pick_int(env_key: str, key: str) -> int:
         raw = pick(env_key, goals, key)
         try:
@@ -279,4 +294,5 @@ def load_config(
             resolved_env.get("STACKS_BOOKWYRM_LISTS"),
             catalogs.get("bookwyrm_lists"),
         ),
+        retention_history_days=retention_days,
     )

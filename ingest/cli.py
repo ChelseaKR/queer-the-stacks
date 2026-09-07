@@ -215,6 +215,66 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_forget(args: argparse.Namespace) -> int:
+    """Remove reading history from the app-state store, provably.
+
+    Exits 0 when nothing matched: "you never read that" and "it is gone now"
+    are both successful outcomes of asking for it to be gone. The receipt says
+    which one happened, so the exit code is never the only signal.
+    """
+    import time
+
+    from ingest.config import load_config
+    from ingest.forget import forget
+    from ingest.retention import iso_to_ordinal
+    from ingest.store import Store
+
+    if not args.book and not args.before:
+        print("forget: give --book <id> or --before <YYYY-MM-DD>", file=sys.stderr)
+        return 2
+    try:
+        before = iso_to_ordinal(args.before) if args.before else None
+    except ValueError:
+        print(
+            f"forget: --before must be an ISO date (YYYY-MM-DD), not {args.before!r}",
+            file=sys.stderr,
+        )
+        return 2
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        receipt = forget(
+            store,
+            store_path=config.store_path,
+            backups_dir=config.data_dir / "backups",
+            now=int(time.time()),
+            book_id=args.book,
+            before=before,
+            include_backups=args.include_backups,
+            config=config,
+        )
+    finally:
+        store.close()
+
+    print(json.dumps(receipt.as_dict(), indent=2))
+    if not receipt.matched:
+        print("nothing matched — no history was removed.", file=sys.stderr)
+        return 0
+    if receipt.backups_still_holding:
+        print(
+            f"{len(receipt.backups_still_holding)} backup(s) still hold this history; "
+            "re-run with --include-backups to rewrite them.",
+            file=sys.stderr,
+        )
+    print(
+        "the source library still holds these rows — this app opens Calibre/KOReader "
+        "read-only and never deletes from them. Every refresh re-applies this forget.",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     """Write the dashboard (incl. Wrapped) to a self-contained local HTML file.
 
@@ -463,6 +523,20 @@ def main(argv: list[str] | None = None) -> int:
     p_res = sub.add_parser("restore", help="restore the app-state store from a backup")
     p_res.add_argument("backup", help="path to a backup .sqlite file")
     p_res.set_defaults(func=_cmd_restore)
+
+    p_forget = sub.add_parser(
+        "forget",
+        help="remove reading history from the app-state store (and, with "
+        "--include-backups, from the backups too)",
+    )
+    p_forget.add_argument("--book", help="book id whose history to forget")
+    p_forget.add_argument("--before", help="forget all history before this ISO date (YYYY-MM-DD)")
+    p_forget.add_argument(
+        "--include-backups",
+        action="store_true",
+        help="also rewrite every timestamped backup so the rows are not recoverable from them",
+    )
+    p_forget.set_defaults(func=_cmd_forget)
 
     p_exp = sub.add_parser(
         "export", help="export the dashboard (or, with --archive, a preservation JSON bundle)"

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from ingest.models import Book, DailyActivity, DeviceProgress, ReadingState
+from ingest.retention import RetentionState
 from ingest.serde import (
     activity_from_dict,
     activity_to_dict,
@@ -39,6 +40,7 @@ _PROGRESS_KEY = "kosync_progress"
 _CATALOG_KEY = "catalog_pool"
 _VIEW_REVISION_KEY = "view_revision"
 _ORIGIN_KEY = "state_origin"
+_RETENTION_KEY = "retention"
 
 #: The demo world produced the persisted states — they are fixture books.
 ORIGIN_DEMO = "demo"
@@ -216,6 +218,28 @@ class Store:
     @property
     def is_populated(self) -> bool:
         return self.refreshed_at() is not None
+
+    # --- retention ----------------------------------------------------------
+    #
+    # What this instance has been asked to keep, and what it has already been
+    # asked to destroy (ingest.retention). Persisted rather than recomputed
+    # because a forget must SURVIVE: the source libraries are read-only and out
+    # of scope for deletion, so the next refresh would re-import exactly what a
+    # forget just removed if nothing here remembered the instruction.
+
+    def retention(self) -> RetentionState:
+        """The persisted retention picture, or the retain-everything default."""
+        return RetentionState.from_dict(self._get(_RETENTION_KEY))
+
+    def save_retention(self, state: RetentionState) -> None:
+        """Persist the retention picture and invalidate the rendered views.
+
+        This is a view input, not bookkeeping: the boundary it carries decides
+        whether a surface prints a number for a window or says the window is
+        not retained. A cached page built before a forget would go on showing
+        the history the reader just deleted.
+        """
+        self._put_view_state(_RETENTION_KEY, state.as_dict())
 
     # --- kosync progress cache ----------------------------------------------
     #

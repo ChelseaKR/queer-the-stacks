@@ -26,12 +26,21 @@ from typing import Optional
 
 from ingest.koreader import SECONDS_PER_DAY
 from ingest.models import DailyActivity, ReadingState, ReadingStatus
+from ingest.retention import RetentionState
 
 #: Said wherever a Wrapped year cannot be named. A year is inferred from the
 #: reading record itself, so with no reading-data source connected there is no
 #: year to infer — and the epoch fallback that used to fill the gap rendered as
 #: "Reading Wrapped 1970" over a row of confident zeros.
 UNMEASURED_YEAR_LABEL = "not measured"
+
+#: Said of a year the reader's own retention policy has deleted. Deliberately a
+#: DIFFERENT string from :data:`UNMEASURED_YEAR_LABEL`: "no reading source is
+#: connected", "you read nothing that year" and "that year is outside the
+#: history you chose to keep" all produce the same zeros, and only the third is
+#: the reader's own decision being honoured. Rendering it as either of the other
+#: two would report a deletion as an absence of reading.
+NOT_RETAINED_LABEL = "not retained"
 
 
 def _jan1_ordinal(year: int) -> int:
@@ -94,6 +103,10 @@ class Wrapped:
     standout_reads: tuple[StandoutRead, ...]
     monthly: tuple[MonthStat, ...] = ()  # 12 entries, Jan..Dec
     pace_pages_per_day: float = 0.0  # mean pages on days you actually read
+    #: How much of this year survives the retention policy: "full", "partial"
+    #: (the horizon cuts through the year, so the totals are real but
+    #: incomplete) or "none" (deleted). See :mod:`ingest.retention`.
+    retention_coverage: str = "full"
 
     @staticmethod
     def unmeasured() -> Wrapped:
@@ -114,15 +127,65 @@ class Wrapped:
             standout_reads=(),
         )
 
+    @staticmethod
+    def not_retained(year: int) -> Wrapped:
+        """A year the reader's retention policy has deleted.
+
+        The year is kept — it is a real year, and naming it is what makes the
+        gap legible — while every figure is structural padding, exactly as in
+        :meth:`unmeasured`. What separates the two is
+        :attr:`retention_coverage`, and every surface must branch on it before
+        printing a number: this year is not unmeasured and it is not a zero, it
+        is a window the reader asked not to keep.
+        """
+        return Wrapped(
+            year=year,
+            books_finished=0,
+            pages_read=0,
+            read_time_seconds=0,
+            days_read=0,
+            theme_breakdown=(),
+            standout_reads=(),
+            retention_coverage="none",
+        )
+
     @property
     def measured(self) -> bool:
         """Whether this Wrapped describes a real year of reading records."""
         return self.year is not None
 
     @property
+    def retained(self) -> bool:
+        """Whether this year's records still exist to be reported on."""
+        return self.retention_coverage != "none"
+
+    @property
+    def partially_retained(self) -> bool:
+        """Whether the horizon cuts through this year, making its totals partial."""
+        return self.retention_coverage == "partial"
+
+    @property
+    def reportable(self) -> bool:
+        """Whether any figure on this Wrapped is a measurement of anything.
+
+        The single flag a render site should branch on before printing a
+        number. False for an unmeasured year AND for a deleted one — they need
+        different *wording*, which :attr:`year_label` supplies, but neither may
+        be rendered as a count.
+        """
+        return self.measured and self.retained
+
+    @property
     def year_label(self) -> str:
         """The year as rendered — never a fabricated one."""
         return UNMEASURED_YEAR_LABEL if self.year is None else str(self.year)
+
+    @property
+    def absence_label(self) -> str:
+        """What to print instead of a figure, worded for *why* it is missing."""
+        if not self.retained:
+            return NOT_RETAINED_LABEL
+        return UNMEASURED_YEAR_LABEL
 
     @property
     def read_time_hours(self) -> float:
@@ -161,16 +224,26 @@ def compute_wrapped(
     year: Optional[int],
     *,
     top_n: int = 5,
+    retention: Optional[RetentionState] = None,
 ) -> Wrapped:
     """Compute a private year-in-review for ``year`` from local reading state.
 
     ``year`` is ``None`` when no reading record exists to infer one from (see
     :func:`app.view._infer_today_and_year`), and the result is
     :meth:`Wrapped.unmeasured` — not a zeroed year, which would be a claim.
+
+    ``retention`` is the store's persisted policy. A year it has deleted returns
+    :meth:`Wrapped.not_retained`, which is a THIRD state: the records for that
+    year are gone because the reader asked, so summing the (now absent) rows to
+    zero and printing that would report their own deletion back to them as a
+    year in which they read nothing.
     """
     if year is None:
         return Wrapped.unmeasured()
     lo, hi = year_bounds(year)
+    coverage = "full" if retention is None else retention.coverage_of(lo, hi)
+    if coverage == "none":
+        return Wrapped.not_retained(year)
 
     finished_this_year = [
         s
@@ -219,6 +292,7 @@ def compute_wrapped(
         standout_reads=tuple(standouts),
         monthly=monthly,
         pace_pages_per_day=pace,
+        retention_coverage=coverage,
     )
 
 
