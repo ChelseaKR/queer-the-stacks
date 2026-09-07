@@ -204,11 +204,19 @@ def recommend(
     *,
     lists: tuple[CuratedList, ...] = (),
     k: int = 10,
+    adjustments: tuple[ResolvedAdjustment, ...] = (),
 ) -> list[Recommendation]:
     """Rank ``candidates`` for the reader described by ``states``.
 
     Owned/read books are excluded by normalized key. Ties break on ``book_id`` so
     the ordering is fully deterministic.
+
+    ``adjustments`` is the reader's explicit taste feedback, applied on the same
+    terms as in :func:`recommender.hybrid.recommend_hybrid`. It is here because
+    ``stacks recommend`` says in its own docstring that it "reads the same store
+    the dashboard reads, so the two never disagree" — and a preference honoured
+    on the dashboard and ignored at the command line would make that false. With
+    the default empty set this function is unchanged.
     """
     taste = build_taste_profile(states)
     scored: list[Recommendation] = []
@@ -216,6 +224,8 @@ def recommend(
         if book_key(book) in taste.owned_keys:
             continue
         score, overlap, loved_author, lists_hit = score_candidate(taste, book, lists)
+        adj_delta, adj_reasons = adjustment_delta(book, adjustments)
+        score += adj_delta
         if score <= 0.0:
             continue
         if not book.theme_tags and not lists_hit:
@@ -230,7 +240,9 @@ def recommend(
             # ``parse_bookwyrm_list`` both build a Book with ``theme_tags=()``
             # when the response carries no tag block.
             continue
-        explanation = build_explanation(book, overlap, loved_author, lists_hit, score)
+        explanation = build_explanation(
+            book, overlap, loved_author, lists_hit, score, adjustment_reasons=adj_reasons
+        )
         scored.append(Recommendation(book=book, score=round(score, 6), explanation=explanation))
 
     scored.sort(key=lambda r: (-r.score, r.book.book_id))

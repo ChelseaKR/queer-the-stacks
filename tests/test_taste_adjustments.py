@@ -682,6 +682,37 @@ def test_the_route_refuses_rather_than_silently_ignoring(client) -> None:  # typ
 # --- the CLI -----------------------------------------------------------------
 
 
+def test_stacks_recommend_honours_the_same_adjustments_the_dashboard_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``_cmd_recommend``'s docstring promises the CLI and the dashboard never disagree.
+
+    They did, at first: the dashboard read adjustments through ``view_from_store``
+    and ``stacks recommend`` called the content recommender directly, so a
+    preference honoured on the page was ignored at the command line. Caught by
+    running the two by hand, not by a test — this is the test.
+    """
+    from ingest.cli import main
+
+    monkeypatch.setenv("STACKS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("STACKS_DEMO", "1")
+
+    assert main(["recommend", "--k", "3"]) == 0
+    before = capsys.readouterr().out
+
+    assert main(["taste", "--more", "historical", "--magnitude", "strong"]) == 0
+    capsys.readouterr()
+    assert main(["recommend", "--k", "3"]) == 0
+    after = capsys.readouterr().out
+    assert after != before, "the CLI ignored an adjustment the dashboard would honour"
+    assert "historical" in after
+
+    assert main(["taste", "--undo", "theme:historical"]) == 0
+    capsys.readouterr()
+    assert main(["recommend", "--k", "3"]) == 0
+    assert capsys.readouterr().out == before, "undo did not restore the CLI shelf exactly"
+
+
 def test_the_cli_shows_adds_undoes_and_refuses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

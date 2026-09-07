@@ -107,17 +107,33 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     against a real library are indistinguishable from real output and several
     of them are books the reader already owns.
     """
-    from recommender.model import recommend
+    from recommender.model import recommend, resolve_adjustments
 
     from ingest.config import load_config
     from ingest.store import Store
 
     config = load_config()
+    # The reader's explicit adjustments, read from the same store the dashboard
+    # reads. Demo mode included: `STACKS_DEMO=1` does not redirect the store, so
+    # a preference set on the dashboard and ignored here would be the two
+    # surfaces disagreeing about the reader's own stated taste.
+    store = Store(config.store_path)
+    try:
+        adjustments = resolve_adjustments(store.taste_adjustments())
+    finally:
+        store.close()
+
     if config.demo:
         states, candidates, lists = _demo_states_and_candidates()
         print("demo mode: no library configured — these are fixture titles.\n")
         _print_recommendations(
-            recommend(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
+            recommend(
+                states,
+                tuple(c.book for c in candidates),
+                lists=lists,
+                k=args.k,
+                adjustments=adjustments,
+            )
         )
         return 0
 
@@ -141,7 +157,9 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    _print_recommendations(recommend(states, candidate_books, lists=lists, k=args.k))
+    _print_recommendations(
+        recommend(states, candidate_books, lists=lists, k=args.k, adjustments=adjustments)
+    )
     return 0
 
 
