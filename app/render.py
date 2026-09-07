@@ -180,6 +180,24 @@ NO_WRAPPED_YEAR_NOTE = (
     "per-book totals with no per-day log, so there is no year to report yet."
 )
 
+#: Why a year is blank when the reader themselves deleted it. This is NOT an
+#: absence of reading and not an absence of a source — it is the retention
+#: policy working. Reusing either of the notes above here would tell someone
+#: their deleted year was a year they did not read.
+NOT_RETAINED_NOTE = (
+    "This year is outside the reading history this instance keeps, so its "
+    "records have been deleted. That is your retention setting working, not a "
+    "year in which nothing was read."
+)
+
+#: A year the horizon cuts through: its figures are real but cover only the
+#: part of the year still retained. Rendered beside the numbers, because a
+#: partial total presented as a whole one is the same defect one step quieter.
+PARTIALLY_RETAINED_NOTE = (
+    "Part of this year is outside the reading history this instance keeps, so "
+    "the figures below cover only the days still retained."
+)
+
 
 def _absence_reason(stats: ReadingStats) -> str:
     """The sentence that is true of *this* reader's sources.
@@ -285,17 +303,25 @@ def _wrapped_table(wrapped: Wrapped, stats: ReadingStats) -> str:
     records but no per-day activity, and this caption used to tell them no
     reading-data source was connected while the panel above showed their pages.
     """
-    if not wrapped.measured:
+    if not wrapped.reportable:
         # No year was inferable, so there is no "standout reads of <year>" to
         # rank — the caption used to name 1970 and the body claimed no finished
-        # books were recorded in it.
-        reason = NO_READING_SOURCE_NOTE if not stats.measured else NO_WRAPPED_YEAR_NOTE
+        # books were recorded in it. A year the reader has DELETED lands here
+        # too, and takes its own wording: its records existed and were removed
+        # on request, which is a different fact from never having had them.
+        if not wrapped.retained:
+            reason = NOT_RETAINED_NOTE
+        elif not stats.measured:
+            reason = NO_READING_SOURCE_NOTE
+        else:
+            reason = NO_WRAPPED_YEAR_NOTE
+        label = wrapped.absence_label
         return (
             "<table><caption>Standout reads — "
-            f"{escape(NOT_MEASURED)}. {escape(reason)}</caption>"
+            f"{escape(label)}. {escape(reason)}</caption>"
             '<thead><tr><th scope="col">Title</th>'
             '<th scope="col">Author</th><th scope="col">Hours (all time)</th></tr></thead>'
-            f'<tbody><tr><td colspan="3">{escape(NOT_MEASURED)}</td></tr></tbody></table>'
+            f'<tbody><tr><td colspan="3">{escape(label)}</td></tr></tbody></table>'
         )
     standouts = "".join(
         f'<tr><th scope="row">{escape(r.title)}</th>'
@@ -654,7 +680,7 @@ def _monthly_table(wrapped: Wrapped) -> str:
     # An unmeasured Wrapped has no months, so this already renders nothing; the
     # guard is explicit so the `wrapped.year` interpolation below is unreachable
     # without a year rather than merely unreached.
-    if not wrapped.measured or not wrapped.monthly:
+    if not wrapped.reportable or not wrapped.monthly:
         return ""
     names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     rows = "".join(
@@ -1174,12 +1200,19 @@ def render_dashboard(
     # there is nothing to scope them to, so the sentence is replaced rather than
     # filled with zeros — it used to read "0 books finished · 0.0 hours read in
     # 1970 · 0 reading days".
-    if wrapped.measured:
+    if wrapped.reportable:
+        partial = (
+            f' <span class="absence-note">{escape(PARTIALLY_RETAINED_NOTE)}</span>'
+            if wrapped.partially_retained
+            else ""
+        )
         wrapped_summary = (
             f"<p>{wrapped.books_finished} books finished · {wrapped.read_time_hours} hours "
             f"read in {wrapped.year} · {wrapped.days_read} reading days — computed "
-            "locally, shared with no one.</p>"
+            f"locally, shared with no one.{partial}</p>"
         )
+    elif not wrapped.retained:
+        wrapped_summary = f'<p class="absence-note" role="status">{escape(NOT_RETAINED_NOTE)}</p>'
     elif not stats.measured:
         wrapped_summary = (
             f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '

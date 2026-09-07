@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from ingest.models import Book, DailyActivity, ReadingState, Recommendation
+from ingest.retention import RetentionState
 from ingest.store import CatalogPoolStatus
 from ingest.unify import currently_reading, finished
 from recommender.eval import PopCandidate
@@ -144,6 +145,7 @@ def build_view(
     catalog_status: Optional[CatalogPoolStatus] = None,
     fixture_states: bool = False,
     fixture_candidates: bool = False,
+    retention: Optional[RetentionState] = None,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure).
 
@@ -155,7 +157,7 @@ def build_view(
     """
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
     stats = compute_stats(states, daily_activity, today_ordinal)
-    wrapped = compute_wrapped(states, daily_activity, year)
+    wrapped = compute_wrapped(states, daily_activity, year, retention=retention)
     goals = compute_goals(
         stats,
         wrapped,
@@ -335,6 +337,7 @@ def view_from_store(
         catalog_status=store.catalog_pool_status(),  # type: ignore[attr-defined]
         fixture_states=fixture_states,
         fixture_candidates=fixture_candidates,
+        retention=store.retention(),  # type: ignore[attr-defined]
     )
 
 

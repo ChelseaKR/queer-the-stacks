@@ -36,6 +36,7 @@ from ingest.kobo import load_stats as load_kobo_stats
 from ingest.koreader import load_daily_activity, load_stats
 from ingest.kosync import FixtureKosync, ProgressSource
 from ingest.models import Book, DailyActivity, DeviceProgress, ReadingStat, ReadingState
+from ingest.retention import PruneCounts, PruneResult, RetentionState, apply_policy
 from ingest.snapshot import columns, has_sidecar, open_snapshot
 from ingest.store import ORIGIN_DEMO, ORIGIN_REAL, CatalogSourceUpdate, Store
 from ingest.unify import normalize_key, unify
@@ -185,6 +186,11 @@ class RefreshResult:
     catalog_succeeded: int = 0
     catalog_errors: int = 0
     catalog_candidates: int = 0
+    #: What the retention policy removed on the way in, this refresh.
+    #: Zero across the board when no horizon is configured, which is the default.
+    pruned: PruneCounts = PruneCounts()
+    #: Earliest day ordinal still retained, or ``None`` when everything is kept.
+    earliest_retained_ordinal: Optional[int] = None
 
 
 def source_mtimes(config: Config) -> dict[str, int]:
@@ -415,6 +421,38 @@ def _search_index_check(store: Store) -> Check:
     return Check("search index", True, f"{status.documents} books indexed{hidden}")
 
 
+def _apply_retention(
+    config: Config,
+    store: Store,
+    states: list[ReadingState],
+    activity: list[DailyActivity],
+    now: int,
+) -> PruneResult:
+    """Apply the configured horizon plus every remembered forget, and record it.
+
+    The policy is assembled from two places on purpose: ``history_days`` is
+    *configuration* (it may be raised, lowered or removed freely), while the
+    forgotten book ids and cut-off date are *instructions already carried out*
+    and are read back from the store so that lowering the horizon cannot
+    resurrect something the reader explicitly destroyed.
+    """
+    stored = store.retention()
+    policy = replace(
+        stored.policy,
+        history_days=config.retention_history_days,
+    )
+    result = apply_policy(states, activity, policy, now)
+    store.save_retention(
+        RetentionState(
+            policy=policy,
+            earliest_retained_ordinal=result.earliest_retained_ordinal,
+            last_counts=result.counts,
+            applied_at=now,
+        )
+    )
+    return result
+
+
 def _rebuild_search_index(
     config: Config, store: Store, states: list[ReadingState], now: int
 ) -> None:
@@ -496,6 +534,16 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
         )
 
     states, activity, progress_result = _ingest_with_progress(config, store, now)
+
+    # Retention is enforced HERE, on the way in, every single refresh — not once
+    # when the policy is set. The source libraries are read-only and out of
+    # scope for deletion, so each ingest re-reads the history a horizon or a
+    # forget removed last time. A prune applied only at policy-change time would
+    # be silently undone by the next refresh, and the reader would be shown the
+    # history they deleted with nothing to indicate it had come back.
+    prune = _apply_retention(config, store, states, activity, now)
+    states, activity = prune.states, prune.daily_activity
+
     # Demo states are stamped with no source mtimes at all: the real files'
     # mtimes describe libraries that had no part in producing these books, and
     # persisting them would assert a lineage the fixtures do not have.
@@ -548,6 +596,8 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
         catalog_succeeded=catalog_result.succeeded if catalog_result else 0,
         catalog_errors=catalog_result.errors if catalog_result else 0,
         catalog_candidates=pool_status.candidate_count,
+        pruned=prune.counts,
+        earliest_retained_ordinal=prune.earliest_retained_ordinal,
     )
 
 
