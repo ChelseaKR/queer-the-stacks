@@ -889,8 +889,24 @@ def _library_row_themes(state: ReadingState, hidden: frozenset[str]) -> str:
     return ", ".join(shown) or "—"
 
 
-def _library_table(library: Sequence[ReadingState], hidden: frozenset[str] = frozenset()) -> str:
+def _library_table(
+    library: Sequence[ReadingState],
+    hidden: frozenset[str] = frozenset(),
+    *,
+    filtered: bool = False,
+) -> str:
+    """The library table, or the right sentence about why there are no rows.
+
+    ``filtered`` distinguishes the two ways this list is empty, because one
+    sentence cannot honestly cover both. An unfiltered empty list means the
+    reader has no books. A *filtered* empty list means the filter matched
+    none of the books they do have, and saying "Your library is empty." there
+    is a false statement about what they own — the same page then carried both
+    that sentence and the search notice's "Your library is not empty."
+    """
     if not library:
+        if filtered:
+            return "<p>No book in your library matches these filters.</p>"
         return "<p>Your library is empty.</p>"
     rows = "".join(
         f'<tr><th scope="row">{escape(s.title)}</th>'
@@ -1205,6 +1221,11 @@ def render_dashboard(
         "personalized ranking.</p>"
     )
     library_preview = library[:LIBRARY_PREVIEW_LIMIT]
+    # Any active filter means an empty table is a statement about the filter,
+    # not about the reader's library.
+    _browse_is_filtered = bool(
+        browse_query or browse_theme or browse_author or browse_series or browse_status
+    )
     library_complete = len(library_preview) == len(library)
     library_status = (
         f"Showing {len(library)} books."
@@ -1284,7 +1305,7 @@ def render_dashboard(
         '<button type="submit">Search library</button></form>'
         f'<p id="lib-filter-status" role="status" aria-live="polite" '
         f'data-complete="{str(library_complete).lower()}">{escape(library_status)}</p>'
-        f"{_library_table(library_preview, hidden_descriptors)}"
+        f"{_library_table(library_preview, hidden_descriptors, filtered=_browse_is_filtered)}"
         f"{_FILTER_JS}"
         "</section>"
         '<section id="record" class="home-section">'

@@ -398,12 +398,18 @@ def _search(request: Request, q: Optional[str] = None) -> HTMLResponse:
     answer, so only the last falls back. The other two would have the scan
     silently paper over a broken index and report a healthy-looking library,
     which is the failure the index status exists to make visible.
+
+    The scan is :func:`ingest.search_index.search_states`, not
+    ``app.browse.filter_states``. ``filter_states`` powers ``/browse`` and
+    searches a different set of fields by substring; using it here meant a
+    query for a series, publisher or language found books through the index
+    and nothing through the fallback, so a reader on a SQLite build without
+    FTS5 was told no book in their library matched — about a book that was in
+    their library.
     """
     import dataclasses
 
-    from ingest.search_index import search
-
-    from app.browse import filter_states
+    from ingest.search_index import hidden_descriptors_for, search, search_states
 
     view = _load_view(request.app)
     text = (q or "").strip()
@@ -431,17 +437,34 @@ def _search(request: Request, q: Optional[str] = None) -> HTMLResponse:
         )
 
     if outcome.status == "unavailable":
-        matched = filter_states(library, q=text)
-        notice = f"Searched without the index — {outcome.status_detail}."
+        outcome = search_states(
+            library,
+            text,
+            hide_sensitive=config.hide_sensitive_descriptors,
+            hidden_descriptors=hidden_descriptors_for(config),
+        )
+        notice = (
+            f"Searched without the index — {outcome.status_detail}. "
+            "Results are in library order, not ranked by relevance."
+        )
     else:
-        # Hits carry the position they were indexed at, and the index is only
-        # consulted when its recorded view revision still matches this store's
-        # — so a position out of range means the two disagree about the library
-        # despite the revision check. Dropping such a row is the conservative
-        # answer; naming a book by the wrong position is the failure mode this
-        # whole module is built against.
-        matched = [library[hit.position] for hit in outcome.hits if hit.position < len(library)]
         notice = ""
+
+    # Hits carry the position they were indexed at, and the index is only
+    # consulted when its recorded view revision still matches this store's —
+    # so a position out of range means the two disagree about the library
+    # despite the revision check. Dropping such a row is the conservative
+    # answer; naming a book by the wrong position is the failure mode this
+    # whole module is built against. (The index-free path enumerates this same
+    # list, so its positions are in range by construction.)
+    matched = [library[hit.position] for hit in outcome.hits if hit.position < len(library)]
+
+    if outcome.truncated:
+        # A page of results presented as the whole answer is the same
+        # absence-as-a-value error in its other direction.
+        notice = f"{notice} ".lstrip() + (
+            f"Showing the first {len(matched)} of {outcome.total} matches."
+        )
 
     if not matched:
         # "Your library is empty." is the library table's copy for an empty

@@ -427,16 +427,11 @@ def _rebuild_search_index(
     ``not_built`` rather than "no results", so the failure surfaces as itself
     instead of as an empty library.
     """
-    from app.diversity import load_lens_config, resolve_sensitive_descriptors
+    from ingest.search_index import build_index, hidden_descriptors_for
 
-    from ingest.search_index import build_index
-
-    hidden: frozenset[str] = frozenset()
-    if config.hide_sensitive_descriptors:
-        lenses = load_lens_config(config.lens_config)
-        hidden = resolve_sensitive_descriptors(
-            lenses.dimensions, sensitive_lens_names=lenses.sensitive_lens_names
-        )
+    # Resolved through the same helper the index-free search path uses, so the
+    # privacy toggle cannot hide a descriptor from one path and not the other.
+    hidden = hidden_descriptors_for(config)
     try:
         build_index(
             store,
