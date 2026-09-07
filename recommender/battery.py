@@ -19,15 +19,18 @@ offline, matching the project's no-egress / reproducibility guardrails.
 from __future__ import annotations
 
 import random
+import re
 import statistics
 from collections.abc import Iterable
 from dataclasses import replace
 from typing import TypedDict
 
 from ingest.demo import Candidate
-from ingest.models import ThemeTag
+from ingest.models import Book, ThemeTag
 
-from recommender.eval import evaluate
+from recommender.embeddings import book_text
+from recommender.eval import average_precision_at_k, evaluate
+from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
 from recommender.synth import synth_world
 
@@ -58,6 +61,13 @@ class SeedRow(TypedDict):
     content_wins: bool
     ablation_no_lists_content_map: float
     ablation_shuffled_content_map: float
+    #: The same hybrid, re-ranked with the local embedding signal switched ON.
+    #: Reported only. It gates nothing, and the flag stays off by default (#94).
+    hybrid_embeddings_map: float
+    #: Median tokens the embedder actually sees per candidate, and the share of
+    #: them that are theme-tag tokens the content model already matches exactly.
+    embeddable_tokens_median: float
+    embeddable_tag_token_share: float
 
 
 def _synthetic_lists(seed: int, candidates: list[Candidate]) -> tuple[CuratedList, ...]:
@@ -126,6 +136,39 @@ def shuffle_tags(
     ]
 
 
+_EMBED_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def embeddable_text_profile(books: Iterable[Book]) -> tuple[float, float]:
+    """How much text the embedder has to work with, and how much of it is new.
+
+    Returns ``(median tokens per book, share of tokens that are theme-tag tokens)``.
+
+    This exists because a MAP delta of zero from the embedding signal has two very
+    different explanations — "semantic similarity does not help here" and "there was
+    nothing to embed" — and reporting the delta without this pair would publish the
+    first when the truth is the second. :func:`recommender.embeddings.book_text` is
+    the whole input: a book's title plus its sourced theme-tag labels. There is no
+    description, synopsis or blurb field on :class:`ingest.models.Book`, so the share
+    below is the fraction of the embedder's input that the content model is already
+    matching on exactly.
+    """
+    total = 0
+    tag_tokens = 0
+    per_book: list[int] = []
+    for book in books:
+        tokens = _EMBED_TOKEN.findall(book_text(book).lower())
+        labels: set[str] = set()
+        for tag in book.theme_tags:
+            labels |= set(_EMBED_TOKEN.findall(tag.label.lower()))
+        total += len(tokens)
+        tag_tokens += sum(1 for token in tokens if token in labels)
+        per_book.append(len(tokens))
+    if not per_book or total == 0:
+        return (0.0, 0.0)
+    return (statistics.median(per_book), round(tag_tokens / total, 4))
+
+
 def _run_seed(seed: int, k: int) -> SeedRow:
     states, candidates = synth_world(seed)
     lists = _synthetic_lists(seed, candidates)
@@ -139,6 +182,26 @@ def _run_seed(seed: int, k: int) -> SeedRow:
     shuffled_candidates = shuffle_tags(seed, candidates)
     shuffled = evaluate(states, list(shuffled_candidates), lists=lists, k=k)
 
+    # The embeddings arm. `evaluate()` is deliberately left alone — it calls
+    # `recommend_hybrid` with the flag at its default — so this re-ranks the same
+    # candidates directly with `use_embeddings=True` and scores the result with the
+    # same MAP@k the other arms use. Nothing here changes a default: the signal is
+    # off everywhere else, and whether to turn it on is #94's open question.
+    books = tuple(c.book for c in candidates)
+    positives = {c.book.book_id for c in candidates if c.on_canon}
+    embeddings_ranked = [
+        rec.book.book_id
+        for rec in recommend_hybrid(
+            states,
+            books,
+            lists=lists,
+            k=len(books),
+            aperture_strength=0.0,
+            use_embeddings=True,
+        )
+    ]
+    tokens_median, tag_share = embeddable_text_profile(books)
+
     return SeedRow(
         seed=seed,
         content_map=content_map,
@@ -148,6 +211,11 @@ def _run_seed(seed: int, k: int) -> SeedRow:
         content_wins=content_map >= popularity_map,
         ablation_no_lists_content_map=no_lists["content"].map_at_k,
         ablation_shuffled_content_map=shuffled["content"].map_at_k,
+        hybrid_embeddings_map=round(
+            average_precision_at_k(embeddings_ranked, positives, k), 4
+        ),
+        embeddable_tokens_median=tokens_median,
+        embeddable_tag_token_share=tag_share,
     )
 
 
@@ -177,6 +245,11 @@ def run_battery(seeds: Iterable[int] = DEFAULT_SEEDS, k: int = 5) -> dict[str, o
     ablation_shuffle_deltas = [
         round(row["content_map"] - row["ablation_shuffled_content_map"], 4) for row in rows
     ]
+    # Embeddings arm: reported, never gating. See `docs/audits/embeddings-evaluation.md`
+    # and #94 — turning the signal on is a decision, not a measurement.
+    embedding_deltas = [
+        round(row["hybrid_embeddings_map"] - row["hybrid_map"], 4) for row in rows
+    ]
 
     return {
         "k": k,
@@ -193,5 +266,20 @@ def run_battery(seeds: Iterable[int] = DEFAULT_SEEDS, k: int = 5) -> dict[str, o
         "no_losing_seed": no_losing_seed,
         "ablation_drop_lists_median_delta": round(statistics.median(ablation_no_lists_deltas), 4),
         "ablation_shuffle_tags_median_delta": round(statistics.median(ablation_shuffle_deltas), 4),
+        "median_hybrid_embeddings_map": round(
+            statistics.median(row["hybrid_embeddings_map"] for row in rows), 4
+        ),
+        "embeddings_median_delta": round(statistics.median(embedding_deltas), 4),
+        "embeddings_seeds_helped": sum(1 for d in embedding_deltas if d > 0),
+        "embeddings_seeds_hurt": sum(1 for d in embedding_deltas if d < 0),
+        "embeddings_seeds_unchanged": sum(1 for d in embedding_deltas if d == 0),
+        # Why a zero delta above is not evidence that semantic similarity cannot help
+        # here: it is also what "there was nothing to embed" looks like.
+        "embeddable_tokens_median": round(
+            statistics.median(row["embeddable_tokens_median"] for row in rows), 4
+        ),
+        "embeddable_tag_token_share": round(
+            statistics.median(row["embeddable_tag_token_share"] for row in rows), 4
+        ),
         "passed": passed,
     }
