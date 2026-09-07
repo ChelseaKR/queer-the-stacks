@@ -9,7 +9,15 @@ that actually gates the merge (see recommender/battery.py, ingest/cli.py's
 from __future__ import annotations
 
 import pytest
-from recommender.battery import DEFAULT_SEEDS, MARGIN, run_battery, shuffle_tags
+from ingest.demo import demo_candidates
+from ingest.models import Book
+from recommender.battery import (
+    DEFAULT_SEEDS,
+    MARGIN,
+    embeddable_text_profile,
+    run_battery,
+    shuffle_tags,
+)
 from recommender.synth import synth_world
 
 
@@ -132,3 +140,68 @@ def test_dropping_curated_lists_never_improves_content_map() -> None:
     report = run_battery(DEFAULT_SEEDS, k=5)
     for row in report["rows"]:
         assert row["ablation_no_lists_content_map"] <= row["content_map"]
+
+
+# --- The embeddings arm (#94) ------------------------------------------------
+#
+# These pin LITERALS. The battery reports a distribution, and a property assertion
+# ("the delta is finite", "the share is between 0 and 1") would hold just as well
+# against a broken measurement. What makes the arm evidence rather than decoration
+# is that the specific numbers it publishes are named here, so a change to what the
+# embedder sees, or to how it is blended, has to be argued for in a diff.
+
+
+def test_embeddings_arm_is_measured_and_reported() -> None:
+    """The battery actually exercises `use_embeddings=True` and publishes the delta.
+
+    Before this, nothing anywhere evaluated the embedding signal: `evaluate()` calls
+    `recommend_hybrid` with the flag at its default, so every committed eval number
+    described the recommender with embeddings OFF.
+    """
+    report = run_battery(DEFAULT_SEEDS, k=5)
+    assert report["median_hybrid_embeddings_map"] == 0.8
+    assert report["embeddings_median_delta"] == 0.0
+    assert report["embeddings_seeds_helped"] == 1
+    assert report["embeddings_seeds_hurt"] == 0
+    assert report["embeddings_seeds_unchanged"] == 9
+
+
+def test_embeddings_arm_does_not_gate_passed() -> None:
+    """The arm is evidence, not a merge gate.
+
+    Turning the signal on is a decision recorded at #94 and it is the owner's. A
+    battery that failed when the embedding delta went to zero would be making that
+    decision by refusing to merge.
+    """
+    report = run_battery(DEFAULT_SEEDS, k=5)
+    assert report["passed"] is True
+    assert report["embeddings_median_delta"] == 0.0
+
+
+def test_zero_embedding_delta_is_reported_next_to_how_little_there_is_to_embed() -> None:
+    """A zero delta has two explanations, and the battery must not publish the wrong one.
+
+    "Semantic similarity does not help here" and "there was nothing to embed" produce
+    the identical number. `recommender.embeddings.book_text` is the entire input — a
+    book's title plus its sourced theme-tag labels — because `ingest.models.Book` has
+    no description, synopsis or blurb field at all. So most of what the embedder sees
+    is the theme-tag text the content model is *already* matching on exactly, and the
+    battery reports that share beside the delta rather than leaving the zero to be
+    read as a finding about semantics.
+    """
+    report = run_battery(DEFAULT_SEEDS, k=5)
+    assert report["embeddable_tokens_median"] == 14.0
+    assert report["embeddable_tag_token_share"] == 0.6794
+    assert not hasattr(Book("x", "t"), "description")
+
+
+def test_embeddable_text_profile_on_the_demo_fixture() -> None:
+    """The same measurement over the real-titled demo fixture, not just synthetic ones.
+
+    Synthetic titles are formulaic ("Synthetic Canon Discovery 0-3"), so they could be
+    the reason the embedder adds nothing. They are not the whole reason: the eight
+    demo books carry real titles and the share is still a majority.
+    """
+    tokens_median, tag_share = embeddable_text_profile(c.book for c in demo_candidates())
+    assert tokens_median == 6.5
+    assert tag_share == 0.5962
