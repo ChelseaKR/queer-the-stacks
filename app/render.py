@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Optional
 
 from ingest.models import Explanation, ReadingState, Recommendation
 from ingest.store import CatalogPoolStatus
+from ingest.taste import MAGNITUDES, NO_ADJUSTMENTS, TasteAdjustments
 
 if TYPE_CHECKING:
     from app.view import BookForecast
@@ -396,7 +397,63 @@ def _signals_html(explanation: Explanation, *, heading: str = "Why recommended")
     return f"<h4>{escape(heading)}</h4><ul>{items}</ul>"
 
 
-def _rec_card(rec: Recommendation) -> str:
+def _magnitude_select(select_id: str) -> str:
+    """The closed magnitude set, with its own visible label.
+
+    The label is not optional and not an ``aria-label``: this control appears
+    once per recommendation card, so a screen-reader user meets ten of them in a
+    row, and each needs to be nameable. The a11y gate caught this exact select
+    unlabelled on its first run — six axe ``select-name`` violations — which is
+    what the gate is for.
+    """
+    options = "".join(
+        f'<option value="{escape(m)}"{" selected" if m == "moderate" else ""}>{escape(m)}</option>'
+        for m in sorted(MAGNITUDES, key=lambda m: MAGNITUDES[m])
+    )
+    return (
+        f'<label for="{escape(select_id)}">How much</label> '
+        f'<select id="{escape(select_id)}" name="magnitude">{options}</select>'
+    )
+
+
+def _pick_feedback_form(rec: Recommendation, hidden: frozenset[str]) -> str:
+    """ "More/less like this" on one pick, as a plain form with no JavaScript.
+
+    The reader chooses **which sourced descriptor** they mean rather than the app
+    deciding that "like this" means the book's first tag. A pick usually carries
+    several, and guessing which one moved the reader would put words in their
+    mouth and then quote them back in the explanation as though they had said it.
+
+    Descriptors the privacy toggle is withholding are absent from the options —
+    the same rule the chips above follow, for the same reason: an option list
+    that names the tag defeats the toggle whether or not it is a chip.
+    """
+    labels, withheld = _split_labels(sorted(rec.book.tag_labels), hidden)
+    rid = escape(rec.book.book_id.replace(":", "-"))
+    if not labels:
+        note = (
+            "Its sourced descriptors are hidden right now."
+            if withheld
+            else "It carries no sourced descriptor to adjust on."
+        )
+        return f'<p class="feedback-none">No adjustment available for this pick. {note}</p>'
+    options = "".join(
+        f'<option value="{escape(label)}">{escape(label)}</option>' for label in labels
+    )
+    return (
+        f'<form class="feedback" method="post" action="/taste">'
+        f'<input type="hidden" name="action" value="add">'
+        f'<input type="hidden" name="kind" value="theme">'
+        f'<label for="fb-{rid}">Adjust my taste on a descriptor of this pick</label> '
+        f'<select id="fb-{rid}" name="target">{options}</select> '
+        f"{_magnitude_select(f'fb-mag-{rid}')} "
+        f'<button type="submit" name="direction" value="more">More like this</button> '
+        f'<button type="submit" name="direction" value="less">Less like this</button>'
+        "</form>"
+    )
+
+
+def _rec_card(rec: Recommendation, hidden: frozenset[str] = frozenset()) -> str:
     authors = escape(", ".join(rec.book.author_names) or "unknown author")
     rid = escape(rec.book.book_id.replace(":", "-"))
     return (
@@ -407,7 +464,98 @@ def _rec_card(rec: Recommendation) -> str:
         f"{_signals_html(rec.explanation)}"
         f"{_sources_html(rec.explanation)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
+        f"{_pick_feedback_form(rec, hidden)}"
         "</article>"
+    )
+
+
+def _taste_section(
+    adjustments: TasteAdjustments,
+    vocabulary: Sequence[str],
+    lens_names: Sequence[str],
+    hidden: frozenset[str],
+) -> str:
+    """The reader's own adjustments, listed, each with one-click undo.
+
+    Three things this section is careful about:
+
+    * **The empty set is stated, not omitted.** "You have not adjusted anything"
+      and "this app forgot to render your adjustments" must not look the same.
+    * **A withheld target is shown as withheld,** never dropped from the list. A
+      row that vanished under the privacy toggle would make the reader believe
+      an adjustment they still have is gone.
+    * **Undo carries an opaque handle, not the descriptor** (see
+      :attr:`~ingest.taste.TasteAdjustment.handle`), so the toggle is not
+      defeated by the button that removes the hidden row.
+    """
+    if adjustments.records:
+        rows = []
+        for adjustment in adjustments.records:
+            withheld = adjustment.match_key in hidden
+            shown = REDACTED_LABEL if withheld else adjustment.target
+            rows.append(
+                "<tr>"
+                f"<td>{escape(adjustment.kind)}</td>"
+                f"<td>{escape(shown)}</td>"
+                f"<td>{escape(adjustment.direction)}</td>"
+                f"<td>{escape(adjustment.magnitude)}</td>"
+                "<td>"
+                '<form method="post" action="/taste">'
+                '<input type="hidden" name="action" value="undo">'
+                f'<input type="hidden" name="handle" value="{escape(adjustment.handle)}">'
+                f'<button type="submit">Undo {escape(shown)}</button>'
+                "</form>"
+                "</td>"
+                "</tr>"
+            )
+        listing = (
+            "<table><caption>Adjustments you have made</caption><thead><tr>"
+            '<th scope="col">Kind</th><th scope="col">Target</th>'
+            '<th scope="col">Direction</th><th scope="col">Magnitude</th>'
+            '<th scope="col">Undo</th></tr></thead>'
+            f"<tbody>{''.join(rows)}</tbody></table>"
+        )
+    else:
+        listing = (
+            '<p class="empty-state">You have not adjusted anything yet. '
+            "Your recommendations come only from what you have read.</p>"
+        )
+
+    theme_options = "".join(
+        f'<option value="{escape(label)}">{escape(label)}</option>'
+        for label in vocabulary
+        if label.strip().lower() not in hidden
+    )
+    lens_options = "".join(
+        f'<option value="{escape(name)}">{escape(name)}</option>' for name in lens_names
+    )
+    add_form = (
+        '<form class="taste-add" method="post" action="/taste">'
+        '<input type="hidden" name="action" value="add">'
+        '<label for="taste-kind">What kind</label> '
+        '<select id="taste-kind" name="kind">'
+        '<option value="theme">a sourced descriptor</option>'
+        '<option value="lens">a lens (raise only)</option>'
+        "</select> "
+        '<label for="taste-theme">Descriptor</label> '
+        f'<select id="taste-theme" name="target">{theme_options}</select> '
+        '<label for="taste-lens">or lens</label> '
+        f'<select id="taste-lens" name="lens_target">{lens_options}</select> '
+        f"{_magnitude_select('taste-mag')} "
+        '<button type="submit" name="direction" value="more">Ask for more</button> '
+        '<button type="submit" name="direction" value="less">Ask for less</button>'
+        "</form>"
+    )
+    return (
+        '<section aria-labelledby="taste-h">'
+        '<h2 id="taste-h">Your taste adjustments</h2>'
+        "<p>Explicit feedback you wrote, blended into the ranking and named under every "
+        "pick it moved. It is stored only on this machine, is never derived from catalog "
+        "data, and never lowers a book for having no sourced descriptor. A lens can only "
+        "ever raise a book, never lower one.</p>"
+        f"{listing}"
+        f"{add_form}"
+        "</section>"
     )
 
 
@@ -1146,6 +1294,7 @@ def render_dashboard(
     browse_author: str = "",
     browse_series: str = "",
     browse_status: str = "",
+    taste_adjustments: TasteAdjustments = NO_ADJUSTMENTS,
 ) -> str:
     """Render the complete, accessible dashboard document.
 
@@ -1176,7 +1325,7 @@ def render_dashboard(
         "<li>No finished books recorded yet.</li>"
     )
     if recommendations:
-        rec_cards = "".join(_rec_card(r) for r in recommendations)
+        rec_cards = "".join(_rec_card(r, hidden_descriptors) for r in recommendations)
     elif catalog.state == "off" and catalog.candidate_count == 0:
         rec_cards = (
             '<p class="empty-state">No recommendation candidates are stored yet. '
@@ -1276,6 +1425,15 @@ def render_dashboard(
         )
         if value
     )
+    # The reader's own sourced vocabulary, taken from their library rather than
+    # from the catalog: an adjustment is about their shelf, and offering a
+    # descriptor no book of theirs carries would be an option that changes
+    # nothing. Sorted so the document is deterministic.
+    own_vocabulary = sorted({tag.normalized for state in library for tag in state.theme_tags})
+    lens_names = [d.name for d in diversity.dimensions] if diversity is not None else []
+    taste_section = _taste_section(
+        taste_adjustments, own_vocabulary, lens_names, hidden_descriptors
+    )
     return (
         "<!doctype html>"
         '<html lang="en"><head><meta charset="utf-8">'
@@ -1315,6 +1473,7 @@ def render_dashboard(
         "instance makes on your behalf, and it carries no referrer.</p>"
         f"{_fixture_note(FIXTURE_CANDIDATES_NOTICE) if fixture_candidates else ''}"
         f'<div class="recommendation-grid">{rec_cards}</div>'
+        f"{taste_section}"
         f"{near_miss_section}"
         '<div class="next-shelves"><div class="shelf-block"><h3>Up next in your series</h3>'
         f"{_series_table(series_next)}</div>"

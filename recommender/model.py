@@ -17,6 +17,7 @@ import math
 from dataclasses import dataclass, field
 
 from ingest.models import Book, ReadingState, ReadingStatus, Recommendation
+from ingest.taste import MAX_TOTAL_DELTA, TasteAdjustment, TasteAdjustments
 from ingest.unify import book_key, normalize_key
 
 from recommender.explain import build_explanation
@@ -73,6 +74,99 @@ def build_taste_profile(states: list[ReadingState], *, dnf_signals: bool = False
 
 #: A loved-author match adds this to a candidate's theme-similarity score.
 AUTHOR_BONUS = 0.15
+
+
+@dataclass(frozen=True)
+class ResolvedAdjustment:
+    """One :class:`~ingest.taste.TasteAdjustment` with its descriptors resolved.
+
+    A theme adjustment resolves to the single descriptor it names. A lens
+    adjustment resolves to every descriptor grouped under that lens by whichever
+    lens vocabulary is actually in force (``app.diversity`` owns that grouping;
+    resolving *there* and passing the result in is what keeps ``recommender``
+    from importing ``app``). An adjustment that resolves to no descriptors at
+    all is kept, with an empty set: it then matches nothing and moves nothing,
+    which is the truthful outcome for a lens the reader's vocabulary no longer
+    defines — better than dropping it silently, since the reader can still see
+    and undo it.
+    """
+
+    adjustment: TasteAdjustment
+    descriptors: frozenset[str]
+
+
+@dataclass(frozen=True)
+class AdjustmentReason:
+    """Why one adjustment moved one book, for the explanation."""
+
+    adjustment: TasteAdjustment
+    #: The book's own sourced descriptors that this adjustment matched, sorted.
+    matched: tuple[str, ...]
+
+    @property
+    def raised(self) -> bool:
+        return self.adjustment.direction == "more"
+
+
+def resolve_adjustments(
+    adjustments: TasteAdjustments,
+    lens_descriptors: dict[str, frozenset[str]] | None = None,
+) -> tuple[ResolvedAdjustment, ...]:
+    """Attach each adjustment's descriptor set, ready for :func:`adjustment_delta`.
+
+    ``lens_descriptors`` maps a lens *name* to its normalized descriptors. Lens
+    names are matched case-insensitively, because the reader types the label
+    they see and the built-in lenses are title-cased ("Trans & nonbinary").
+    """
+    by_lens = {
+        " ".join(name.strip().lower().split()): frozenset(label.strip().lower() for label in labels)
+        for name, labels in (lens_descriptors or {}).items()
+    }
+    resolved: list[ResolvedAdjustment] = []
+    for adjustment in adjustments:
+        if adjustment.kind == "lens":
+            descriptors = by_lens.get(adjustment.match_key, frozenset())
+        else:
+            descriptors = frozenset({adjustment.match_key})
+        resolved.append(ResolvedAdjustment(adjustment=adjustment, descriptors=descriptors))
+    return tuple(resolved)
+
+
+def adjustment_delta(
+    book: Book, resolved: tuple[ResolvedAdjustment, ...]
+) -> tuple[float, tuple[AdjustmentReason, ...]]:
+    """The reader's explicit feedback, as a bounded score delta plus its reasons.
+
+    THE ONLY WAY A BOOK IS TOUCHED IS BY A DESCRIPTOR IT ACTUALLY CARRIES. The
+    match is an intersection with ``book.tag_labels``, so a book with no sourced
+    descriptors gets exactly ``0.0`` from every adjustment that exists — it is
+    never demoted for being undescribed, and no adjustment can ever be the sole
+    reason a book appears on the shelf (a book with nothing to cite still has
+    nothing to cite).
+
+    An adjustment counts **once** however many of its descriptors match: a lens
+    grouping nine labels must not be worth nine times a theme naming one, or the
+    magnitude the reader chose would mean something different depending on how
+    the lens file happens to be written.
+
+    The sum is clamped to ±:data:`~ingest.taste.MAX_TOTAL_DELTA` so feedback
+    stays a nudge. Reasons are returned unclamped and in full, because the
+    reader is owed the list of what they asked for even when the clamp meant
+    the last one changed nothing.
+    """
+    labels = book.tag_labels
+    if not labels:
+        return 0.0, ()
+    total = 0.0
+    reasons: list[AdjustmentReason] = []
+    for entry in resolved:
+        matched = tuple(sorted(labels & entry.descriptors))
+        if not matched:
+            continue
+        total += entry.adjustment.signed_weight
+        reasons.append(AdjustmentReason(adjustment=entry.adjustment, matched=matched))
+    clamped = max(-MAX_TOTAL_DELTA, min(MAX_TOTAL_DELTA, total))
+    return round(clamped, 6), tuple(reasons)
 
 
 def _cosine(taste: TasteProfile, book: Book) -> tuple[float, tuple[str, ...]]:

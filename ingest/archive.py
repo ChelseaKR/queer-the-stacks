@@ -36,9 +36,17 @@ from ingest.serde import (
     state_from_dict,
     state_to_dict,
 )
+from ingest.taste import NO_ADJUSTMENTS, TasteAdjustments
 
 #: Bumped whenever the archive's on-disk shape changes incompatibly.
-ARCHIVE_SCHEMA_VERSION = 1
+ARCHIVE_SCHEMA_VERSION = 2
+
+#: Every schema version this build can still *read*. Version 1 is readable and
+#: always will be: this is a preservation format, and a reader that refuses last
+#: year's bundle is not one. A v1 bundle carries no ``taste_adjustments`` member,
+#: which restores as the empty set — the honest reading, since it was exported
+#: from a build where the reader had no way to record one.
+READABLE_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, ARCHIVE_SCHEMA_VERSION})
 
 #: The Web Annotation JSON-LD context (W3C). Every entry in ``annotations`` is
 #: a valid Annotation under this context.
@@ -69,6 +77,13 @@ MANIFEST: dict[str, Any] = {
             "List of {day_ordinal, seconds, pages} — reading time and pages "
             "aggregated to a UTC calendar day (day_ordinal = unix day since "
             "epoch), for streaks and time-based views."
+        ),
+        "taste_adjustments": (
+            "The reader's explicit, reversible taste feedback (ingest.taste): "
+            "bounded {kind, target, direction, magnitude, created_at} records "
+            "they wrote themselves, never inferred from behaviour and never "
+            "derived from catalog data. Absent in schema_version 1 bundles, "
+            "which restore as an empty set."
         ),
         "annotations": (
             "A W3C Web Annotation (https://www.w3.org/TR/annotation-model/) "
@@ -117,11 +132,17 @@ def build_archive(
     activity: list[DailyActivity],
     *,
     generated_at: int,
+    taste_adjustments: TasteAdjustments = NO_ADJUSTMENTS,
 ) -> dict[str, Any]:
     """Assemble the full self-describing archive bundle for ``states``/``activity``.
 
     ``generated_at`` (unix seconds) is passed in rather than read from the wall
     clock so the function — and its tests — stay deterministic.
+
+    ``taste_adjustments`` travels with the reading state because it is the
+    reader's own data: an archive that preserved what they read but dropped what
+    they asked for would restore a shelf ranked differently from the one they
+    exported, with nothing saying why.
     """
     manifest = dict(MANIFEST)
     manifest["generated_at"] = int(generated_at)
@@ -132,6 +153,7 @@ def build_archive(
         "manifest": manifest,
         "states": [state_to_dict(s) for s in states],
         "daily_activity": [activity_to_dict(a) for a in activity],
+        "taste_adjustments": taste_adjustments.as_dict(),
         "annotations": {
             "@context": _ANNO_CONTEXT,
             "type": "AnnotationCollection",
@@ -145,23 +167,28 @@ class ArchiveVersionError(Exception):
     """Raised when a bundle's ``manifest.schema_version`` is not supported."""
 
 
-def restore_archive(bundle: dict[str, Any]) -> tuple[list[ReadingState], list[DailyActivity]]:
-    """Rebuild ``(states, daily_activity)`` from a bundle built by :func:`build_archive`.
+def restore_archive(
+    bundle: dict[str, Any],
+) -> tuple[list[ReadingState], list[DailyActivity], TasteAdjustments]:
+    """Rebuild ``(states, daily_activity, taste_adjustments)`` from a bundle.
 
     Validates the manifest's schema version before touching the payload — an
     archive from an incompatible future (or malformed) schema is rejected
-    rather than partially, silently misread.
+    rather than partially, silently misread. Versions this build still reads are
+    listed in :data:`READABLE_SCHEMA_VERSIONS`; a v1 bundle predates taste
+    feedback and restores with the empty set rather than being refused.
     """
     manifest = bundle.get("manifest")
     if not isinstance(manifest, dict) or "schema_version" not in manifest:
         raise ArchiveVersionError("archive is missing a manifest.schema_version")
     version = manifest["schema_version"]
-    if version != ARCHIVE_SCHEMA_VERSION:
+    if version not in READABLE_SCHEMA_VERSIONS:
         raise ArchiveVersionError(
             f"unsupported archive schema_version {version!r}; "
-            f"this build reads version {ARCHIVE_SCHEMA_VERSION}"
+            f"this build reads versions {sorted(READABLE_SCHEMA_VERSIONS)}"
         )
 
     states = [state_from_dict(d) for d in bundle.get("states", [])]
     activity = [activity_from_dict(d) for d in bundle.get("daily_activity", [])]
-    return states, activity
+    adjustments = TasteAdjustments.from_dict(bundle.get("taste_adjustments"))
+    return states, activity, adjustments

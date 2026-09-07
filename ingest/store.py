@@ -31,6 +31,7 @@ from ingest.serde import (
     state_from_dict,
     state_to_dict,
 )
+from ingest.taste import TasteAdjustments
 
 _STATES_KEY = "reading_states"
 _ACTIVITY_KEY = "daily_activity"
@@ -41,6 +42,7 @@ _CATALOG_KEY = "catalog_pool"
 _VIEW_REVISION_KEY = "view_revision"
 _ORIGIN_KEY = "state_origin"
 _RETENTION_KEY = "retention"
+_TASTE_KEY = "taste_adjustments"
 
 #: The demo world produced the persisted states — they are fixture books.
 ORIGIN_DEMO = "demo"
@@ -240,6 +242,27 @@ class Store:
         the history the reader just deleted.
         """
         self._put_view_state(_RETENTION_KEY, state.as_dict())
+
+    # --- explicit taste feedback --------------------------------------------
+    #
+    # What the reader has asked for in their own words (ingest.taste). Kept here
+    # rather than in config because it is the reader's data, not configuration:
+    # it belongs to the backup, the archive export and the privacy toggle along
+    # with everything else about their reading, and `stacks forget` should be
+    # able to reach it if it is ever asked to.
+
+    def taste_adjustments(self) -> TasteAdjustments:
+        """The reader's current adjustment set, or the empty set."""
+        return TasteAdjustments.from_dict(self._get(_TASTE_KEY))
+
+    def save_taste_adjustments(self, adjustments: TasteAdjustments) -> None:
+        """Persist the adjustment set and invalidate the rendered views.
+
+        A view input, like retention: the set decides the ranking on the page
+        and the reasons printed under every pick, so a cached page built before
+        an adjustment would show the shelf the reader just asked to change.
+        """
+        self._put_view_state(_TASTE_KEY, adjustments.as_dict())
 
     # --- kosync progress cache ----------------------------------------------
     #
