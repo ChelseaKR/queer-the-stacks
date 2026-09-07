@@ -104,6 +104,34 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   make by passing.
 
 ### Fixed
+- **`content_beats_popularity` answered `true` when there was no ground truth to
+  compare against.** `recommender/eval.py::to_report` publishes the eval artifact's
+  headline claim. Every metric it reads is zero over an empty `positives` set --
+  `precision_recall_at_k`, `average_precision_at_k` and `ndcg_at_k` each return `0.0`
+  when nothing is flagged `on_canon` -- so the expression's tie-break arm
+  (`map == map and recall >= recall`) answered `True`, and the report said the content
+  model beat popularity about a comparison that never happened. Measured against
+  `origin/main` with real objects: the shipped demo world scores `n_positives = 5`,
+  content MAP `1.0`, popularity MAP `0.13`, `true`; the same world with no candidate
+  flagged `on_canon`, a run over zero candidates, and a run with no reading history and
+  no ground truth all score `n_positives = 0`, every MAP `0.0` -- and all three
+  published `true`. `stacks eval` reads that field for its exit code, so it exited 0 on
+  each of them.
+- The field is now `bool | None`, `None` exactly when `n_positives` is 0, following the
+  vocabulary this codebase already uses for the same distinction (`Forecast.estimable`,
+  `Wrapped.measured`, `DiversityReport.shelf_fallback`). `ingest/cli.py` reports that
+  state as its own failure -- "no candidate is flagged on_canon, so there was no ground
+  truth to rank against and the comparison was never made" -- rather than as the
+  recommender losing, and still exits non-zero, because a comparison that was never made
+  is not a pass.
+- This is the discipline `recommender/battery.py` was built with and that never reached
+  the report it replaced. FIX-13 added the synthetic battery precisely because the
+  single-fixture eval was "a gate that cannot fail"; `run_battery` refuses its own empty
+  input (`run_battery requires at least one seed`) and gates on a median MAP uplift of
+  0.5 that no vacuous world can clear. `to_report` kept the boolean, and kept the
+  vacuous pass with it.
+- **The published artifact does not move.** `docs/audits/eval-report.json` is
+  byte-identical: the demo world carries five positives, so the field stays `true`.
 - **A Kobo-only or Calibre-Web-only reader was shown "Longest streak 0 / 30 —
   0%"** (`app/stats.py`, `app/goals.py`, `app/render.py`). `ReadingStats.measured`
   was a single OR over eight metrics drawn from three different kinds of source.
