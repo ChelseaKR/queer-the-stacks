@@ -23,12 +23,23 @@ front of this app (the seedbox's reverse proxy) or otherwise ensure the
 browser reaches it only over a secure/loopback channel, or the cookie flow
 simply won't work (by design: no session ever traverses plain HTTP).
 
-Every other route stays GET-only, so CSRF exposure elsewhere stays nil.
-``POST /login`` is the one deliberate exception: putting the bearer token in a
-``GET`` query string would leak it into browser history, referrers, and access
-logs, which is worse than the (nil, since it only ever *creates* a session
-using a secret the client already proved knowledge of, and SameSite=Strict
-blocks cross-site delivery of any ambient cookie) CSRF exposure of a POST form.
+Exactly two routes accept a POST; every other route is GET-only. Both are
+deliberate, and ``SameSite=Strict`` on the session cookie is what bounds the
+CSRF exposure of each: a cross-site form cannot carry the cookie, so it cannot
+reach an authenticated handler here.
+
+* ``POST /login`` — putting the bearer token in a ``GET`` query string would
+  leak it into browser history, referrers, and access logs, which is worse than
+  the (nil, since it only ever *creates* a session using a secret the client
+  already proved knowledge of) CSRF exposure of a POST form.
+* ``POST /taste`` — records or undoes one explicit taste adjustment
+  (:mod:`ingest.taste`). A GET that mutated the ranking would be followed by a
+  browser prefetcher and kept in history, which is both a wrong ranking and a
+  record of what the reader asked for sitting in the URL bar. It is gated by
+  :func:`require_auth` like every other content route.
+
+``tests/test_auth.py`` pins this: the set of POST routes is enumerated there, so
+a third one cannot appear without this paragraph being revisited.
 
 Coverage note: this thin wiring is omitted from the unit-coverage gate and
 verified instead by the auth access test in ``tests/test_auth.py`` via FastAPI's
@@ -386,6 +397,68 @@ def _dashboard(request: Request, hide_sensitive: bool = False) -> HTMLResponse:
     return HTMLResponse(content=render_view(_load_view(request.app, hide_sensitive=hide_sensitive)))
 
 
+def _taste_submit(
+    action: str = Form("add"),
+    kind: str = Form("theme"),
+    target: str = Form(""),
+    lens_target: str = Form(""),
+    direction: str = Form("more"),
+    magnitude: str = Form("moderate"),
+    handle: str = Form(""),
+) -> Response:
+    """Record, undo or clear one explicit taste adjustment.
+
+    The second state-changing route in the app, and deliberately a POST: a GET
+    that mutated the ranking would be followed by a prefetcher and kept in
+    browser history. ``SameSite=Strict`` on the session cookie is what keeps its
+    CSRF exposure where ``POST /login``'s already is — a cross-site form cannot
+    carry the cookie, so it cannot reach an authenticated caller here.
+
+    Refusals are 400 with the reason, never a silent no-op: an adjustment the
+    reader believes they made and did not get is worse than one they can see was
+    rejected. The one exception is ``clear``, which is idempotent by nature.
+    """
+    import time
+
+    from ingest.taste import AdjustmentError, TasteAdjustment, validate
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        current = store.taste_adjustments()
+        if action == "clear":
+            store.save_taste_adjustments(current.cleared())
+        elif action == "undo":
+            found = current.by_handle(handle)
+            if found is None:
+                raise HTTPException(status_code=400, detail="no such adjustment to undo")
+            store.save_taste_adjustments(current.without(found.key))
+        elif action == "add":
+            # The add form carries a descriptor select and a lens select; which
+            # one is meant is the `kind` field, not whichever happens to be
+            # non-empty. Reading it the other way round would let a stale lens
+            # selection silently become the adjustment the reader did not pick.
+            chosen = lens_target if kind == "lens" else target
+            try:
+                adjustment = validate(
+                    TasteAdjustment(
+                        kind=kind,
+                        target=chosen.strip(),
+                        direction=direction,
+                        magnitude=magnitude,
+                        created_at=int(time.time()),
+                    )
+                )
+            except AdjustmentError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            store.save_taste_adjustments(current.with_added(adjustment))
+        else:
+            raise HTTPException(status_code=400, detail="unknown taste action")
+    finally:
+        store.close()
+    return RedirectResponse(url="/", status_code=303)
+
+
 def _search(request: Request, q: Optional[str] = None) -> HTMLResponse:
     """FTS5-backed search over the reader's own library (issue #104).
 
@@ -646,6 +719,12 @@ def create_app() -> FastAPI:
         _dashboard,
         methods=["GET"],
         response_class=HTMLResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    app.add_api_route(
+        "/taste",
+        _taste_submit,
+        methods=["POST"],
         dependencies=[Depends(require_auth)],
     )
     app.add_api_route(

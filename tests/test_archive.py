@@ -16,14 +16,14 @@ from ingest.models import DailyActivity
 
 def test_archive_round_trips_states_and_activity(states: list, daily_activity: list) -> None:
     bundle = build_archive(states, daily_activity, generated_at=1_700_000_000)
-    restored_states, restored_activity = restore_archive(bundle)
+    restored_states, restored_activity, _adjustments = restore_archive(bundle)
     assert restored_states == states
     assert restored_activity == daily_activity
 
 
 def test_archive_round_trips_with_empty_activity(states: list) -> None:
     bundle = build_archive(states, [], generated_at=1_700_000_000)
-    restored_states, restored_activity = restore_archive(bundle)
+    restored_states, restored_activity, _adjustments = restore_archive(bundle)
     assert restored_states == states
     assert restored_activity == []
 
@@ -90,7 +90,7 @@ def test_archive_is_json_serializable(states: list, daily_activity: list) -> Non
     bundle = build_archive(states, daily_activity, generated_at=1_700_000_000)
     text = json.dumps(bundle, indent=2, sort_keys=True, ensure_ascii=False)
     reloaded = json.loads(text)
-    restored_states, restored_activity = restore_archive(reloaded)
+    restored_states, restored_activity, _adjustments = restore_archive(reloaded)
     assert restored_states == states
     assert restored_activity == daily_activity
 
@@ -102,5 +102,5 @@ def test_archive_activity_dict_round_trip_ignores_ordering() -> None:
         DailyActivity(day_ordinal=19001, seconds=200, pages=10),
     ]
     bundle = build_archive([], activity, generated_at=1)
-    _, restored = restore_archive(bundle)
+    _, restored, _adjustments = restore_archive(bundle)
     assert restored == activity

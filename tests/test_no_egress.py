@@ -305,8 +305,15 @@ def _registered_routes(app_obj: object) -> set[tuple[str, str]]:
 #:
 #: ``POST /login`` gets both branches. The failure branch is the interesting
 #: one — a lockout notification or an alerting webhook would live there.
+#: ``POST /taste`` likewise gets both branches: an accepted adjustment and a
+#: refused one. The refusal branch matters for the same reason the failed login
+#: does — it is where a "tell someone about this" call would be written.
 NON_GET_BODIES: dict[tuple[str, str], tuple[dict[str, str], ...]] = {
     ("/login", "POST"): ({"token": "wrong-token"}, {"token": "demo-token"}),
+    ("/taste", "POST"): (
+        {"action": "add", "kind": "theme", "target": "queer", "direction": "more"},
+        {"action": "add", "kind": "theme", "target": "unknown", "direction": "less"},
+    ),
 }
 
 

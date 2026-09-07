@@ -15,12 +15,13 @@ from typing import Optional
 from ingest.models import Book, DailyActivity, ReadingState, Recommendation
 from ingest.retention import RetentionState
 from ingest.store import CatalogPoolStatus
+from ingest.taste import NO_ADJUSTMENTS, TasteAdjustments
 from ingest.unify import currently_reading, finished
 from recommender.eval import PopCandidate
 from recommender.explain import NearMiss, near_misses
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
-from recommender.model import build_taste_profile
+from recommender.model import build_taste_profile, resolve_adjustments
 
 from app.diversity import DEFAULT_DIMENSIONS, DiversityReport, compute_diversity, load_lens_config
 from app.forecast import Forecast, forecast_book
@@ -84,6 +85,10 @@ class DashboardView:
     browse_author: str = ""
     browse_series: str = ""
     browse_status: str = ""
+    #: The reader's explicit taste feedback, carried so the page can list it
+    #: with its undo controls. Empty is the ordinary state and renders as a
+    #: stated "none yet", never as a missing section.
+    taste_adjustments: TasteAdjustments = TasteAdjustments()
 
 
 def _infer_today_and_year(
@@ -146,6 +151,7 @@ def build_view(
     fixture_states: bool = False,
     fixture_candidates: bool = False,
     retention: Optional[RetentionState] = None,
+    taste_adjustments: TasteAdjustments = NO_ADJUSTMENTS,
 ) -> DashboardView:
     """Build the dashboard view from unified state + candidates (pure).
 
@@ -178,6 +184,11 @@ def build_view(
         candidate if isinstance(candidate, Book) else candidate.book  # type: ignore[attr-defined]
         for candidate in candidates
     )
+    # Lens adjustments are resolved HERE, against the lens vocabulary actually
+    # in force for this reader, so `recommender` never has to import `app` and a
+    # custom lenses.toml changes what "more Feminist" means without changing the
+    # recommender.
+    resolved_adjustments = resolve_adjustments(taste_adjustments, dict(lens_dimensions))
     recs = recommend_hybrid(
         states,
         candidate_books,
@@ -186,6 +197,7 @@ def build_view(
         aperture_strength=aperture_strength,
         use_embeddings=use_embeddings,
         dnf_signals=dnf_signals,
+        adjustments=resolved_adjustments,
     )
     misses = near_misses(
         states,
@@ -231,6 +243,7 @@ def build_view(
         catalog_status=catalog_status or CatalogPoolStatus(),
         fixture_states=fixture_states,
         fixture_candidates=fixture_candidates,
+        taste_adjustments=taste_adjustments,
     )
 
 
@@ -264,6 +277,7 @@ def render_view(view: DashboardView) -> str:
         browse_author=view.browse_author,
         browse_series=view.browse_series,
         browse_status=view.browse_status,
+        taste_adjustments=view.taste_adjustments,
     )
 
 
@@ -338,6 +352,7 @@ def view_from_store(
         fixture_states=fixture_states,
         fixture_candidates=fixture_candidates,
         retention=store.retention(),  # type: ignore[attr-defined]
+        taste_adjustments=store.taste_adjustments(),  # type: ignore[attr-defined]
     )
 
 

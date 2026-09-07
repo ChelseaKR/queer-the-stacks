@@ -77,8 +77,14 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     if not battery_report["passed"]:
         print(
             "FAIL: synthetic-world battery — median content-vs-popularity MAP uplift "
-            f"{battery_report['median_uplift']} < margin {battery_report['margin']}, "
-            f"or a losing seed (no_losing_seed={battery_report['no_losing_seed']})",
+            f"{battery_report['median_uplift']} vs margin {battery_report['margin']}, "
+            f"no_losing_seed={battery_report['no_losing_seed']}, "
+            # `passed` gained a third condition with #107; a failure message that
+            # named only the first two would send a reader looking at the
+            # recommender when the real finding is that an adjustment moved a
+            # candidate it never named.
+            f"adjustment_collateral_total={battery_report['adjustment_collateral_total']} "
+            "(collateral must be 0)",
             file=sys.stderr,
         )
         return 1
@@ -101,17 +107,33 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     against a real library are indistinguishable from real output and several
     of them are books the reader already owns.
     """
-    from recommender.model import recommend
+    from recommender.model import recommend, resolve_adjustments
 
     from ingest.config import load_config
     from ingest.store import Store
 
     config = load_config()
+    # The reader's explicit adjustments, read from the same store the dashboard
+    # reads. Demo mode included: `STACKS_DEMO=1` does not redirect the store, so
+    # a preference set on the dashboard and ignored here would be the two
+    # surfaces disagreeing about the reader's own stated taste.
+    store = Store(config.store_path)
+    try:
+        adjustments = resolve_adjustments(store.taste_adjustments())
+    finally:
+        store.close()
+
     if config.demo:
         states, candidates, lists = _demo_states_and_candidates()
         print("demo mode: no library configured — these are fixture titles.\n")
         _print_recommendations(
-            recommend(states, tuple(c.book for c in candidates), lists=lists, k=args.k)
+            recommend(
+                states,
+                tuple(c.book for c in candidates),
+                lists=lists,
+                k=args.k,
+                adjustments=adjustments,
+            )
         )
         return 0
 
@@ -135,7 +157,9 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    _print_recommendations(recommend(states, candidate_books, lists=lists, k=args.k))
+    _print_recommendations(
+        recommend(states, candidate_books, lists=lists, k=args.k, adjustments=adjustments)
+    )
     return 0
 
 
@@ -275,6 +299,66 @@ def _cmd_forget(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_taste(args: argparse.Namespace) -> int:
+    """Read, add, undo or clear the reader's explicit taste adjustments.
+
+    With no action, prints the current set as JSON — including the empty set,
+    which prints as an empty list rather than nothing, so "I have no adjustments"
+    and "the command did not run" never look the same.
+    """
+    import time
+
+    from ingest.config import load_config
+    from ingest.store import Store
+    from ingest.taste import AdjustmentError, TasteAdjustment, validate
+
+    target = args.more or args.less
+    actions = sum(1 for flag in (target, args.undo, args.clear) if flag)
+    if actions > 1:
+        print("taste: give at most one of --more/--less, --undo, --clear", file=sys.stderr)
+        return 2
+    if args.more and args.less:
+        print("taste: --more and --less are opposites; give one", file=sys.stderr)
+        return 2
+
+    config = load_config()
+    store = Store(config.store_path)
+    try:
+        current = store.taste_adjustments()
+        if target:
+            adjustment = TasteAdjustment(
+                kind="lens" if args.lens else "theme",
+                target=target,
+                direction="more" if args.more else "less",
+                magnitude=args.magnitude,
+                created_at=int(time.time()),
+            )
+            try:
+                validate(adjustment)
+            except AdjustmentError as exc:
+                print(f"taste: {exc}", file=sys.stderr)
+                return 2
+            current = current.with_added(adjustment)
+            store.save_taste_adjustments(current)
+        elif args.undo:
+            if args.undo not in current.keys:
+                print(
+                    f"taste: no adjustment with key {args.undo!r}; "
+                    f"current keys: {', '.join(current.keys) or '(none)'}",
+                    file=sys.stderr,
+                )
+                return 2
+            current = current.without(args.undo)
+            store.save_taste_adjustments(current)
+        elif args.clear:
+            current = current.cleared()
+            store.save_taste_adjustments(current)
+        print(json.dumps(current.as_dict(), indent=2, ensure_ascii=False))
+    finally:
+        store.close()
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     """Write the dashboard (incl. Wrapped) to a self-contained local HTML file.
 
@@ -340,7 +424,9 @@ def _cmd_export_archive(args: argparse.Namespace) -> int:
             refresh(config, store, now=now)
         states = store.load_states()
         activity = store.load_daily_activity()
-        bundle = build_archive(states, activity, generated_at=now)
+        bundle = build_archive(
+            states, activity, generated_at=now, taste_adjustments=store.taste_adjustments()
+        )
     finally:
         store.close()
     out = Path(args.out)
@@ -360,12 +446,13 @@ def _cmd_import_archive(args: argparse.Namespace) -> int:
 
     src = Path(args.archive)
     bundle = json.loads(src.read_text(encoding="utf-8"))
-    states, activity = restore_archive(bundle)
+    states, activity, adjustments = restore_archive(bundle)
 
     config = load_config()
     store = Store(config.store_path)
     try:
         store.save(states, activity, refreshed_at=int(bundle["manifest"]["generated_at"]))
+        store.save_taste_adjustments(adjustments)
     finally:
         store.close()
     print(
@@ -471,6 +558,11 @@ def _cmd_lists_ls(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Imported here, not lazily inside the handler, because argparse needs the
+    # closed set of magnitudes at parser-build time: `--magnitude` offering a
+    # value the validator would then refuse is a help text that lies.
+    from ingest.taste import MAGNITUDES as TASTE_MAGNITUDES
+
     parser = argparse.ArgumentParser(prog="stacks", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -537,6 +629,28 @@ def main(argv: list[str] | None = None) -> int:
         help="also rewrite every timestamped backup so the rows are not recoverable from them",
     )
     p_forget.set_defaults(func=_cmd_forget)
+
+    p_taste = sub.add_parser(
+        "taste",
+        help="show, add, undo or clear your explicit taste adjustments "
+        "(no action = show the current set)",
+    )
+    p_taste.add_argument("--more", metavar="TARGET", help="ask for more of a theme or lens")
+    p_taste.add_argument("--less", metavar="TARGET", help="ask for less of a theme (never a lens)")
+    p_taste.add_argument(
+        "--lens",
+        action="store_true",
+        help="the target names a diversity lens rather than a single sourced theme",
+    )
+    p_taste.add_argument(
+        "--magnitude",
+        default="moderate",
+        choices=sorted(TASTE_MAGNITUDES),
+        help="how much (default: moderate)",
+    )
+    p_taste.add_argument("--undo", metavar="KEY", help="remove one adjustment by its key")
+    p_taste.add_argument("--clear", action="store_true", help="remove every adjustment")
+    p_taste.set_defaults(func=_cmd_taste)
 
     p_exp = sub.add_parser(
         "export", help="export the dashboard (or, with --archive, a preservation JSON bundle)"

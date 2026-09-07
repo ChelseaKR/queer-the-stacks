@@ -26,7 +26,12 @@ from recommender.embeddings import (
 )
 from recommender.explain import build_explanation
 from recommender.lists import CuratedList
-from recommender.model import build_taste_profile, score_candidate
+from recommender.model import (
+    ResolvedAdjustment,
+    adjustment_delta,
+    build_taste_profile,
+    score_candidate,
+)
 
 #: Blend weights for the non-content signals (content score is ~0..1 already).
 COLLAB_WEIGHT = 0.2
@@ -51,8 +56,17 @@ def recommend_hybrid(
     use_embeddings: bool = False,
     dnf_signals: bool = False,
     embedder: Embedder | None = None,
+    adjustments: tuple[ResolvedAdjustment, ...] = (),
 ) -> list[Recommendation]:
-    """Rank candidates by the full hybrid score, each with a sourced explanation."""
+    """Rank candidates by the full hybrid score, each with a sourced explanation.
+
+    ``adjustments`` is the reader's explicit, reversible taste feedback
+    (:mod:`ingest.taste`), already resolved to descriptor sets. With none — the
+    default, and the state of every store that predates the feature — every
+    candidate's delta is ``0.0`` and this function is byte-for-byte the
+    recommender it was before, which is what lets the committed eval numbers
+    stand unchanged.
+    """
     from recommender.rerank import aperture_boost  # local import avoids a cycle
 
     taste = build_taste_profile(states, dnf_signals=dnf_signals)
@@ -80,8 +94,14 @@ def recommend_hybrid(
 
         ap_boost, ap_themes = aperture_boost(taste, book, aperture_strength)
 
-        total = content + collab + emb_boost + ap_boost
+        adj_delta, adj_reasons = adjustment_delta(book, adjustments)
+
+        total = content + collab + emb_boost + ap_boost + adj_delta
         if total <= 0.0:
+            # A "less" adjustment strong enough to zero a candidate drops it,
+            # which is what the reader asked for. It can never drop an
+            # *undescribed* book, because such a book's delta is 0.0 by
+            # construction — see ``adjustment_delta``.
             continue
         if not book.theme_tags and not lists_hit and not anchors:
             # No sourced tag, no curated list, no co-occurrence anchor: nothing
@@ -98,6 +118,7 @@ def recommend_hybrid(
             content,
             collab_anchors=anchors,
             aperture_themes=ap_themes,
+            adjustment_reasons=adj_reasons,
         )
         scored.append(Recommendation(book=book, score=round(total, 6), explanation=explanation))
 

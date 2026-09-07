@@ -13,6 +13,65 @@ accessibility/responsible-tech sign-offs; the automated build, SBOM, GHCR,
 keyless-signing/provenance, release, and verify-published lifecycle is in place.
 
 ### Added
+- **Explicit, reversible taste feedback — the reader's own words, blended into the
+  ranking and quoted back under every pick it moved** (`ingest/taste.py`,
+  `stacks taste`, `POST /taste`, #107). Taste was inferred: `build_taste_profile`
+  weights a sourced theme by how completely its books were read, and the optional
+  DNF signal reads dislike off a stall. Both are guesses about intent taken from
+  behaviour. A reader who wanted more translated work before owning any, or less
+  of a theme without finishing fewer books, had no way to say so.
+
+  An adjustment is a bounded, dated record `{kind, target, direction, magnitude}`
+  the reader wrote on purpose. Magnitude comes from a closed set of three, the
+  summed effect on any one book is clamped to ±0.30, and the whole set lives only
+  in the local app-state store — covered by backup, by the archive export
+  (schema_version 2; v1 bundles still read, and restore as the empty set), and by
+  the privacy toggle.
+
+  **Four refusals hold the shape of it.** A lens may only ever *raise* a book,
+  never lower one, so leaning toward a values lens cannot become a penalty on
+  books whose descriptors are merely unrecorded. An adjustment may not target an
+  absence — "less of the books we know nothing about" is a statement about this
+  app's coverage gaps, and acting on it would bury the books whose data is
+  thinnest. An adjustment only ever matches a descriptor a book actually carries,
+  so an undescribed book's delta is exactly `0.0` from every adjustment that
+  exists, and no adjustment can ever be the sole reason a book appears (a book
+  with nothing to cite still has nothing to cite). And one adjustment counts once
+  however many of its descriptors match, so a nine-label lens is not worth nine
+  times a one-label theme.
+
+  **With no adjustments recorded, nothing moves.** Every committed eval number was
+  produced with an empty set, so the empty set had to be the identity rather than
+  close to it. Verified two ways: `recommend_hybrid` with an empty set returns
+  `(id, score)` pairs identical to the call without the argument, and every
+  pre-existing figure in `docs/audits/eval-report.json` and
+  `docs/audits/eval-battery.json` is unchanged, pinned to literals in
+  `tests/test_taste_adjustments.py` rather than re-read from the artifact under
+  test.
+
+  The falsifiable battery gained a probe, and unlike the ablations it **gates**:
+  per seed it applies one declared adjustment and counts both the candidates it
+  moved and the candidates it moved *without naming them*. The second number is
+  `adjustment_collateral_total`, it has no healthy non-zero value, and it is 0
+  across all ten seeds while all ten show real movement.
+
+  The dashboard gained a "Your taste adjustments" section — the current set with
+  one-click undo, and a more/less control on each pick offering that pick's own
+  sourced descriptors. Plain forms, no JavaScript. Two privacy details: the undo
+  control carries an opaque digest rather than the descriptor, so the toggle is
+  not defeated by the button that removes a hidden row; and a withheld target is
+  rendered as withheld rather than dropped, because a row that vanished would
+  make the reader believe an adjustment they still have is gone.
+
+  `POST /taste` is the app's second state-changing route. `app/server.py`'s
+  docstring now enumerates both and argues each, and `tests/test_auth.py` asserts
+  the registered POST set against that docstring's own text, so a third cannot
+  appear under a paragraph still claiming to list them all.
+
+  The a11y gate caught this feature's own first draft: six axe `select-name`
+  violations from an unlabelled magnitude select, one per recommendation card.
+  Fixed with real labels, not `aria-label`.
+
 - **`tests/test_release_claims.py`, which checks the release claim against the
   release.** `pyproject.toml` declares `0.1.0` and `git tag --list` is empty here
   and on `origin`, so the number names no artifact. `tests/test_published_claims.py`

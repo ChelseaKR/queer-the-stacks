@@ -26,12 +26,14 @@ from dataclasses import replace
 from typing import TypedDict
 
 from ingest.demo import Candidate
-from ingest.models import Book, ThemeTag
+from ingest.models import Book, ReadingState, ThemeTag
+from ingest.taste import TasteAdjustment, TasteAdjustments
 
 from recommender.embeddings import book_text
 from recommender.eval import average_precision_at_k, evaluate
 from recommender.hybrid import recommend_hybrid
 from recommender.lists import CuratedList
+from recommender.model import resolve_adjustments
 from recommender.synth import synth_world
 
 #: Calibrated margin: on the default seed battery (range(0, 10), k=5) the
@@ -68,6 +70,12 @@ class SeedRow(TypedDict):
     #: them that are theme-tag tokens the content model already matches exactly.
     embeddable_tokens_median: float
     embeddable_tag_token_share: float
+    #: The explicit-feedback probe (#107). ``moved`` counts candidates carrying
+    #: the probed descriptor whose score rose; ``collateral`` counts candidates
+    #: NOT carrying it whose score moved at all — which must always be zero.
+    adjustment_probe_descriptor: str
+    adjustment_probe_moved: int
+    adjustment_probe_collateral: int
 
 
 def _synthetic_lists(seed: int, candidates: list[Candidate]) -> tuple[CuratedList, ...]:
@@ -169,6 +177,78 @@ def embeddable_text_profile(books: Iterable[Book]) -> tuple[float, float]:
     return (statistics.median(per_book), round(tag_tokens / total, 4))
 
 
+#: The magnitude the adjustment probe applies. The strongest one, deliberately:
+#: the probe is asking "does an adjustment do anything at all, and does it do
+#: anything it should not", and the strongest setting is where collateral damage
+#: would be easiest to see.
+PROBE_MAGNITUDE = "strong"
+
+
+def _scores_by_id(
+    states: list[ReadingState],
+    books: tuple[Book, ...],
+    lists: tuple[CuratedList, ...],
+    adjustments: TasteAdjustments,
+) -> dict[str, float]:
+    """Every candidate's score under one adjustment set, keyed by book id."""
+    resolved = resolve_adjustments(adjustments)
+    return {
+        rec.book.book_id: rec.score
+        for rec in recommend_hybrid(states, books, lists=lists, k=len(books), adjustments=resolved)
+    }
+
+
+def _adjustment_probe(
+    states: list[ReadingState],
+    books: tuple[Book, ...],
+    lists: tuple[CuratedList, ...],
+) -> tuple[str, int, int]:
+    """Does one declared adjustment move what it names, and only that?
+
+    The ablations above ask whether a signal is load-bearing. This asks the
+    question explicit feedback raises instead: an adjustment is a promise to the
+    reader about what will change, so the falsifiable claim is **containment** —
+    every candidate carrying the probed descriptor may move, and every candidate
+    not carrying it must have the *identical* score it had before.
+
+    ``collateral`` is the number that matters, and zero is the only passing
+    value. A blend that leaked into unrelated candidates would still show a
+    healthy uplift on every other row in this report.
+    """
+    descriptor = ""
+    for book in sorted(books, key=lambda b: b.book_id):
+        labels = sorted(book.tag_labels)
+        if labels:
+            descriptor = labels[0]
+            break
+    if not descriptor:
+        return "", 0, 0
+
+    before = _scores_by_id(states, books, lists, TasteAdjustments())
+    adjusted = TasteAdjustments().with_added(
+        TasteAdjustment(
+            kind="theme",
+            target=descriptor,
+            direction="more",
+            magnitude=PROBE_MAGNITUDE,
+            created_at=0,
+        )
+    )
+    after = _scores_by_id(states, books, lists, adjusted)
+
+    carriers = {b.book_id for b in books if descriptor in b.tag_labels}
+    moved = sum(
+        1 for bid in carriers if bid in before and bid in after and after[bid] > before[bid]
+    )
+    collateral = sum(
+        1 for bid, score in before.items() if bid not in carriers and after.get(bid, score) != score
+    )
+    # A candidate that dropped out entirely is a move too, and must be counted
+    # as collateral when it was not a carrier.
+    collateral += sum(1 for bid in before if bid not in carriers and bid not in after)
+    return descriptor, moved, collateral
+
+
 def _run_seed(seed: int, k: int) -> SeedRow:
     states, candidates = synth_world(seed)
     lists = _synthetic_lists(seed, candidates)
@@ -201,6 +281,7 @@ def _run_seed(seed: int, k: int) -> SeedRow:
         )
     ]
     tokens_median, tag_share = embeddable_text_profile(books)
+    probe_descriptor, probe_moved, probe_collateral = _adjustment_probe(states, books, lists)
 
     return SeedRow(
         seed=seed,
@@ -214,6 +295,9 @@ def _run_seed(seed: int, k: int) -> SeedRow:
         hybrid_embeddings_map=round(average_precision_at_k(embeddings_ranked, positives, k), 4),
         embeddable_tokens_median=tokens_median,
         embeddable_tag_token_share=tag_share,
+        adjustment_probe_descriptor=probe_descriptor,
+        adjustment_probe_moved=probe_moved,
+        adjustment_probe_collateral=probe_collateral,
     )
 
 
@@ -235,7 +319,10 @@ def run_battery(seeds: Iterable[int] = DEFAULT_SEEDS, k: int = 5) -> dict[str, o
     uplifts = [row["uplift"] for row in rows]
     median_uplift = round(statistics.median(uplifts), 4)
     no_losing_seed = all(row["content_wins"] for row in rows)
-    passed = bool(median_uplift >= MARGIN and no_losing_seed)
+    # An adjustment that moved a candidate it did not name is a broken promise
+    # to the reader, not a tracked delta, so this one gates.
+    no_adjustment_collateral = all(row["adjustment_probe_collateral"] == 0 for row in rows)
+    passed = bool(median_uplift >= MARGIN and no_losing_seed and no_adjustment_collateral)
 
     ablation_no_lists_deltas = [
         round(row["content_map"] - row["ablation_no_lists_content_map"], 4) for row in rows
@@ -277,5 +364,11 @@ def run_battery(seeds: Iterable[int] = DEFAULT_SEEDS, k: int = 5) -> dict[str, o
         "embeddable_tag_token_share": round(
             statistics.median(row["embeddable_tag_token_share"] for row in rows), 4
         ),
+        # Explicit taste feedback (#107). Reported, and unlike the ablations it
+        # is also *gated*: `adjustment_collateral_total` is the number of
+        # candidates a declared adjustment moved without naming them, and there
+        # is no healthy non-zero value for it.
+        "adjustment_seeds_moved": sum(1 for row in rows if row["adjustment_probe_moved"] > 0),
+        "adjustment_collateral_total": sum(row["adjustment_probe_collateral"] for row in rows),
         "passed": passed,
     }

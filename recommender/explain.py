@@ -19,7 +19,7 @@ from recommender.lists import CuratedList
 if TYPE_CHECKING:
     # Only for type-checking: recommender.model imports build_explanation from
     # this module, so a runtime import here would be circular.
-    from recommender.model import TasteProfile
+    from recommender.model import AdjustmentReason, TasteProfile
 
 
 def _dedup_sources(sources: list[Source]) -> tuple[Source, ...]:
@@ -78,6 +78,41 @@ def _collab_signals(collab_anchors: tuple[CoAnchor, ...]) -> tuple[list[Signal],
     return signals, sources
 
 
+def _adjustment_signals(adjustment_reasons: tuple[AdjustmentReason, ...]) -> list[Signal]:
+    """Say which of the reader's own adjustments moved this pick, in their words.
+
+    ``adjustment.target`` is quoted as the reader typed it rather than as the
+    normalized key it matched on, because an adjustment is a reason the reader
+    wrote and the explanation contract is to show it back to them. The matched
+    descriptors are named too, so "more Feminist" on a lens is legible as the
+    concrete sourced tags it actually hit rather than as a category the app
+    applied.
+
+    These signals carry **no source**. An adjustment is the reader's own
+    statement, not a citation, and inventing a provenance entry for it would put
+    a claim about a book next to a source that says nothing about that claim.
+    Every book that reaches here already cites its own sourced descriptors —
+    which is exactly what the adjustment matched on — so the non-empty-source
+    guarantee is unaffected.
+    """
+    signals: list[Signal] = []
+    for reason in adjustment_reasons:
+        adjustment = reason.adjustment
+        verb = "more" if reason.raised else "less"
+        shown = ", ".join(reason.matched[:4])
+        signals.append(
+            Signal(
+                kind="adjustment",
+                detail=(
+                    f"you asked for {verb} “{adjustment.target}” "
+                    f"({adjustment.magnitude}); matches: {shown}"
+                ),
+                weight=round(adjustment.signed_weight, 4),
+            )
+        )
+    return signals
+
+
 def _aperture_signal(aperture_themes: tuple[str, ...]) -> Signal | None:
     if not aperture_themes:
         return None
@@ -121,6 +156,7 @@ def build_explanation(
     *,
     collab_anchors: tuple[CoAnchor, ...] = (),
     aperture_themes: tuple[str, ...] = (),
+    adjustment_reasons: tuple[AdjustmentReason, ...] = (),
 ) -> Explanation:
     """Assemble signals + the citations behind them into an :class:`Explanation`."""
     signals: list[Signal] = []
@@ -149,7 +185,15 @@ def build_explanation(
 
     _ensure_non_empty(book, signals, sources)
 
+    # The summary is drawn from the signals about the BOOK, so it is computed
+    # before the reader's own adjustments are appended. Two reasons, and the
+    # second is the one that matters: "Recommended because it you asked for
+    # more..." is not a sentence, and more importantly a pick's headline should
+    # say what the book is, not what the reader typed — the adjustment is listed
+    # underneath as one reason among the others rather than standing in for the
+    # citation.
     summary = f"Recommended because it {signals[0].detail}."
+    signals.extend(_adjustment_signals(adjustment_reasons))
     return Explanation(
         signals=tuple(signals),
         sources=_dedup_sources(sources),

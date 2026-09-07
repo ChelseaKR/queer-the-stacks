@@ -56,6 +56,7 @@ EXPECTED_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("/login", "POST"),
         ("/logout", "GET"),
         ("/", "GET"),
+        ("/taste", "POST"),
         ("/browse", "GET"),
         ("/search", "GET"),
         ("/opds", "GET"),
@@ -72,6 +73,13 @@ EXPECTED_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: ``/openapi.json`` publishes the app's route inventory, its query-parameter
 #: names, and the session cookie name to anyone who asks.
 DOC_SURFACES: tuple[str, ...] = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
+
+#: Every route that changes state. The server module's docstring explains each
+#: one and why a POST was the right shape for it; this is what stops a third
+#: appearing without that paragraph being revisited. ``/login`` is public by
+#: necessity (it is how you authenticate); every other entry here must be gated,
+#: which the enumeration test below already enforces for the whole table.
+EXPECTED_POST_ROUTES: frozenset[str] = frozenset({"/login", "/taste"})
 
 
 def _registered_routes(app: object) -> set[tuple[str, str]]:
@@ -411,6 +419,27 @@ def test_the_registered_route_table_is_exactly_what_is_declared() -> None:
     from app.server import create_app
 
     assert _registered_routes(create_app()) == EXPECTED_ROUTES
+
+
+def test_the_state_changing_routes_are_the_two_the_module_docstring_explains() -> None:
+    """A third POST route must not appear without the docstring being revisited.
+
+    ``app.server``'s docstring is the place the CSRF position is argued, one
+    bullet per state-changing route. It said "every other route stays GET-only"
+    for as long as that was true; the risk now is the opposite failure — a POST
+    added quietly under a paragraph that still claims to enumerate them all.
+    So the enumeration is asserted against the docstring's own text, not just
+    against a list in this file.
+    """
+    pytest.importorskip("fastapi")
+    import app.server as server
+    from app.server import create_app
+
+    posts = {path for path, method in _registered_routes(create_app()) if method == "POST"}
+    assert posts == EXPECTED_POST_ROUTES
+    doc = server.__doc__ or ""
+    for path in sorted(EXPECTED_POST_ROUTES):
+        assert f"POST {path}" in doc, f"{path} accepts a POST but the module docstring omits it"
 
 
 def test_every_registered_route_is_authed_or_explicitly_public(
