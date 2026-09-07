@@ -57,6 +57,7 @@ EXPECTED_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("/logout", "GET"),
         ("/", "GET"),
         ("/browse", "GET"),
+        ("/search", "GET"),
         ("/opds", "GET"),
         ("/opds/to-read", "GET"),
         ("/opds/currently-reading", "GET"),

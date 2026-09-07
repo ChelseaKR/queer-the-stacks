@@ -25,6 +25,7 @@ from app.view import demo_view, render_view
 DEFAULT_OUT = Path("docs/audits/dashboard.html")
 DEFAULT_LOGIN_OUT = Path("docs/audits/login.html")
 DEFAULT_SHARE_OUT = Path("docs/audits/share.html")
+DEFAULT_SEARCH_OUT = Path("docs/audits/search.html")
 
 
 def build(out: Path = DEFAULT_OUT) -> Path:
@@ -62,8 +63,37 @@ def build_share(out: Path = DEFAULT_SHARE_OUT) -> Path:
 
 
 #: Where the committed audit artifacts live. Every default output below sits
-#: here, and ``Makefile``'s ``A11Y_PAGES`` names the same three files.
+#: here, and ``Makefile``'s ``A11Y_PAGES`` names the same four files.
 DEFAULT_OUT_DIR = DEFAULT_OUT.parent
+
+
+def build_search(out: Path = DEFAULT_SEARCH_OUT) -> Path:
+    """Write the document served at ``GET /search`` — in its WORST a11y case.
+
+    ``/search`` renders the same ``render_view`` output ``/browse`` does, so
+    ``dashboard.html`` would appear to cover it. It does not: the search page
+    can carry a status banner the dashboard template never emits (the
+    "search did not run" / "nothing matched" notice in ``app/server.py``), and
+    a banner that only appears on a page nothing audits is a banner no
+    accessibility gate has ever seen.
+
+    So this writes the page *with* the notice present, and with an empty
+    result list — the state a reader is most likely to need read aloud, and the
+    one where getting the announcement wrong matters most.
+    """
+    import dataclasses
+
+    from app.server import _with_notice
+
+    with tempfile.TemporaryDirectory(prefix="stacks-demo-") as tmp:
+        view = demo_view(Path(tmp))
+    html = render_view(dataclasses.replace(view, library=(), browse_query="a query"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        _with_notice(html, "No book in your library matched “a query”."),
+        encoding="utf-8",
+    )
+    return out
 
 
 def build_all(out_dir: Optional[Path] = None) -> tuple[Path, ...]:
@@ -81,6 +111,7 @@ def build_all(out_dir: Optional[Path] = None) -> tuple[Path, ...]:
         build(base / DEFAULT_OUT.name),
         build_login(base / DEFAULT_LOGIN_OUT.name),
         build_share(base / DEFAULT_SHARE_OUT.name),
+        build_search(base / DEFAULT_SEARCH_OUT.name),
     )
 
 

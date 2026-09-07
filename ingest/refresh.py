@@ -22,6 +22,7 @@ from __future__ import annotations
 import concurrent.futures
 import datetime as dt
 import os
+import sqlite3
 import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
@@ -369,6 +370,85 @@ def ingest_states(
     return states, activity
 
 
+def _search_index_checks(store: Optional[Store]) -> list[Check]:
+    """The search-index check, or nothing when there is no store to inspect.
+
+    Returns a list so ``doctor`` needs no branch of its own for it.
+    """
+    return [] if store is None else [_search_index_check(store)]
+
+
+def _search_index_check(store: Store) -> Check:
+    """Report the search index's real state, never a reassuring summary.
+
+    Each branch is a different fact, and the three that are not "usable" are
+    kept apart on purpose: "no FTS5 in this build" is a permanent property of
+    the environment, "never built" is a refresh that has not happened, and
+    "stale" is an index describing a library the reader no longer has. Folding
+    them into one "search: unavailable" would hide the only one a reader can
+    act on.
+    """
+    from ingest.search_index import index_status
+
+    status = index_status(store)
+    if not status.available:
+        return Check(
+            "search index",
+            True,
+            "this SQLite build has no FTS5 — /search falls back to a slower scan",
+        )
+    if not status.built:
+        return Check(
+            "search index",
+            False,
+            "not built yet — run `stacks refresh`; /search will say so rather "
+            "than report an empty library",
+        )
+    if status.stale:
+        return Check(
+            "search index",
+            False,
+            f"built at view revision {status.view_revision}, store is at "
+            f"{store.view_revision()} — run `stacks refresh`",
+        )
+    hidden = " (sensitive descriptors excluded)" if status.hide_sensitive else ""
+    return Check("search index", True, f"{status.documents} books indexed{hidden}")
+
+
+def _rebuild_search_index(
+    config: Config, store: Store, states: list[ReadingState], now: int
+) -> None:
+    """Rebuild the FTS5 search index from the states just persisted.
+
+    Never raises: search is an accelerator over facts already stored, so an
+    index that cannot be built must not fail a refresh that succeeded. It is
+    safe to swallow the error here precisely because a missing index is a
+    *named* outcome downstream — :func:`ingest.search_index.search` answers
+    ``not_built`` rather than "no results", so the failure surfaces as itself
+    instead of as an empty library.
+    """
+    from app.diversity import load_lens_config, resolve_sensitive_descriptors
+
+    from ingest.search_index import build_index
+
+    hidden: frozenset[str] = frozenset()
+    if config.hide_sensitive_descriptors:
+        lenses = load_lens_config(config.lens_config)
+        hidden = resolve_sensitive_descriptors(
+            lenses.dimensions, sensitive_lens_names=lenses.sensitive_lens_names
+        )
+    try:
+        build_index(
+            store,
+            states,
+            now=now,
+            hide_sensitive=config.hide_sensitive_descriptors,
+            hidden_descriptors=hidden,
+        )
+    except sqlite3.Error:
+        return
+
+
 def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> RefreshResult:
     """Re-ingest into the store, skipping when source mtimes are unchanged."""
     from recommender.catalog_pool import (
@@ -431,6 +511,16 @@ def refresh(config: Config, store: Store, now: int, *, force: bool = False) -> R
         source_mtimes={} if config.demo else current,
         origin=ORIGIN_DEMO if config.demo else ORIGIN_REAL,
     )
+    # The search index is rebuilt from the states that were just persisted, and
+    # AFTER them, so it records the view revision `save` just advanced to. Built
+    # before, it would record the previous revision and read as permanently
+    # stale; built from anything other than `states`, it would answer queries
+    # about a library the reader does not have. See ingest/search_index.py.
+    #
+    # The privacy toggle applies here rather than at query time: a descriptor
+    # excluded only when rendering is still on disk and still matchable, so a
+    # search could confirm its presence.
+    _rebuild_search_index(config, store, states, now)
     catalog_result = None
     if config.demo:
         from ingest.demo import demo_candidates
@@ -606,6 +696,7 @@ def doctor(
     checks.append(
         Check("mode", True, "demo (built-in offline library)" if config.demo else "real sources")
     )
+    checks.extend(_search_index_checks(store))
     if not config.demo:
         checks.extend(_check_source("Calibre", config.calibre_db, "books"))
         checks.extend(_check_source("KOReader", config.koreader_db, "book"))
