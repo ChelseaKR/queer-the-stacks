@@ -120,11 +120,34 @@ def test_diversity_pairs_reports_the_denominator_it_used() -> None:
 
 
 def test_report_includes_diversity(states: list, candidates: tuple, lists: tuple) -> None:
+    """The demo slate's denominator, pinned to literals rather than derived.
+
+    Writing the expectation as ``diversity_pairs(books, 5)`` would compute it
+    from the function under test: however wrong that function became, the
+    expectation would move with it and this assertion would still hold. The top
+    five of the demo slate hold C(5,2) = 10 pairs and every one of those books
+    carries a sourced descriptor, so both numbers are 10.
+    """
     results = evaluate(states, list(candidates), lists=lists, k=5)
     books = [c.book for c in candidates]
     report = to_report(results, top_books=books, k=5)
-    assert "intra_list_diversity_at_k" in report
-    assert report["intra_list_diversity_pairs"] == {
-        "compared": diversity_pairs(books, 5)[0],
-        "in_slate": diversity_pairs(books, 5)[1],
-    }
+    assert report["intra_list_diversity_at_k"] == 0.68
+    assert report["intra_list_diversity_pairs"] == {"compared": 10, "in_slate": 10}
+
+
+def test_report_publishes_a_shrinking_denominator(
+    states: list, candidates: tuple, lists: tuple
+) -> None:
+    """``compared`` and ``in_slate`` differ where the slate is partly undescribed.
+
+    The demo slate cannot tell the two numbers apart — all ten of its pairs are
+    comparable — so on that fixture alone a ``to_report`` publishing the slate
+    size twice would pass. This slate holds three books, one of them with no
+    sourced descriptor, so only the one pair between the two described books can
+    be compared and the published denominator has to say so.
+    """
+    results = evaluate(states, list(candidates), lists=lists, k=5)
+    slate = [_book("1", "trans"), _book("2", "space opera"), _book("3")]
+    report = to_report(results, top_books=slate, k=5)
+    assert report["intra_list_diversity_pairs"] == {"compared": 1, "in_slate": 3}
+    assert report["intra_list_diversity_at_k"] == 1.0
