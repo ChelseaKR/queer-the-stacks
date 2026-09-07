@@ -514,7 +514,20 @@ def test_five_thousand_books_answer_a_title_query_with_the_field_named(
 
 @pytest.mark.parametrize(
     "query",
-    ["Book 4321", "Author17 Surname17", "Verso Books", "Series 42", "spa", "poetry", "café"],
+    [
+        "Book 4321",
+        "Author17 Surname17",
+        "Verso Books",
+        "Series 42",
+        "spa",
+        "poetry",
+        "café",
+        # Unaccented, against titles that carry the accent: FTS5 folds them
+        # together and a tokenizer that skipped the folding would not, so this
+        # query is what makes that divergence visible through the two paths
+        # rather than only through `test_tokenizer_agrees_with_sqlite`.
+        "cafe",
+    ],
 )
 def test_the_two_paths_agree_at_five_thousand_books(
     scale_store: Store, scale_states: list[ReadingState], query: str
