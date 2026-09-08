@@ -3,8 +3,20 @@
 This is the fallback a11y gate when a browser-based runner (pa11y/axe) is not
 available. It is intentionally conservative — it only asserts what is
 unambiguously checkable from static HTML — and ``make a11y`` prefers pa11y when
-it is installed. Run as ``python -m app.a11y_check FILE``; exits non-zero on any
-violation.
+it is installed. Run as ``python -m app.a11y_check FILE [FILE ...]``; exits
+non-zero on any violation.
+
+**It reports how many documents it read.** Until this line was written ``main``
+did ``html = Path(args[0]).read_text(...)`` and dropped every other argument:
+handed the four documents ``A11Y_PAGES`` names, it checked one, printed
+``a11y: 0 violations`` and exited 0. That was latent — the ``make a11y`` recipe
+loops one page at a time — but the very next line of the same recipe is
+``node scripts/a11y-browser-check.js $(A11Y_PAGES)``, which does take a list,
+and the Makefile's own comment treats that list as the safeguard: *"a page
+missing from here is a page the a11y gate cannot fail on"*. Collapsing the loop
+would have silently reduced the gate to its first page. So the count now lives
+in this program's output rather than in the Makefile, because a green line that
+does not say what it read is indistinguishable from one that read everything.
 """
 
 from __future__ import annotations
@@ -115,18 +127,50 @@ def check_html(html: str) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Check every document named on the command line, and say how many.
+
+    Every path is read before anything is reported, so a run that could not
+    read one of its inputs refuses rather than reporting the violations of the
+    documents it did manage to read. An unreadable file is the same failure as
+    a missing one: it is a document this gate has nothing to say about, and
+    saying nothing about it is what this program exists not to do.
+    """
     args = argv if argv is not None else sys.argv[1:]
     if not args:
-        print("usage: python -m app.a11y_check FILE.html", file=sys.stderr)  # noqa: T201
+        print(  # noqa: T201
+            "usage: python -m app.a11y_check FILE.html [FILE.html ...]\n"
+            "refusing to report a clean scan of no documents at all",
+            file=sys.stderr,
+        )
         return 2
-    html = Path(args[0]).read_text(encoding="utf-8")
-    violations = check_html(html)
-    if violations:
-        print(f"{len(violations)} accessibility violation(s):", file=sys.stderr)  # noqa: T201
+
+    documents: list[tuple[str, str]] = []
+    for arg in args:
+        try:
+            documents.append((arg, Path(arg).read_text(encoding="utf-8")))
+        except OSError as exc:
+            print(f"a11y: cannot read {arg}: {exc}", file=sys.stderr)  # noqa: T201
+            return 2
+
+    failed = 0
+    for name, html in documents:
+        violations = check_html(html)
+        if not violations:
+            continue
+        failed += 1
+        print(  # noqa: T201
+            f"{name}: {len(violations)} accessibility violation(s):", file=sys.stderr
+        )
         for v in violations:
             print(f"  - {v}", file=sys.stderr)  # noqa: T201
+
+    checked = len(documents)
+    if failed:
+        print(  # noqa: T201
+            f"a11y: {failed} of {checked} file(s) checked have violations", file=sys.stderr
+        )
         return 1
-    print("a11y: 0 violations")  # noqa: T201
+    print(f"a11y: 0 violations, {checked} file(s) checked")  # noqa: T201
     return 0
 
 

@@ -26,6 +26,7 @@ that always passes.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import tomllib
@@ -41,6 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 SECRET_SCAN = REPO_ROOT / "scripts" / "secret-scan.sh"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+LIGHTHOUSERC = REPO_ROOT / ".lighthouserc.json"
 
 
 def _pyproject() -> dict[str, object]:
@@ -431,6 +433,127 @@ def test_a11y_recipe_keeps_its_layer_zero_guards() -> None:
     )
     for leg in ("app.a11y_check", "pa11y --runner axe", "scripts/a11y-browser-check.js"):
         assert leg in recipe, f"the a11y gate lost its {leg} leg"
+
+
+# --- The Lighthouse gate's URL list ------------------------------------------
+#
+# `.lighthouserc.json` carries the hardest numeric assertion in the pipeline:
+# `categories:accessibility` at minScore 1.0, blocking and unconditional. It
+# was pointed at `/dashboard.html` alone — 1 of the 4 documents in its own
+# `staticDistDir`, and a quarter of the surface `A11Y_PAGES` covers. Nothing
+# tied the two lists, so they drifted independently and only one was asserted.
+#
+# This is the same shape as MARKER_ROOTS and `[tool.mypy] files` above: a
+# merge-blocking gate driven by a hand-written list, where the omission is
+# invisible because the gate runs, examines what it was told about, and passes.
+
+
+def _lighthouse_config() -> dict[str, object]:
+    config = json.loads(LIGHTHOUSERC.read_text(encoding="utf-8"))
+    assert isinstance(config, dict)
+    ci = config.get("ci")
+    assert isinstance(ci, dict), ".lighthouserc.json has no `ci` block"
+    return ci
+
+
+def _lighthouse_collect() -> dict[str, object]:
+    collect = _lighthouse_config().get("collect")
+    assert isinstance(collect, dict), ".lighthouserc.json has no `ci.collect` block"
+    return collect
+
+
+def _lighthouse_urls() -> list[str]:
+    urls = _lighthouse_collect().get("url")
+    assert isinstance(urls, list) and urls, (
+        ".lighthouserc.json names no URLs. lhci audits nothing and every "
+        "assertion in it passes over an empty set."
+    )
+    return [str(url) for url in urls]
+
+
+def test_lighthouse_audits_every_document_the_other_a11y_layers_scan() -> None:
+    """The strictest assertion in the pipeline must not cover a quarter of it.
+
+    ``A11Y_PAGES`` is already tied to ``build_all`` and to
+    ``HTML_ROUTE_COVERAGE`` by ``tests/test_a11y.py``. This ties the fourth
+    spelling of the same list — the one Lighthouse reads — to those three, so
+    a document can no longer be audited by the structural checker, pa11y and
+    the browser check while the ``minScore: 1.0`` gate never opens it.
+    """
+    dist = _lighthouse_collect().get("staticDistDir")
+    assert isinstance(dist, str) and dist, ".lighthouserc.json has no staticDistDir"
+
+    audited = {f"/{Path(page).name}" for page in makefile_list("A11Y_PAGES")}
+    assert set(_lighthouse_urls()) == audited, (
+        f"Lighthouse audits {sorted(_lighthouse_urls())} but the a11y gate scans "
+        f"{sorted(audited)}. A document missing here is a document the "
+        "`categories:accessibility` minScore 1.0 assertion never opens, and "
+        "nothing else in the pipeline asserts a Lighthouse score at all."
+    )
+    assert len(_lighthouse_urls()) == len(set(_lighthouse_urls())), (
+        f"Lighthouse's url list repeats an entry: {_lighthouse_urls()}. A "
+        "duplicate inflates the run count while hiding a missing document."
+    )
+
+    # Non-vacuity: each URL must name a document that `staticDistDir` holds.
+    # A path that resolves to nothing is a 404 lhci scores, not a page it read.
+    for url in _lighthouse_urls():
+        served = REPO_ROOT / dist / url.lstrip("/")
+        assert served.is_file(), (
+            f"{url} is audited but {served.relative_to(REPO_ROOT)} does not exist; "
+            "`make lighthouse` runs `app.build_static` first, so a URL with no "
+            "document behind it is a list that has drifted from the generator"
+        )
+
+
+def test_lighthouse_keeps_the_assertions_that_make_it_a_gate() -> None:
+    """Widening the URL list must not be paid for by lowering the bar.
+
+    Both figures are what make this stage blocking rather than a report. The
+    accessibility floor is 1.0 and is documented as such; the performance floor
+    is 0.9. ``"warn"`` in place of ``"error"`` would leave the whole stage
+    green whatever it measured.
+    """
+    assertions = _lighthouse_config().get("assert")
+    assert isinstance(assertions, dict), ".lighthouserc.json has no `ci.assert` block"
+    rules = assertions.get("assertions")
+    assert isinstance(rules, dict) and rules, "`ci.assert.assertions` is empty"
+
+    for name, floor in (("categories:accessibility", 1.0), ("categories:performance", 0.9)):
+        rule = rules.get(name)
+        assert isinstance(rule, list) and len(rule) == 2, (
+            f"{name} is no longer asserted in .lighthouserc.json; the stage would "
+            "run Lighthouse and gate on nothing"
+        )
+        level, options = rule
+        assert level == "error", (
+            f"{name} is asserted at {level!r}, not 'error'. A warning does not "
+            "fail `lhci autorun`, so the stage would pass at any score."
+        )
+        assert isinstance(options, dict)
+        assert float(options.get("minScore", 0)) >= floor, (
+            f"{name} minScore is {options.get('minScore')!r}; this gate is "
+            f"documented as blocking at {floor}"
+        )
+
+
+def test_the_lighthouse_stage_still_builds_before_it_audits() -> None:
+    """``staticDistDir`` holds committed files, so an audit of them is only
+    current if the recipe regenerates them first.
+
+    Without the build step lhci would score whatever bytes are committed —
+    which is the same defect ``test_build_all_writes_every_audited_document``
+    guards one layer down, reached from the other side.
+    """
+    recipe = makefile_recipe("lighthouse")
+    assert "app.build_static" in recipe, (
+        "`make lighthouse` no longer regenerates the audited documents, so it "
+        "would score the committed copies rather than what the app renders"
+    )
+    assert "--config=.lighthouserc.json" in recipe, (
+        "`make lighthouse` no longer reads .lighthouserc.json, so every "
+        "assertion asserted above governs nothing"
+    )
 
 
 # --- The pipeline's own stage list -------------------------------------------
