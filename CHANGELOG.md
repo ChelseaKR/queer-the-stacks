@@ -104,6 +104,31 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   make by passing.
 
 ### Fixed
+- **Two accessibility gates reported success over documents they never
+  opened** (`app/a11y_check.py`, `.lighthouserc.json`, #128).
+  `app.a11y_check.main` read `args[0]` and dropped every other argument:
+  handed the four documents `A11Y_PAGES` names, it checked **1 of 4**, printed
+  `a11y: 0 violations` and exited 0. Measured with a five-violation document in
+  argument two — exit 0. It was latent, because the `make a11y` recipe loops
+  one page at a time; the next line of that same recipe is
+  `node scripts/a11y-browser-check.js $(A11Y_PAGES)`, which does take a list,
+  so the two commands sat side by side disagreeing about their own arity.
+  `main` now reads every path before reporting anything, refuses a file it
+  could not read (an unreadable document is not a document with no
+  violations), and prints `a11y: 0 violations, N file(s) checked` — the count
+  lives in the program's output rather than in the Makefile.
+
+  Separately, `.lighthouserc.json` pointed the pipeline's strictest assertion —
+  `categories:accessibility` at `minScore: 1.0`, blocking and unconditional —
+  at `/dashboard.html` alone: **1 of the 4** documents in its own
+  `staticDistDir`, and a quarter of the surface every other a11y layer covers.
+  All four are now audited. Measured before the change landed: all four score
+  accessibility **1.00** and performance **1.00** over 3 runs each, so no page
+  needed repair and no assertion was relaxed to fit. `tests/test_gate_lists.py`
+  now ties the Lighthouse URL list to `A11Y_PAGES` — the fourth spelling of a
+  list already tied to `build_all()` and `HTML_ROUTE_COVERAGE` — and holds both
+  score floors at `error`, so widening the scope cannot be paid for later by
+  lowering the bar.
 - **A Kobo-only or Calibre-Web-only reader was shown "Longest streak 0 / 30 —
   0%"** (`app/stats.py`, `app/goals.py`, `app/render.py`). `ReadingStats.measured`
   was a single OR over eight metrics drawn from three different kinds of source.

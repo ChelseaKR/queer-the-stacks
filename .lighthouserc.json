@@ -2,7 +2,12 @@
   "ci": {
     "collect": {
       "staticDistDir": "docs/audits",
-      "url": ["/dashboard.html"],
+      "url": [
+        "/dashboard.html",
+        "/login.html",
+        "/share.html",
+        "/search.html"
+      ],
       "numberOfRuns": 3,
       "settings": { "preset": "desktop" }
     },
