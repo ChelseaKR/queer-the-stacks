@@ -19,6 +19,7 @@ only checked for absence.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -314,11 +315,65 @@ def test_composing_a_year_card_without_a_year_is_an_error() -> None:
 # --- 6. an unopened book has no progress, not 0% ----------------------------
 
 
+def _owned_with_an_all_zero_stat(count: int = 3) -> list[ReadingState]:
+    """A per-device library: every owned book carries a stat that measured nothing.
+
+    This is the shape `ingest.kobo.read_stats` produces. Kobo's ``content``
+    table has a row for every book on the device, opened or not, so an
+    untouched book arrives as a real ``ReadingStat`` whose every reading field
+    is zero — while ``total_pages`` is a genuine catalog fact.
+
+    ``_owned_only`` cannot catch a renderer that draws a meter unconditionally:
+    it carries no ``stat`` at all, so ``progress_recorded`` is ``False`` there
+    by construction and the assertions below hold for any renderer. This
+    fixture is where the failure is possible.
+    """
+    return [
+        replace(
+            state,
+            stat=ReadingStat(
+                key=f"b{i}",
+                title=state.title,
+                authors=state.authors,
+                pages_read=0,
+                total_pages=200,
+                read_time_seconds=0,
+                last_read_ts=0,
+                sessions=0,
+            ),
+        )
+        for i, state in enumerate(_owned_only(count))
+    ]
+
+
 def test_books_with_no_progress_record_render_no_meter() -> None:
     html = render_view(build_view(_owned_only(), [], ()))
     assert "0% complete" not in html
     assert '<progress max="100" value="0"' not in html
     assert f"Progress: {NOT_MEASURED}" in html
+
+
+def test_a_stat_that_measured_nothing_is_not_a_progress_record() -> None:
+    """The Kobo re-opening of this defect (#126), asserted where it can fail."""
+    states = _owned_with_an_all_zero_stat()
+    assert all(s.stat is not None for s in states)
+    assert all(s.stat is not None and s.stat.measured is False for s in states)
+    assert all(s.progress_recorded is False for s in states)
+    html = render_view(build_view(states, [], ()))
+    assert "0% complete" not in html
+    assert '<progress max="100" value="0"' not in html
+    assert f"Progress: {NOT_MEASURED}" in html
+
+
+def test_an_all_zero_stat_is_not_evidence_for_the_stats_panel() -> None:
+    """The same row must not make eight zeros read as eight measurements."""
+    assert compute_stats(_owned_with_an_all_zero_stat(), [], 0).measured is False
+    opened = replace(
+        _owned_with_an_all_zero_stat(1)[0].stat or ReadingStat("", "", (), 0, 0, 0, 0, 0),
+        read_time_seconds=600,
+    )
+    states = [replace(_owned_with_an_all_zero_stat(1)[0], stat=opened)]
+    assert compute_stats(states, [], 0).measured is True
 
 
 def test_a_book_with_progress_still_renders_its_meter() -> None:

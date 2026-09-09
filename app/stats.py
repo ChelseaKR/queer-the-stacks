@@ -13,8 +13,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from typing import Optional
 
 from ingest.models import DailyActivity, ReadingState, ReadingStatus
+from ingest.retention import RetentionState
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,13 @@ class ReadingStats:
     #: metrics above are absences, whatever :attr:`measured` says — the
     #: partial-source case, where per-book stats are real and streaks are not.
     activity_measured: bool = True
+    #: Per-day activity is absent because the reader's own retention horizon
+    #: deleted it, not because no source records it. Only ever True alongside
+    #: ``activity_measured is False``, and it is the discriminator between the
+    #: two sentences that absence can carry: "no connected source writes a
+    #: per-day log" is false, and visibly false, to a KOReader reader who set
+    #: ``[retention] history_days`` themselves.
+    activity_deleted: bool = False
 
     @property
     def read_time_hours(self) -> float:
@@ -98,8 +107,16 @@ def compute_stats(
     states: list[ReadingState],
     daily_activity: list[DailyActivity],
     today_ordinal: int,
+    *,
+    retention: Optional[RetentionState] = None,
 ) -> ReadingStats:
-    """Compute the full reading-stats summary deterministically."""
+    """Compute the full reading-stats summary deterministically.
+
+    ``retention`` is the store's persisted policy, and it is read for one
+    purpose: to say *why* per-day activity is missing. Without it the absence
+    has a single wording, and that wording names a source configuration —
+    which is a false statement about a reader whose horizon did the deleting.
+    """
     finished = [s for s in states if s.status is ReadingStatus.FINISHED]
     reading = [s for s in states if s.status is ReadingStatus.READING]
 
@@ -137,13 +154,21 @@ def compute_stats(
         theme_mix=tuple(theme_counter.most_common()),
         top_authors=tuple(author_counter.most_common(5)),
         most_annotated=tuple(annotated.most_common(5)),
-        # Evidence, not outcome: one per-day row or one per-book stat is enough
-        # to make these totals a measurement. Neither is available from Calibre
-        # alone, and `states` being non-empty says nothing — 1,907 owned books
-        # with no reading source is precisely the case this flag exists for.
-        measured=bool(daily_activity) or any(s.stat is not None for s in states),
+        # Evidence, not outcome: one per-day row or one per-book stat that
+        # measured something is enough to make these totals a measurement.
+        # Neither is available from Calibre alone, and `states` being non-empty
+        # says nothing — 1,907 owned books with no reading source is precisely
+        # the case this flag exists for. A stat row's mere existence is not the
+        # evidence either: `ingest.kobo` emits one per device `content` row,
+        # so a Kobo library nobody has opened yet would otherwise set this and
+        # render eight zeros as measurements. See `ReadingStat.measured`.
+        measured=bool(daily_activity)
+        or any(s.stat is not None and s.stat.measured for s in states),
         # ...but per-book stats are not evidence of a *streak*. The three
         # per-day-only metrics rest on this and nothing else, so a Kobo-only or
         # Calibre-Web-only reader gets absences there rather than zeros.
         activity_measured=bool(daily_activity),
+        activity_deleted=(
+            retention is not None and retention.deleted_every_activity_day(len(daily_activity))
+        ),
     )

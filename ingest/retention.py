@@ -295,6 +295,27 @@ class RetentionState:
         cutoff = self.earliest_retained_ordinal
         return cutoff is None or ordinal >= cutoff
 
+    def deleted_every_activity_day(self, retained_days: int) -> bool:
+        """Whether this policy is why no per-day activity is left to read.
+
+        An empty per-day record has two causes that produce identical zeros:
+        no connected source ever wrote one (Kobo and Calibre-Web write none),
+        or the reader's own horizon deleted the one that existed. Only the
+        second is their configuration working, and telling them the first is
+        the failure :data:`app.render.NOT_RETAINED_NOTE` exists to prevent, one
+        window further out than :meth:`coverage_of` can see: with every day
+        gone there is no year left to ask ``coverage_of`` about.
+
+        Both halves come from records that were really read, never inferred.
+        ``last_counts.activity_days`` is what the prune that wrote this state
+        actually removed — ``ingest.refresh`` re-applies the policy to the
+        freshly ingested record on every run, so it stays a live count rather
+        than a first-run relic — and ``retained_days`` is what the store holds
+        now. A zero prune count answers ``False`` however active the policy is,
+        because nothing was deleted.
+        """
+        return retained_days == 0 and self.last_counts.activity_days > 0
+
     def coverage_of(self, lo_ordinal: int, hi_ordinal: int) -> str:
         """How much of the half-open window ``[lo, hi)`` survives the policy.
 
