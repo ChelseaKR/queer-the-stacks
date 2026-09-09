@@ -169,6 +169,19 @@ NO_DAILY_ACTIVITY_NOTE = (
     "sources connected here report per-book totals instead."
 )
 
+#: The same absence, from the opposite cause. `NO_DAILY_ACTIVITY_NOTE` names a
+#: source configuration, and a reader whose `[retention] history_days` deleted
+#: every per-day row has that source connected — so it tells them a setting
+#: they chose is a feature their sources lack. This is `NOT_RETAINED_NOTE`'s
+#: sentence for the case where the deletion took the whole record and not just
+#: one year of it.
+ACTIVITY_NOT_RETAINED_NOTE = (
+    "Streaks and active reading days are not measured here because the per-day "
+    "reading history they are counted from is outside the window this instance "
+    "keeps, so it has been deleted. That is your retention setting working, not "
+    "a missing source."
+)
+
 
 #: Why a Wrapped year is missing for a reader who *does* have reading records.
 #: The year is inferred from per-day activity alone (`app.view._infer_today_and_year`),
@@ -191,6 +204,22 @@ NOT_RETAINED_NOTE = (
     "year in which nothing was read."
 )
 
+#: The same fact when the deletion took *every* per-day row, so there is no
+#: year left to name (`Wrapped.not_retained(None)`). "This year" would be a
+#: reference to nothing; the deletion is still exactly as reportable.
+ALL_YEARS_NOT_RETAINED_NOTE = (
+    "The per-day reading history a year in review is built from is outside the "
+    "window this instance keeps, so it has been deleted and there is no year "
+    "left to report on. That is your retention setting working, not a year in "
+    "which nothing was read."
+)
+
+
+def _not_retained_note(wrapped: Wrapped) -> str:
+    """Which of the two deletion sentences this Wrapped can honestly carry."""
+    return NOT_RETAINED_NOTE if wrapped.year is not None else ALL_YEARS_NOT_RETAINED_NOTE
+
+
 #: A year the horizon cuts through: its figures are real but cover only the
 #: part of the year still retained. Rendered beside the numbers, because a
 #: partial total presented as a whole one is the same defect one step quieter.
@@ -208,7 +237,15 @@ def _absence_reason(stats: ReadingStats) -> str:
     say "no source is connected" and "the other figures are measured" in the
     same breath. Every surface picks its wording from here so the page cannot
     contradict itself panel by panel.
+
+    A deletion the reader ordered outranks both, because both of the sentences
+    below describe a *source configuration* and neither is true of a KOReader
+    reader whose own horizon removed the per-day log. That case is the one the
+    reader can check, and getting it wrong tells them their setting is a
+    missing feature.
     """
+    if stats.activity_deleted:
+        return ACTIVITY_NOT_RETAINED_NOTE
     if not stats.measured:
         return NO_READING_SOURCE_NOTE
     return NO_DAILY_ACTIVITY_NOTE
@@ -311,7 +348,7 @@ def _wrapped_table(wrapped: Wrapped, stats: ReadingStats) -> str:
         # too, and takes its own wording: its records existed and were removed
         # on request, which is a different fact from never having had them.
         if not wrapped.retained:
-            reason = NOT_RETAINED_NOTE
+            reason = _not_retained_note(wrapped)
         elif not stats.measured:
             reason = NO_READING_SOURCE_NOTE
         else:
@@ -1204,6 +1241,14 @@ READING_SOURCE_PER_BOOK_ONLY = (
     "per-book reading records present; no per-day activity, so streaks and "
     "active reading days are not measured"
 )
+#: The row for a reader whose horizon deleted the per-day log. Both rows above
+#: are statements about which sources are connected, and this reader's are: the
+#: panel whose whole job is to say where the numbers came from would otherwise
+#: report their own deletion as a source they never set up.
+READING_SOURCE_ACTIVITY_NOT_RETAINED = (
+    "per-book reading records present; per-day activity deleted by your "
+    "retention setting, so streaks and active reading days are not measured"
+)
 
 
 def _data_status_section(
@@ -1214,6 +1259,7 @@ def _data_status_section(
     fixture_candidates: bool = False,
     reading_data_measured: bool = True,
     daily_activity_measured: bool = True,
+    daily_activity_deleted: bool = False,
 ) -> str:
     """Say what the dashboard knows and how old it is — never silently stale.
 
@@ -1243,7 +1289,9 @@ def _data_status_section(
     candidate_source = (
         "built-in demo fixtures" if fixture_candidates else "your stored catalog pool"
     )
-    if not reading_data_measured:
+    if daily_activity_deleted:
+        reading_source = READING_SOURCE_ACTIVITY_NOT_RETAINED
+    elif not reading_data_measured:
         reading_source = READING_SOURCE_MISSING
     elif not daily_activity_measured:
         reading_source = READING_SOURCE_PER_BOOK_ONLY
@@ -1344,6 +1392,7 @@ def render_dashboard(
         fixture_candidates=fixture_candidates,
         reading_data_measured=stats.measured,
         daily_activity_measured=stats.activity_measured,
+        daily_activity_deleted=stats.activity_deleted,
     )
     # The Wrapped summary line states figures scoped to a year. With no year
     # there is nothing to scope them to, so the sentence is replaced rather than
@@ -1361,7 +1410,9 @@ def render_dashboard(
             f"locally, shared with no one.{partial}</p>"
         )
     elif not wrapped.retained:
-        wrapped_summary = f'<p class="absence-note" role="status">{escape(NOT_RETAINED_NOTE)}</p>'
+        wrapped_summary = (
+            f'<p class="absence-note" role="status">{escape(_not_retained_note(wrapped))}</p>'
+        )
     elif not stats.measured:
         wrapped_summary = (
             f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '

@@ -104,6 +104,42 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   make by passing.
 
 ### Fixed
+- **A Kobo book nobody had opened rendered as "0% complete"** (`ingest/models.py`,
+  `app/stats.py`, #126). `ReadingState.progress_recorded` asked whether a stat row
+  *existed*, which is the same question as "did a source measure anything" only for
+  KOReader — it writes a row when a book is opened. `ingest.kobo.read_stats` emits one
+  per device `content` row, opened or not, so an untouched book arrived as
+  `pages_read=0, read_time_seconds=0, last_read_ts=0, sessions=0` and drew the
+  filled-to-zero meter that property exists to prevent, verbatim: `0% complete · last
+  on —`. `ReadingStat.measured` now answers the question the surfaces meant to ask
+  (`total_pages` deliberately excluded — a page count is a fact about the file, present
+  for a book nobody has opened), and `ReadingStats.measured` reads it too, so a Kobo
+  library nobody has opened yet no longer renders eight zeros as eight measurements.
+  The guard test that was meant to catch this could not: it ran over a fixture with no
+  `stat` at all, where `progress_recorded` is `False` by construction and the assertion
+  holds for any renderer. It now runs over an all-zero stat, where the failure is
+  possible.
+
+- **A window the reader's own retention horizon deleted was reported back to them as a
+  missing source** (`app/wrapped.py`, `app/stats.py`, `app/render.py`,
+  `ingest/retention.py`, #127). `compute_wrapped` asked for the year before it asked the
+  policy that had deleted it: a horizon removing every per-day row leaves nothing for
+  `_infer_today_and_year` to read, so the `year is None` return ran first and handed back
+  `Wrapped.unmeasured()`, whose `retention_coverage` is `"full"`. `retained` was
+  therefore `True` and no surface could reach the not-retained wording in exactly the
+  case a prune had taken everything. The reader was told instead that "the reading
+  sources connected here report per-book totals with no per-day log" and that their
+  data status was "per-book reading records present; no per-day activity" — two
+  statements about a source configuration, both false of a KOReader reader who set
+  `[retention] history_days` themselves. The policy is now asked first;
+  `RetentionState.deleted_every_activity_day` answers from two records that were really
+  read (what the last prune removed, and what the store holds now), so an active policy
+  that deleted nothing is never read as a deletion; and `ReadingStats.activity_deleted`
+  carries the same fact to the stats note and the data-status row, which had no
+  retention input at all. The one dashboard-level test that existed fed **unpruned**
+  activity beside a policy that deletes all of it — a store state `ingest.refresh` can
+  never produce — so it exercised the `year=2025` branch and never this one.
+
 - **Two accessibility gates reported success over documents they never
   opened** (`app/a11y_check.py`, `.lighthouserc.json`, #128).
   `app.a11y_check.main` read `args[0]` and dropped every other argument:
