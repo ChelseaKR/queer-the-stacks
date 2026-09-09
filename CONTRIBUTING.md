@@ -98,6 +98,15 @@ also check the pinned portfolio policy version recorded in
 secrets to forks, so external pull requests skip that private policy fetch and
 must pass the complete local verification command before review.
 
+## Commercial solicitation
+
+Issues here are not open to bids. They are design records — written so a decision is
+reconstructable later — not scope documents for outside quoting, and unsolicited offers to
+implement one for a fee will be declined.
+
+Contributions through the normal fork-and-PR process are welcome, and `good first issue` is the
+place to start.
+
 ---
 
 *Maintainer: Chelsea Kelly-Reif · License: AGPL-3.0-or-later.*
