@@ -5,6 +5,7 @@ from __future__ import annotations
 from ingest.models import Author, Book, Source, SourceKind, ThemeTag
 from recommender.eval import (
     average_precision_at_k,
+    diversity_pairs,
     evaluate,
     intra_list_diversity,
     ndcg_at_k,
@@ -81,12 +82,72 @@ def _book(bid: str, *themes: str) -> Book:
 def test_intra_list_diversity() -> None:
     same = [_book("1", "trans"), _book("2", "trans")]
     varied = [_book("1", "trans"), _book("2", "space opera")]
-    assert intra_list_diversity(same, 5) < intra_list_diversity(varied, 5)
-    assert intra_list_diversity([], 5) == 0.0
+    same_score, varied_score = intra_list_diversity(same, 5), intra_list_diversity(varied, 5)
+    assert same_score is not None and varied_score is not None
+    assert same_score < varied_score
+
+
+def test_an_unmeasurable_slate_is_not_scored_zero() -> None:
+    """Nothing to compare is not the bottom of the scale.
+
+    An empty slate, a single book, and a slate whose books carry no sourced
+    descriptor all used to return 0.0 — the monoculture end of a scale nothing
+    had been measured against.
+    """
+    assert intra_list_diversity([], 5) is None
+    assert intra_list_diversity([_book("1", "trans")], 5) is None
+    assert intra_list_diversity([_book("1"), _book("2"), _book("3")], 5) is None
+
+
+def test_books_with_no_descriptor_do_not_raise_the_score() -> None:
+    """An undescribed book is not evidence of variety.
+
+    Jaccard over an empty tag set reads as maximal dissimilarity, so before this
+    was fixed two books on the identical theme scored 0.0 and the same two plus
+    one book carrying no descriptor scored 0.6667: absence read as variety.
+    """
+    same = [_book("1", "trans"), _book("2", "trans")]
+    assert intra_list_diversity(same, 5) == 0.0
+    assert intra_list_diversity([*same, _book("3")], 5) == 0.0
+    assert intra_list_diversity([*same, _book("3"), _book("4")], 5) == 0.0
+
+
+def test_diversity_pairs_reports_the_denominator_it_used() -> None:
+    """The score's denominator is published beside it, so a shrink is visible."""
+    slate = [_book("1", "trans"), _book("2", "space opera"), _book("3")]
+    assert diversity_pairs(slate, 5) == (1, 3)
+    assert diversity_pairs([_book("1"), _book("2")], 5) == (0, 1)
 
 
 def test_report_includes_diversity(states: list, candidates: tuple, lists: tuple) -> None:
+    """The demo slate's denominator, pinned to literals rather than derived.
+
+    Writing the expectation as ``diversity_pairs(books, 5)`` would compute it
+    from the function under test: however wrong that function became, the
+    expectation would move with it and this assertion would still hold. The top
+    five of the demo slate hold C(5,2) = 10 pairs and every one of those books
+    carries a sourced descriptor, so both numbers are 10.
+    """
     results = evaluate(states, list(candidates), lists=lists, k=5)
     books = [c.book for c in candidates]
     report = to_report(results, top_books=books, k=5)
-    assert "intra_list_diversity_at_k" in report
+    assert report["intra_list_diversity_at_k"] == 0.68
+    assert report["intra_list_diversity_pairs"] == {"compared": 10, "in_slate": 10}
+
+
+def test_report_publishes_a_shrinking_denominator(
+    states: list, candidates: tuple, lists: tuple
+) -> None:
+    """``compared`` and ``in_slate`` differ where the slate is partly undescribed.
+
+    The demo slate cannot tell the two numbers apart — all ten of its pairs are
+    comparable — so on that fixture alone a ``to_report`` publishing the slate
+    size twice would pass. This slate holds three books, one of them with no
+    sourced descriptor, so only the one pair between the two described books can
+    be compared and the published denominator has to say so.
+    """
+    results = evaluate(states, list(candidates), lists=lists, k=5)
+    slate = [_book("1", "trans"), _book("2", "space opera"), _book("3")]
+    report = to_report(results, top_books=slate, k=5)
+    assert report["intra_list_diversity_pairs"] == {"compared": 1, "in_slate": 3}
+    assert report["intra_list_diversity_at_k"] == 1.0

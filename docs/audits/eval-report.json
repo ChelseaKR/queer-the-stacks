@@ -31,5 +31,9 @@
     }
   },
   "content_beats_popularity": true,
-  "intra_list_diversity_at_k": 0.68
+  "intra_list_diversity_at_k": 0.68,
+  "intra_list_diversity_pairs": {
+    "compared": 10,
+    "in_slate": 10
+  }
 }
