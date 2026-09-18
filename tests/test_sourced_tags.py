@@ -1,7 +1,7 @@
 """Representation guardrail — sourced theme tags only; never label an author.
 
 The README's hard rule: books are described via *sourced* theme/genre tags, never
-reductive auto-assigned identity labels, and authors are never labelled at all.
+reductive auto-assigned identity labels, and authors are never labeled at all.
 These tests prove, structurally:
 
 1. A :class:`ThemeTag` cannot exist without a :class:`Source` — there is no
@@ -79,7 +79,7 @@ def test_author_carries_exactly_a_name_and_a_sort_key() -> None:
     assert set(Author.__dataclass_fields__) == set(AUTHOR_FIELDS), (
         f"Author's fields are {sorted(Author.__dataclass_fields__)}, expected "
         f"{sorted(AUTHOR_FIELDS)}. Books are described by sourced theme tags; "
-        "people are not labelled. A new field here needs an explicit decision."
+        "people are not labeled. A new field here needs an explicit decision."
     )
 
 

@@ -16,7 +16,7 @@ The opt-in persisted candidate pipeline currently fetches broad Open Library sub
 
 ## Per-source compliance cards
 
-The three sources impose **materially different** obligations — they are not interchangeable. Each card below states the headline license, the attribution posture, the auth/token handling, and the cache/rate-limit/robots policy we honour.
+The three sources impose **materially different** obligations — they are not interchangeable. Each card below states the headline license, the attribution posture, the auth/token handling, and the cache/rate-limit/robots policy we honor.
 
 ### Open Library (`openlibrary.org`)
 
@@ -28,7 +28,7 @@ _Non-profit (Internet Archive), open bibliographic data + subject headings._
 | License / terms | Bibliographic data is CC0 (public-domain dedication); no key required, public JSON endpoints. |
 | Attribution | Attribution appreciated but not required — credit 'Open Library / Internet Archive' where practical. |
 | Auth / token | No API key. Public, unauthenticated JSON (e.g. /subjects/<s>.json). |
-| Cache · rate-limit · robots | Persist parsed candidates with a bounded refresh TTL; honour robots.txt; back off on 429/5xx; send a descriptive User-Agent; keep volume modest. |
+| Cache · rate-limit · robots | Persist parsed candidates with a bounded refresh TTL; honor robots.txt; back off on 429/5xx; send a descriptive User-Agent; keep volume modest. |
 | Contact | Internet Archive / Open Library — https://openlibrary.org/help |
 | Terms / API docs | https://openlibrary.org/developers/api |
 
@@ -54,22 +54,22 @@ _Federated, community-run reading lists — no central gatekeeper or ad model._
 |------------|---------|
 | Kind | federated |
 | License / terms | Per-instance Terms of Service over ActivityPub; content licenses vary by instance and by user — there is no single global term. |
-| Attribution | Attribute the specific instance and author; honour each instance's license. |
+| Attribution | Attribute the specific instance and author; honor each instance's license. |
 | Auth / token | Public ActivityPub / JSON; no central key. Each instance is an independent host with its own rules and admins. |
-| Cache · rate-limit · robots | Honour a per-instance opt-out for reads; persist parsed candidates with a bounded TTL; respect robots.txt and rate limits; back off on 429/5xx; descriptive User-Agent. |
+| Cache · rate-limit · robots | Honor a per-instance opt-out for reads; persist parsed candidates with a bounded TTL; respect robots.txt and rate limits; back off on 429/5xx; descriptive User-Agent. |
 | Contact | The individual instance admin (e.g. bookwyrm.social admins) — ask before any bulk/automated read. |
 | Terms / API docs | https://github.com/bookwyrm-social/bookwyrm/blob/main/FEDERATION.md |
 
 ## Federation & fetch etiquette
 
-Every catalog/federation request follows this policy. The User-Agent, public-metadata-only, candidate-pool caching, and host-allowlist rules are enforced in code (`recommender.catalogs.etiquette_headers`, `ingest.store.Store`, `assert_allowed`); robots.txt honouring and client-specific 429/5xx backoff remain committed review requirements:
+Every catalog/federation request follows this policy. The User-Agent, public-metadata-only, candidate-pool caching, and host-allowlist rules are enforced in code (`recommender.catalogs.etiquette_headers`, `ingest.store.Store`, `assert_allowed`); robots.txt honoring and client-specific 429/5xx backoff remain committed review requirements:
 
 - Identify every request with a descriptive User-Agent (app + read-only intent).
 - Fetch only public catalog metadata — the reader's reading history is never sent.
 - Cache parsed candidates per source and refresh them only after the configured TTL.
-- Honour robots.txt and any published rate limits; keep request volume low.
+- Honor robots.txt and any published rate limits; keep request volume low.
 - Back off (exponentially) on HTTP 429 / 5xx instead of hammering a host.
-- Treat each Bookwyrm instance as independent; honour a per-instance opt-out for reads.
+- Treat each Bookwyrm instance as independent; honor a per-instance opt-out for reads.
 
 ## Excluded (on purpose)
 

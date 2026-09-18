@@ -20,7 +20,7 @@ analytics; the no-egress and auth gates in
 ## Retention tier and default
 
 **Default: indefinite.** `[retention] history_days` is `0` out of the box, which
-means "keep everything" — exactly the behaviour of every release before this
+means "keep everything" — exactly the behavior of every release before this
 one, so upgrading deletes nothing.
 
 That default is deliberate and is not a recommendation. A horizon deletes your

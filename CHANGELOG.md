@@ -18,7 +18,7 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   `stacks taste`, `POST /taste`, #107). Taste was inferred: `build_taste_profile`
   weights a sourced theme by how completely its books were read, and the optional
   DNF signal reads dislike off a stall. Both are guesses about intent taken from
-  behaviour. A reader who wanted more translated work before owning any, or less
+  behavior. A reader who wanted more translated work before owning any, or less
   of a theme without finishing fewer books, had no way to say so.
 
   An adjustment is a bounded, dated record `{kind, target, direction, magnitude}`
@@ -69,7 +69,7 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   appear under a paragraph still claiming to list them all.
 
   The a11y gate caught this feature's own first draft: six axe `select-name`
-  violations from an unlabelled magnitude select, one per recommendation card.
+  violations from an unlabeled magnitude select, one per recommendation card.
   Fixed with real labels, not `aria-label`.
 
 - **`tests/test_release_claims.py`, which checks the release claim against the
@@ -471,7 +471,7 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   also refuses an empty page list instead of looping zero times and exiting 0.
 - The coverage gate measures `ingest/cli.py`. It was omitted as "thin argparse
   glue"; it is 503 lines of refresh/doctor/import/export/list-authoring
-  behaviour with three dedicated test files, and at 57% it was the
+  behavior with three dedicated test files, and at 57% it was the
   least-covered module in the project while sitting outside the denominator the
   85% floor is computed from. Reported total moves from ~96.9% to ~94.1%.
 - Reconciled the contradictory internationalization dispositions: the standard
@@ -539,14 +539,14 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   recommend` already did. `make dev` sets `STACKS_DEMO=1` without redirecting
   `STACKS_DATA_DIR`, so the documented way to run the dashboard against an
   already-ingested library rendered the reader's real 1,907 books alongside
-  demo-fixture recommendations and near-misses — unlabelled, and directly above
+  demo-fixture recommendations and near-misses — unlabeled, and directly above
   a "Candidates stored locally: 0" row in the same panel. The view now tracks
   the two provenances separately (the states can be real while the candidates
   are fixtures), the page carries a banner for each case, the data-status panel
   states both sources positively rather than leaving the reader to infer them,
   and the OPDS feeds carry the same claim in a `<subtitle>` an e-reader shows.
 - Share cards say when they describe the demo world — the one surface built to
-  be posted publicly was the only one left unlabelled. After a single `make dev`
+  be posted publicly was the only one left unlabeled. After a single `make dev`
   run had written demo-origin state, serving without `STACKS_DEMO=1` gave `/`
   the correct fixture banner while `/share` rendered "composed locally from your
   own dashboard" over fixture counts, and `/share/card.svg` produced a postable
@@ -626,7 +626,7 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   true**, an unmarked or renamed custom lens fails closed, and the built-in
   identity descriptors are always unioned in so a custom file cannot un-redact
   them. The shipped template marks its four non-identity lenses `sensitive =
-  false`, so copying it reproduces the built-in behaviour exactly.
+  false`, so copying it reproduces the built-in behavior exactly.
 - The privacy toggle now covers the whole page rather than one panel. It only
   ever reached the diverse-shelf section; the per-book theme chips, the library
   table's "Themes (sourced)" column, the stats theme mix, and the `/share` card

@@ -35,7 +35,7 @@ Mechanically verified properties:
 - every data table has a `<caption>` and `<th scope>`,
 - every link has discernible text,
 - theme tags include a visible `#` glyph and label; progress has visible text
-  plus a named native `<progress>` element, so neither relies on colour,
+  plus a named native `<progress>` element, so neither relies on color,
 - chart-like stats, Wrapped, and diversity summaries ship real `<table>`
   equivalents; recommendations are semantic articles with visible fit,
   explanation, and source text rather than a duplicate table,
@@ -67,7 +67,7 @@ are **not yet signed off**:
 ## Accessibility statement
 
 This dashboard targets WCAG 2.2 AA. Charts have data-table equivalents; theme
-tags are never colour-only; the interface respects reduced-motion. Report issues
+tags are never color-only; the interface respects reduced-motion. Report issues
 via the project tracker.
 
 ## 2026-07-05 update

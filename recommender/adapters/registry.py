@@ -39,7 +39,7 @@ def compliance_card_status(spec: AdapterSpec) -> CardStatus:
             ok=False,
             detail=(
                 f"no compliance card for {spec.compliance_card_host} in recommender.sources "
-                "(licence, attribution, auth and rate-limit obligations unrecorded)"
+                "(license, attribution, auth and rate-limit obligations unrecorded)"
             ),
         )
     return CardStatus(

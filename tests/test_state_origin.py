@@ -160,8 +160,8 @@ def test_view_separates_real_states_from_fixture_candidates(tmp_path: Path) -> N
     with Store(config.store_path) as store:
         refresh(config, store, now=1_000)
         view = view_from_store(store, user="you", demo_mode=True)
-    assert view.fixture_states is False, "real-ingested states were labelled as fixtures"
-    assert view.fixture_candidates, "substituted demo candidates went unlabelled"
+    assert view.fixture_states is False, "real-ingested states were labeled as fixtures"
+    assert view.fixture_candidates, "substituted demo candidates went unlabeled"
 
 
 def test_real_view_flags_nothing(tmp_path: Path) -> None:

@@ -48,7 +48,7 @@ SECONDS_PER_DAY = 86400
 #: this feature states no default horizon, and a default that silently deletes
 #: someone's reading history is a product decision this code has no business
 #: making on its own. Zero means "keep everything", which is exactly today's
-#: behaviour, so installing this release changes nothing until asked.
+#: behavior, so installing this release changes nothing until asked.
 DEFAULT_HISTORY_DAYS = 0
 
 

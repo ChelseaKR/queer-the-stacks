@@ -10,7 +10,7 @@ Accessibility decisions baked in here:
 
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
 * a skip link to ``<main>`` and proper landmarks + heading order,
-* theme tags and progress are conveyed as **text**, never colour alone,
+* theme tags and progress are conveyed as **text**, never color alone,
 * every "chart" (stats, Wrapped) ships with a real ``<table>`` data equivalent,
 * every recommendation shows its why **and** its sources as visible links.
 """
@@ -47,7 +47,7 @@ def _pct(value: float) -> str:
 def _withheld_note(hidden_count: int) -> str:
     """The visible stand-in for descriptors the privacy toggle withheld.
 
-    Shown as text (never colour or omission alone) so the reader can always tell
+    Shown as text (never color or omission alone) so the reader can always tell
     the difference between "this book has no sourced descriptors" and "some are
     being held back right now".
     """
@@ -130,7 +130,7 @@ FIXTURE_STATES_NOTICE = (
 #: The narrower case: the shelves and stats are genuinely the reader's, but the
 #: recommendation candidates were substituted from the demo fixtures because
 #: the catalog pool is empty. Several fixture titles are books a real reader
-#: plausibly owns, so an unlabelled pick is indistinguishable from a real one.
+#: plausibly owns, so an unlabeled pick is indistinguishable from a real one.
 FIXTURE_CANDIDATES_NOTICE = (
     "These picks are fixture titles from the built-in demo world, not "
     "candidates sourced from your configured catalogs. They are shown because "
@@ -139,7 +139,7 @@ FIXTURE_CANDIDATES_NOTICE = (
 
 
 def _fixture_note(message: str) -> str:
-    """One labelled, assertive banner naming fixture-sourced content."""
+    """One labeled, assertive banner naming fixture-sourced content."""
     return f'<p class="fixture-note" role="alert">{escape(message)}</p>'
 
 
@@ -440,7 +440,7 @@ def _magnitude_select(select_id: str) -> str:
     The label is not optional and not an ``aria-label``: this control appears
     once per recommendation card, so a screen-reader user meets ten of them in a
     row, and each needs to be nameable. The a11y gate caught this exact select
-    unlabelled on its first run — six axe ``select-name`` violations — which is
+    unlabeled on its first run — six axe ``select-name`` violations — which is
     what the gate is for.
     """
     options = "".join(
@@ -920,7 +920,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
 
     Every figure is built only from *sourced book descriptors*; the section opens
     by saying so, and surfaces undescribed books rather than hiding them. Each
-    chart ships as a real data ``<table>`` (no colour-only meaning).
+    chart ships as a real data ``<table>`` (no color-only meaning).
     """
     if report is None or report.total_books == 0:
         return ""
@@ -996,7 +996,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     )
 
     # R4: every diverse-shelf descriptor with the source that asserted it + when.
-    # The sensitive marker is text (never colour-only) for the a11y contract.
+    # The sensitive marker is text (never color-only) for the a11y contract.
     if report.descriptor_provenance:
         desc_rows = "".join(
             f'<tr><th scope="row">{escape(d.label)}'
@@ -1265,7 +1265,7 @@ def _data_status_section(
 
     Degrades gracefully: per-source ``RefreshResult`` rows land with FIX-08;
     until then this shows the one honest thing the store already persists —
-    the ``refreshed_at`` stamp — plus a text (not colour-only) staleness banner.
+    the ``refreshed_at`` stamp — plus a text (not color-only) staleness banner.
 
     "How current" is only half of "how trustworthy": a store full of demo
     fixtures carries a perfectly fresh timestamp. The two provenance rows say
@@ -1539,7 +1539,7 @@ def render_dashboard(
         "</section>"
         '<section id="browse" class="home-section">'
         '<div class="section-heading"><h2>Browse your library</h2>'
-        "<p>Search the full catalogue by title, author, status, or sourced theme.</p></div>"
+        "<p>Search the full catalog by title, author, status, or sourced theme.</p></div>"
         '<form class="browse-form" action="/browse" method="get" role="search">'
         f"{structured_filters}"
         '<label for="lib-filter">Find a book'

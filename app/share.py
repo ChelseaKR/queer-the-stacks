@@ -246,7 +246,7 @@ def render_share_svg(card: ShareCard) -> str:
 
 
 def _card_figure(card: ShareCard, index: int) -> str:
-    """One card: an accessible figure + a labelled, copyable post box."""
+    """One card: an accessible figure + a labeled, copyable post box."""
     tid = f"post-{card.kind}-{index}"
     body_lines = "".join(f"<p>{escape(line)}</p>" for line in card.body_lines)
     tags = " ".join(f"#{escape(t)}" for t in card.hashtags)
@@ -273,7 +273,7 @@ body { font-family: system-ui, sans-serif; max-width: 75ch; margin: 0 auto; padd
   color: inherit; background-color: inherit; }
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
 /* Borders in currentColor, no background swap: the banner has to stay AA in
-   both light and dark without introducing a second colour pair to verify. */
+   both light and dark without introducing a second color pair to verify. */
 .fixture-note { border: 1px solid; border-left-width: .3rem; border-radius: 4px;
   padding: .75rem 1rem; margin: 1rem 0; color: inherit; background-color: inherit; }
 .card-source { color: inherit; background-color: inherit; }
