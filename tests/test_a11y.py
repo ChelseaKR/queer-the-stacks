@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from app.a11y_check import check_html, main
 from app.render import render_dashboard
 from app.server import _render_login_page
@@ -81,6 +82,74 @@ def test_main_fails_on_violations(tmp_path: Path) -> None:
 
 def test_main_usage_without_args() -> None:
     assert main([]) == 2
+
+
+# --- `main` reads every document it is handed, and says how many -------------
+#
+# It read `args[0]` and dropped the rest. Handed the four documents
+# `A11Y_PAGES` names, it checked one, printed `a11y: 0 violations` and exited
+# 0 — a green line over three unread files. The `make a11y` recipe loops one
+# page at a time, so this was latent; the next line of that same recipe is
+# `node scripts/a11y-browser-check.js $(A11Y_PAGES)`, which does take a list,
+# and collapsing the loop to match would have quietly reduced the gate to its
+# first page.
+
+
+def _clean(tmp_path: Path, name: str) -> Path:
+    out = tmp_path / name
+    out.write_text(_html(tmp_path), encoding="utf-8")
+    return out
+
+
+def _broken(tmp_path: Path, name: str) -> Path:
+    out = tmp_path / name
+    out.write_text("<html><body></body></html>", encoding="utf-8")
+    return out
+
+
+def test_main_checks_every_file_it_is_handed_not_just_the_first(tmp_path: Path) -> None:
+    """The defect, in the position it hid in: a violation after the first file.
+
+    Reading only ``args[0]`` returns 0 here, because the first document is
+    clean. The violation sits in the second, third and fourth arguments — the
+    ones a single-file read never opens.
+    """
+    first_clean = _clean(tmp_path, "dashboard.html")
+    for position in range(1, 4):
+        paths = [first_clean, _clean(tmp_path, "a.html"), _clean(tmp_path, "b.html")]
+        paths.insert(position, _broken(tmp_path, "bad.html"))
+        assert main([str(p) for p in paths]) == 1, (
+            f"a document with violations at argument {position} did not fail the "
+            "gate; only the first path is being read"
+        )
+
+
+def test_main_reports_how_many_documents_it_read(capsys: pytest.CaptureFixture[str]) -> None:
+    """The count is in the program's output, not only in the Makefile.
+
+    ``a11y: 0 violations`` over one file and over four is the same sentence,
+    which is precisely why nobody noticed it was one. The census is asserted
+    against the real ``A11Y_PAGES`` set so that a page leaving the list changes
+    a number a reader can see.
+    """
+    pages = makefile_list("A11Y_PAGES")
+    assert len(pages) > 1, "A11Y_PAGES lists one page; this assertion proves nothing"
+
+    assert main([str(REPO_ROOT / page) for page in pages]) == 0
+    out = capsys.readouterr().out
+    assert f"{len(pages)} file(s) checked" in out, (
+        f"the passing line was {out.strip()!r}; it must state how many documents "
+        "it read, or a run over one page is indistinguishable from a run over all"
+    )
+
+
+def test_main_refuses_a_file_it_cannot_read(tmp_path: Path) -> None:
+    """An unreadable document is not a document with no violations.
+
+    Every path is read before anything is reported, so a run missing one of its
+    inputs refuses rather than passing on the ones it managed to open.
+    """
+    assert main([str(_clean(tmp_path, "ok.html")), str(tmp_path / "absent.html")]) == 2
 
 
 # --- The gate's page list is itself asserted ---------------------------------

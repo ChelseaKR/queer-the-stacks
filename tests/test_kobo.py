@@ -112,6 +112,13 @@ def test_reads_finished_reading_and_unread_books(tmp_path: Path) -> None:
     assert unread.pages_read == 0
     assert unread.read_time_seconds == 0
     assert unread.last_read_ts == 0
+    # The row is emitted on purpose — the device really does carry it, and its
+    # page count is a catalog fact worth keeping. What it is NOT is evidence
+    # that anybody opened the book, and every surface downstream asks that
+    # question through `measured` rather than through "a stat row exists".
+    assert unread.measured is False
+    assert kindred.measured is True
+    assert sbb.measured is True
 
 
 def test_deduplicates_chapter_rows_to_the_volume_row(tmp_path: Path) -> None:

@@ -43,7 +43,7 @@ did not derive from it.
 | `/` dashboard, `/browse` | Yes |
 | `/share`, `/share/card.svg` | Yes, but see "absence rendered as a value" below |
 | `/opds` and all four shelf feeds | Yes |
-| Diversity & descriptor provenance panel | Yes — whole-shelf fallback is labelled, and every descriptor carries the current retrieval date |
+| Diversity & descriptor provenance panel | Yes — whole-shelf fallback is labeled, and every descriptor carries the current retrieval date |
 
 Two defects in the *demo* direction were found and fixed in this change; both
 were reproduced against the real library:

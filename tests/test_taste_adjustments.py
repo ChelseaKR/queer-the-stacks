@@ -1,6 +1,6 @@
 """Explicit, reversible taste feedback (#107).
 
-The tests are organised around the ways this feature could look like it works
+The tests are organized around the ways this feature could look like it works
 while being wrong, because most of them are quiet:
 
 * it could move numbers the reader never touched — the whole committed eval
@@ -682,14 +682,14 @@ def test_the_route_refuses_rather_than_silently_ignoring(client) -> None:  # typ
 # --- the CLI -----------------------------------------------------------------
 
 
-def test_stacks_recommend_honours_the_same_adjustments_the_dashboard_does(
+def test_stacks_recommend_honors_the_same_adjustments_the_dashboard_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """``_cmd_recommend``'s docstring promises the CLI and the dashboard never disagree.
 
     They did, at first: the dashboard read adjustments through ``view_from_store``
     and ``stacks recommend`` called the content recommender directly, so a
-    preference honoured on the page was ignored at the command line. Caught by
+    preference honored on the page was ignored at the command line. Caught by
     running the two by hand, not by a test — this is the test.
     """
     from ingest.cli import main
@@ -704,7 +704,7 @@ def test_stacks_recommend_honours_the_same_adjustments_the_dashboard_does(
     capsys.readouterr()
     assert main(["recommend", "--k", "3"]) == 0
     after = capsys.readouterr().out
-    assert after != before, "the CLI ignored an adjustment the dashboard would honour"
+    assert after != before, "the CLI ignored an adjustment the dashboard would honor"
     assert "historical" in after
 
     assert main(["taste", "--undo", "theme:historical"]) == 0

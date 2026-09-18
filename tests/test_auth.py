@@ -281,7 +281,7 @@ def _demo_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: igno
 
     # https:// base_url: the session cookie is Secure, so an http:// test client
     # would silently withhold it on every subsequent request (correctly mirroring
-    # real browser behaviour) and every cookie-carrying assertion below would fail.
+    # real browser behavior) and every cookie-carrying assertion below would fail.
     return TestClient(create_app(), base_url="https://testserver")
 
 
@@ -413,7 +413,7 @@ def test_the_registered_route_table_is_exactly_what_is_declared() -> None:
 
     The enumeration below already fails on an *ungated* route. This catches the
     other half: a route added *with* auth still has to be looked at, because the
-    reason it is safe to serve is a human judgement, not a status code.
+    reason it is safe to serve is a human judgment, not a status code.
     """
     pytest.importorskip("fastapi")
     from app.server import create_app

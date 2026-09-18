@@ -34,7 +34,7 @@ class EthicalSource:
     license_note: str  # the headline license / terms obligation
     attribution: str  # how we credit the source
     auth: str  # key/token posture (e.g. token-gated, localhost/server-only)
-    rate_limit: str  # cache + rate-limit + robots + backoff policy we honour
+    rate_limit: str  # cache + rate-limit + robots + backoff policy we honor
     contact: str  # who to talk to before bulk/automated access
     terms_url: str  # canonical link to the source's API/terms documentation
     why: str  # why this source qualifies as ethical / non-gatekept
@@ -53,7 +53,7 @@ class ExcludedSource:
 #: policy we hold ourselves to. Honesty note on enforcement: the User-Agent,
 #: no-reading-data, persisted candidate caching, and allowlist rules are
 #: enforced *in code* (:func:`recommender.catalogs.etiquette_headers`,
-#: :class:`ingest.store.Store`, ``assert_allowed``); robots.txt honouring and
+#: :class:`ingest.store.Store`, ``assert_allowed``); robots.txt honoring and
 #: 429/5xx backoff are committed
 #: policy the live clients must implement when the real candidate pipeline
 #: lands (ideation FIX-01, cassette tests PR #27) — until then they are
@@ -62,9 +62,9 @@ FETCH_ETIQUETTE: tuple[str, ...] = (
     "Identify every request with a descriptive User-Agent (app + read-only intent).",
     "Fetch only public catalog metadata — the reader's reading history is never sent.",
     "Cache parsed candidates per source and refresh them only after the configured TTL.",
-    "Honour robots.txt and any published rate limits; keep request volume low.",
+    "Honor robots.txt and any published rate limits; keep request volume low.",
     "Back off (exponentially) on HTTP 429 / 5xx instead of hammering a host.",
-    "Treat each Bookwyrm instance as independent; honour a per-instance opt-out for reads.",
+    "Treat each Bookwyrm instance as independent; honor a per-instance opt-out for reads.",
 )
 
 
@@ -83,7 +83,7 @@ ETHICAL_SOURCES: tuple[EthicalSource, ...] = (
         ),
         auth="No API key. Public, unauthenticated JSON (e.g. /subjects/<s>.json).",
         rate_limit=(
-            "Persist parsed candidates with a bounded refresh TTL; honour robots.txt; "
+            "Persist parsed candidates with a bounded refresh TTL; honor robots.txt; "
             "back off on 429/5xx; send a descriptive User-Agent; keep volume modest."
         ),
         contact="Internet Archive / Open Library — https://openlibrary.org/help",
@@ -119,13 +119,13 @@ ETHICAL_SOURCES: tuple[EthicalSource, ...] = (
             "Per-instance Terms of Service over ActivityPub; content licenses vary by "
             "instance and by user — there is no single global term."
         ),
-        attribution="Attribute the specific instance and author; honour each instance's license.",
+        attribution="Attribute the specific instance and author; honor each instance's license.",
         auth=(
             "Public ActivityPub / JSON; no central key. Each instance is an independent "
             "host with its own rules and admins."
         ),
         rate_limit=(
-            "Honour a per-instance opt-out for reads; persist parsed candidates with a "
+            "Honor a per-instance opt-out for reads; persist parsed candidates with a "
             "bounded TTL; respect robots.txt and rate limits; back off on 429/5xx; "
             "descriptive User-Agent."
         ),
@@ -212,7 +212,7 @@ def to_markdown() -> str:
         "",
         "The three sources impose **materially different** obligations — they are not "
         "interchangeable. Each card below states the headline license, the attribution "
-        "posture, the auth/token handling, and the cache/rate-limit/robots policy we honour.",
+        "posture, the auth/token handling, and the cache/rate-limit/robots policy we honor.",
         "",
     ]
     for s in ETHICAL_SOURCES:
@@ -225,7 +225,7 @@ def to_markdown() -> str:
         "public-metadata-only, candidate-pool caching, and host-allowlist rules are "
         "enforced in code (`recommender.catalogs.etiquette_headers`, "
         "`ingest.store.Store`, `assert_allowed`); "
-        "robots.txt honouring and client-specific 429/5xx backoff remain committed "
+        "robots.txt honoring and client-specific 429/5xx backoff remain committed "
         "review requirements:",
         "",
     ]

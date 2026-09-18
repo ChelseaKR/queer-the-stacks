@@ -755,7 +755,7 @@ def test_koreader_measurement_wins_over_calibre_web_read_state(tmp_path: Path) -
     # KOReader's stat, not Calibre-Web's 0/0 placeholder.
     assert oryx.stat.total_pages > 0
     assert oryx.stat.sessions > 0
-    # Winning the *stat* slot is not licence to discard the other source's only
+    # Winning the *stat* slot is not license to discard the other source's only
     # signal. Asserting pages and sessions alone is what let the drop hide here.
     assert oryx.status.value == "finished"
     assert oryx.latest_device == "Calibre-Web"

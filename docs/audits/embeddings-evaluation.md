@@ -2,7 +2,7 @@
 
 **Status: this document decides nothing.** Issue #94 parks a real sentence-embedding
 model "until the list-co-occurrence hybrid proves itself". Whether that condition is
-met is a judgement about evaluation results, and it is the owner's. What was missing
+met is a judgment about evaluation results, and it is the owner's. What was missing
 was the results. This is them.
 
 Every number here is produced by `make eval` and lives in
@@ -65,7 +65,7 @@ construction. That does not make the number meaningless, but it does mean it mea
 good". The real-library dogfood runs (`docs/audits/real-library-dogfood-*.md`) are the
 place that second question gets answered.
 
-So: the evidence is favourable and it is not clean. **Calling the park condition met
+So: the evidence is favorable and it is not clean. **Calling the park condition met
 is a decision, and it is not made here.**
 
 ---

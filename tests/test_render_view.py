@@ -57,7 +57,7 @@ def test_render_contains_all_sections(tmp_path: Path) -> None:
     assert 'aria-label="Dashboard sections"' in html
     assert 'action="/browse" method="get"' in html
     assert 'aria-label="Reading progress for Stone Butch Blues"' in html
-    # Themes are rendered as text chips, not colour-only.
+    # Themes are rendered as text chips, not color-only.
     assert 'class="tag"' in html
 
 
@@ -224,7 +224,7 @@ def test_render_data_status_stale_banner_is_visible_text() -> None:
         stale=True,
     )
     assert 'role="status"' in html
-    assert "Stale" in html  # staleness named in text, not colour-only
+    assert "Stale" in html  # staleness named in text, not color-only
 
 
 # --- R4: descriptor provenance surfaced in the diversity section --------------
@@ -242,7 +242,7 @@ def test_diversity_provenance_shows_source_and_date(tmp_path: Path) -> None:
     assert "Per-descriptor provenance" in section
     assert "calibre-tag" in section
     assert "2026-06-05" in section
-    # Sensitive descriptors are flagged in text (never colour-only).
+    # Sensitive descriptors are flagged in text (never color-only).
     assert "(sensitive)" in section
 
 

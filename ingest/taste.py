@@ -3,7 +3,7 @@
 Until now taste was *inferred*: :func:`recommender.model.build_taste_profile`
 weights a sourced theme by how completely its books were read, and the optional
 DNF signal infers dislike from a stall. Both are guesses about intent read off
-behaviour. A reader who wanted more translated work before owning any, or less
+behavior. A reader who wanted more translated work before owning any, or less
 of a theme without finishing fewer books, had no way to say so.
 
 An adjustment is the honest alternative: a bounded, dated, reversible record the
