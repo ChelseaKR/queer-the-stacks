@@ -121,9 +121,9 @@ def resolve_sensitive_descriptors(
 
     * ``sensitive_lens_names`` given (the configured-file path, where each
       ``[[lenses]]`` entry carries an explicit or defaulted ``sensitive`` flag) —
-      honour it.
+      honor it.
     * Not given, and the grouping *is* the built-in default — use
-      :data:`SENSITIVE_DIMENSIONS`, so default behaviour is unchanged.
+      :data:`SENSITIVE_DIMENSIONS`, so default behavior is unchanged.
     * Not given, and the grouping is something else — **fail closed**: treat
       every lens as sensitive. An unmarked custom grouping carries no sensitivity
       information, and over-redacting errs the right way for what this toggle is
@@ -436,7 +436,7 @@ def load_lens_records(
     lens shown in full writes ``sensitive = false`` on it — which is a decision
     they have made, rather than one the defaults made for them. (The shipped
     template marks its non-identity lenses that way, so copying it reproduces
-    the built-in behaviour exactly.)
+    the built-in behavior exactly.)
 
     Raises :class:`LensValidationError` on any shape problem.
     """

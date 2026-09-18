@@ -610,7 +610,7 @@ def test_every_verify_stage_has_a_recipe_that_runs_something() -> None:
         )
 
 
-# --- The gate that runs, versus the gate that is cancelled --------------------
+# --- The gate that runs, versus the gate that is canceled --------------------
 
 #: The interpolation that gives a branch push one concurrency group per commit
 #: while keeping one group per pull request.
@@ -654,7 +654,7 @@ def test_a_push_to_main_cannot_cancel_the_commit_before_it() -> None:
     """A concurrency group keyed on ``github.ref`` alone puts every commit on
     ``main`` in one group, so the second push cancels the first commit's run.
 
-    That is not a red build. A cancelled run's conclusion is neither success nor
+    That is not a red build. A canceled run's conclusion is neither success nor
     failure: no check goes red, nobody is told, and the commit is on ``main``
     having been examined by nothing. It is the same shape as the silent skips
     the rest of this file guards — a signal identical whether the work happened
@@ -664,7 +664,7 @@ def test_a_push_to_main_cannot_cancel_the_commit_before_it() -> None:
     for name in BRANCH_PUSH_WORKFLOWS:
         group, cancel = _concurrency_block(name)
         if cancel == "false":
-            # Queues instead of cancelling; the earlier commit's run survives.
+            # Queues instead of canceling; the earlier commit's run survives.
             continue
         if "github.sha" not in group:
             offenders.append(f"{name}: group: {group}")

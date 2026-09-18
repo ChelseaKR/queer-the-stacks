@@ -4,7 +4,7 @@ Mainstream "people who read X also read Y" is built on tracking. Here the
 collaborative signal comes only from *public, curated, cited* lists: a candidate
 is boosted when it appears on a list **alongside a book by an author you've
 finished**. The boost is explainable ("listed alongside Octavia E. Butler, whom
-you've finished") and grounded in a source (the list), never in behavioural
+you've finished") and grounded in a source (the list), never in behavioral
 surveillance.
 """
 

@@ -214,7 +214,7 @@ def recommend(
     ``adjustments`` is the reader's explicit taste feedback, applied on the same
     terms as in :func:`recommender.hybrid.recommend_hybrid`. It is here because
     ``stacks recommend`` says in its own docstring that it "reads the same store
-    the dashboard reads, so the two never disagree" — and a preference honoured
+    the dashboard reads, so the two never disagree" — and a preference honored
     on the dashboard and ignored at the command line would make that false. With
     the default empty set this function is unchanged.
     """

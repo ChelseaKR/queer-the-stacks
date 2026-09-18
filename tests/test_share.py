@@ -97,7 +97,7 @@ def test_post_text_capped_to_post_limit() -> None:
     assert len(card.post_text()) <= MAX_POST_CHARS
 
 
-def test_svg_is_self_contained_and_labelled() -> None:
+def test_svg_is_self_contained_and_labeled() -> None:
     svg = render_share_svg(year_in_books_card(_wrapped()))
     assert svg.startswith("<svg")
     assert 'role="img"' in svg
@@ -112,7 +112,7 @@ def test_share_page_is_accessible_and_says_nothing_auto_posts() -> None:
     html = render_share_page(cards, user="demo")
     assert check_html(html) == []
     assert "Nothing is posted automatically" in html
-    # The postable text sits in a labelled control the reader copies by hand.
+    # The postable text sits in a labeled control the reader copies by hand.
     assert "Postable text" in html
     assert "<textarea" in html
 
@@ -222,7 +222,7 @@ def _card_shelf() -> list[ReadingState]:
 
 
 def test_a_card_composed_with_the_privacy_toggle_on_omits_hidden_descriptors() -> None:
-    """A share card is the text most likely to be published — it must honour the toggle.
+    """A share card is the text most likely to be published — it must honor the toggle.
 
     ``/share`` renders on the same screen as the dashboard, and its text is what
     the reader copies into Bookwyrm or Mastodon. Redacting the dashboard while

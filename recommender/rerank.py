@@ -4,7 +4,7 @@ Mainstream recommenders narrow you toward what's popular. The aperture lens does
 the opposite: it gives a small **boost** to candidates that introduce themes you
 have *less* of, widening the aperture beyond your current mix. It is strictly
 boost-only — it never lowers or drops a candidate — mirroring the "unknown is
-first-class, never penalised" discipline from the sibling project.
+first-class, never penalized" discipline from the sibling project.
 
 ``aperture_strength`` of 0 disables it entirely.
 """

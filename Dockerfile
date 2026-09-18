@@ -55,7 +55,7 @@ RUN pip install --no-cache-dir --no-deps . \
  && pip uninstall --yes pip
 
 # The runtime image installs nothing at run time, so `pip` is removed once the
-# two installs above are done. It is not an optimisation: `pip` vendors its own
+# two installs above are done. It is not an optimization: `pip` vendors its own
 # dependency tree under `pip/_vendor/`, and on 2026-08-27 that tree was the sole
 # source of both remaining Trivy findings in this image (msgpack 1.1.2,
 # GHSA-6v7p-g79w-8964; setuptools 70.3.0, CVE-2025-47273). Neither is a

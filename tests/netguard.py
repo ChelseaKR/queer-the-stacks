@@ -7,7 +7,7 @@ Two helpers, both used by ``tests/test_no_egress.py``:
   ``create_connection``, ``getaddrinfo``, ``gethostbyname``) and raises on the
   first attempt. A code path executed inside it *cannot* silently reach the
   network: either it makes no connection, or the test fails. This is what makes
-  the no-egress assertions measurements of behaviour rather than of source text.
+  the no-egress assertions measurements of behavior rather than of source text.
 
 * :func:`capture_requests` swaps ``requests.sessions.Session.send``, which sits
   *below* ``requests.get``. Everything above it stays real — URL assembly, query

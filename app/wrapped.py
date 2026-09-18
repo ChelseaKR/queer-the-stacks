@@ -38,7 +38,7 @@ UNMEASURED_YEAR_LABEL = "not measured"
 #: DIFFERENT string from :data:`UNMEASURED_YEAR_LABEL`: "no reading source is
 #: connected", "you read nothing that year" and "that year is outside the
 #: history you chose to keep" all produce the same zeros, and only the third is
-#: the reader's own decision being honoured. Rendering it as either of the other
+#: the reader's own decision being honored. Rendering it as either of the other
 #: two would report a deletion as an absence of reading.
 NOT_RETAINED_LABEL = "not retained"
 
@@ -89,7 +89,7 @@ class Wrapped:
     the two must not render alike: every figure below is zero in both cases, but
     only one of them is a measurement. Mirrors :attr:`app.forecast.Forecast.estimable`
     and :attr:`app.diversity.DiversityReport.shelf_fallback` — this module's
-    neighbours already refuse to guess; this one used to answer 1970.
+    neighbors already refuse to guess; this one used to answer 1970.
     """
 
     year: Optional[int]
@@ -190,7 +190,7 @@ class Wrapped:
 
         With no year to name this defers to :attr:`absence_label` rather than
         going straight to :data:`UNMEASURED_YEAR_LABEL`, so the one state where
-        the deletion took the year with it is not relabelled as an absent
+        the deletion took the year with it is not relabeled as an absent
         source on its way to the page.
         """
         return self.absence_label if self.year is None else str(self.year)

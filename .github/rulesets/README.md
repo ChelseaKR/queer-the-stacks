@@ -99,7 +99,7 @@ reads `always`. Two things about that table are still findings.
 
 A required status check that no workflow produces does not fail a pull request, it *suspends* one.
 The check sits at "Expected — waiting for status to be reported" and the merge button never
-un-greys, for the life of the branch. A path-filtered workflow has the same effect on any pull
+un-grays, for the life of the branch. A path-filtered workflow has the same effect on any pull
 request that touches none of its paths, because the workflow is never triggered and therefore
 files no check run at all. Every context named in this file was checked against
 `.github/workflows/` and against real check runs before being listed. A job's check-run name is

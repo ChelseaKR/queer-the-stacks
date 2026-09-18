@@ -148,7 +148,7 @@ omit = [
     "app/build_static.py",
 ]
 # ingest/cli.py used to be omitted here as "thin argparse glue". It is 503
-# lines carrying real behaviour (refresh, doctor, import/export, list
+# lines carrying real behavior (refresh, doctor, import/export, list
 # authoring), it already has three dedicated test files, and it measured 57%
 # — the least-covered module in the project, sitting outside the denominator
 # the 85% gate is computed from. Including it moves the reported total from

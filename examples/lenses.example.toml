@@ -27,7 +27,7 @@
 # did not describe your shelf — which is exactly the case the toggle is for. Set
 # ``sensitive = false`` on a lens you are happy to show in full. The four
 # non-identity lenses below are marked that way, so copying this template
-# unchanged reproduces the built-in behaviour exactly.
+# unchanged reproduces the built-in behavior exactly.
 #
 # Descriptors on the built-in identity list (trans, transgender, nonbinary,
 # non-binary, genderqueer, queer, lgbtq, lgbtq+, lesbian, gay, bisexual,

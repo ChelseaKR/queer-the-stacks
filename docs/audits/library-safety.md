@@ -45,7 +45,7 @@ make that impossible and the tests that enforce them.
 **Metric:** writes to Calibre/KOReader source DBs = **0** — enforced by the hash
 equality assertion above. Status: ✅ green.
 
-## Defence in depth (deployment)
+## Defense in depth (deployment)
 
 The container mounts the real libraries **read-only** (`:ro` in
 `docker-compose.yml`), so even a hypothetical write attempt is refused by the

@@ -15,7 +15,7 @@ naming the offending request. A conformance check that quietly stopped rejecting
 it would fail the build rather than reporting green over nothing -- which is what
 a suite made only of ``assert`` statements cannot do for itself.
 
-**It cannot pass over an empty set.** Every parametrised test would pass
+**It cannot pass over an empty set.** Every parametrized test would pass
 vacuously if the registry were empty or the request-capture harness caught
 nothing, so the adapter count is pinned and each egress test asserts that
 requests were actually made before asserting what they contained.
@@ -75,7 +75,7 @@ READER_SIGNALS: tuple[str, ...] = (
     "Imogen Binnie",
     "Confessions of the Fox",
     "Jordy Rosenberg",
-    "my-favourite-genre",
+    "my-favorite-genre",
 )
 
 
@@ -117,7 +117,7 @@ class LeakyAdapter:
     LEAKED_AUTHOR = "Torrey Peters"
 
     def request_url(self, query: str) -> str:
-        # The defect: a "personalised" subject request that carries an author.
+        # The defect: a "personalized" subject request that carries an author.
         return f"https://openlibrary.org/subjects/{query}.json?author={self.LEAKED_AUTHOR}"
 
     def parse(self, body: str, citation: str, retrieved_at: str) -> tuple[Book, ...]:
@@ -152,7 +152,7 @@ class LeakyAdapter:
 
 
 def test_the_registry_is_not_empty_and_is_what_this_build_ships() -> None:
-    """Every parametrised test below loops over the registry. Pin it, so an empty
+    """Every parametrized test below loops over the registry. Pin it, so an empty
     or shrunken registry is a failure rather than a quietly smaller loop."""
     names = sorted(adapter.spec.name for adapter in REGISTERED_ADAPTERS)
     assert names == ["Bookwyrm", "Open Library"], names
