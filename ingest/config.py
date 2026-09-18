@@ -103,7 +103,7 @@ class Config:
     openlibrary_subjects: tuple[str, ...] = ()
     bookwyrm_lists: tuple[str, ...] = ()
     #: Reading-history horizon in days; 0 keeps everything (the default, and
-    #: today's behaviour). See :mod:`ingest.retention` for why there is no
+    #: today's behavior). See :mod:`ingest.retention` for why there is no
     #: non-zero default: a horizon deletes a reader's history, and choosing one
     #: for them is not this code's call.
     retention_history_days: int = 0

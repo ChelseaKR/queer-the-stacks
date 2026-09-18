@@ -96,7 +96,7 @@ def check_compliance_card(spec: AdapterSpec) -> tuple[ConformanceFailure, ...]:
                 spec.name,
                 "compliance-card",
                 f"no compliance card for {spec.compliance_card_host!r} in recommender.sources; "
-                "add an EthicalSource entry stating its licence, attribution, auth and "
+                "add an EthicalSource entry stating its license, attribution, auth and "
                 "rate-limit obligations",
             ),
         )
@@ -322,13 +322,13 @@ def check_adapter(
     request-capture harness to have run the adapter first.
     """
     spec = adapter.spec
-    materialised = tuple(books)
+    materialized = tuple(books)
     return (
         check_declared_hosts(spec)
         + check_compliance_card(spec)
         + check_source_kind(spec)
         + check_request_urls(adapter, queries)
         + check_refuses_off_allowlist(adapter)
-        + check_provenance(spec, materialised)
-        + check_identity_declaration(spec, materialised)
+        + check_provenance(spec, materialized)
+        + check_identity_declaration(spec, materialized)
     )

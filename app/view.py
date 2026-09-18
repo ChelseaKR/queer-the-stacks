@@ -162,7 +162,7 @@ def build_view(
     rendered as text rather than the staleness banner.
     """
     today_ordinal, year = _infer_today_and_year(states, daily_activity)
-    stats = compute_stats(states, daily_activity, today_ordinal)
+    stats = compute_stats(states, daily_activity, today_ordinal, retention=retention)
     wrapped = compute_wrapped(states, daily_activity, year, retention=retention)
     goals = compute_goals(
         stats,

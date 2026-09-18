@@ -285,7 +285,7 @@ def build_index(
         conn.execute(f"CREATE VIRTUAL TABLE {_TABLE} USING fts5({', '.join(INDEXED_FIELDS)})")
         # On the S608 suppressions below: the only interpolated values are `_TABLE` and
         # `INDEXED_FIELDS`, both module-level literals in this file. SQLite
-        # cannot parameterise an identifier, so a table and column list must be
+        # cannot parameterize an identifier, so a table and column list must be
         # interpolated. Every reader-supplied value is bound (`?`), including
         # the query text in `search` below.
         insert_sql = f"INSERT INTO {_TABLE} (rowid, {', '.join(INDEXED_FIELDS)}) VALUES (?, {', '.join('?' for _ in INDEXED_FIELDS)})"  # noqa: S608,E501 - identifiers are module literals; values are bound

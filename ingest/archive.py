@@ -81,7 +81,7 @@ MANIFEST: dict[str, Any] = {
         "taste_adjustments": (
             "The reader's explicit, reversible taste feedback (ingest.taste): "
             "bounded {kind, target, direction, magnitude, created_at} records "
-            "they wrote themselves, never inferred from behaviour and never "
+            "they wrote themselves, never inferred from behavior and never "
             "derived from catalog data. Absent in schema_version 1 bundles, "
             "which restore as an empty set."
         ),

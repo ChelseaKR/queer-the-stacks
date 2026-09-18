@@ -10,7 +10,7 @@ Accessibility decisions baked in here:
 
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
 * a skip link to ``<main>`` and proper landmarks + heading order,
-* theme tags and progress are conveyed as **text**, never colour alone,
+* theme tags and progress are conveyed as **text**, never color alone,
 * every "chart" (stats, Wrapped) ships with a real ``<table>`` data equivalent,
 * every recommendation shows its why **and** its sources as visible links.
 """
@@ -47,7 +47,7 @@ def _pct(value: float) -> str:
 def _withheld_note(hidden_count: int) -> str:
     """The visible stand-in for descriptors the privacy toggle withheld.
 
-    Shown as text (never colour or omission alone) so the reader can always tell
+    Shown as text (never color or omission alone) so the reader can always tell
     the difference between "this book has no sourced descriptors" and "some are
     being held back right now".
     """
@@ -130,7 +130,7 @@ FIXTURE_STATES_NOTICE = (
 #: The narrower case: the shelves and stats are genuinely the reader's, but the
 #: recommendation candidates were substituted from the demo fixtures because
 #: the catalog pool is empty. Several fixture titles are books a real reader
-#: plausibly owns, so an unlabelled pick is indistinguishable from a real one.
+#: plausibly owns, so an unlabeled pick is indistinguishable from a real one.
 FIXTURE_CANDIDATES_NOTICE = (
     "These picks are fixture titles from the built-in demo world, not "
     "candidates sourced from your configured catalogs. They are shown because "
@@ -139,7 +139,7 @@ FIXTURE_CANDIDATES_NOTICE = (
 
 
 def _fixture_note(message: str) -> str:
-    """One labelled, assertive banner naming fixture-sourced content."""
+    """One labeled, assertive banner naming fixture-sourced content."""
     return f'<p class="fixture-note" role="alert">{escape(message)}</p>'
 
 
@@ -169,6 +169,19 @@ NO_DAILY_ACTIVITY_NOTE = (
     "sources connected here report per-book totals instead."
 )
 
+#: The same absence, from the opposite cause. `NO_DAILY_ACTIVITY_NOTE` names a
+#: source configuration, and a reader whose `[retention] history_days` deleted
+#: every per-day row has that source connected — so it tells them a setting
+#: they chose is a feature their sources lack. This is `NOT_RETAINED_NOTE`'s
+#: sentence for the case where the deletion took the whole record and not just
+#: one year of it.
+ACTIVITY_NOT_RETAINED_NOTE = (
+    "Streaks and active reading days are not measured here because the per-day "
+    "reading history they are counted from is outside the window this instance "
+    "keeps, so it has been deleted. That is your retention setting working, not "
+    "a missing source."
+)
+
 
 #: Why a Wrapped year is missing for a reader who *does* have reading records.
 #: The year is inferred from per-day activity alone (`app.view._infer_today_and_year`),
@@ -191,6 +204,22 @@ NOT_RETAINED_NOTE = (
     "year in which nothing was read."
 )
 
+#: The same fact when the deletion took *every* per-day row, so there is no
+#: year left to name (`Wrapped.not_retained(None)`). "This year" would be a
+#: reference to nothing; the deletion is still exactly as reportable.
+ALL_YEARS_NOT_RETAINED_NOTE = (
+    "The per-day reading history a year in review is built from is outside the "
+    "window this instance keeps, so it has been deleted and there is no year "
+    "left to report on. That is your retention setting working, not a year in "
+    "which nothing was read."
+)
+
+
+def _not_retained_note(wrapped: Wrapped) -> str:
+    """Which of the two deletion sentences this Wrapped can honestly carry."""
+    return NOT_RETAINED_NOTE if wrapped.year is not None else ALL_YEARS_NOT_RETAINED_NOTE
+
+
 #: A year the horizon cuts through: its figures are real but cover only the
 #: part of the year still retained. Rendered beside the numbers, because a
 #: partial total presented as a whole one is the same defect one step quieter.
@@ -208,7 +237,15 @@ def _absence_reason(stats: ReadingStats) -> str:
     say "no source is connected" and "the other figures are measured" in the
     same breath. Every surface picks its wording from here so the page cannot
     contradict itself panel by panel.
+
+    A deletion the reader ordered outranks both, because both of the sentences
+    below describe a *source configuration* and neither is true of a KOReader
+    reader whose own horizon removed the per-day log. That case is the one the
+    reader can check, and getting it wrong tells them their setting is a
+    missing feature.
     """
+    if stats.activity_deleted:
+        return ACTIVITY_NOT_RETAINED_NOTE
     if not stats.measured:
         return NO_READING_SOURCE_NOTE
     return NO_DAILY_ACTIVITY_NOTE
@@ -311,7 +348,7 @@ def _wrapped_table(wrapped: Wrapped, stats: ReadingStats) -> str:
         # too, and takes its own wording: its records existed and were removed
         # on request, which is a different fact from never having had them.
         if not wrapped.retained:
-            reason = NOT_RETAINED_NOTE
+            reason = _not_retained_note(wrapped)
         elif not stats.measured:
             reason = NO_READING_SOURCE_NOTE
         else:
@@ -403,7 +440,7 @@ def _magnitude_select(select_id: str) -> str:
     The label is not optional and not an ``aria-label``: this control appears
     once per recommendation card, so a screen-reader user meets ten of them in a
     row, and each needs to be nameable. The a11y gate caught this exact select
-    unlabelled on its first run — six axe ``select-name`` violations — which is
+    unlabeled on its first run — six axe ``select-name`` violations — which is
     what the gate is for.
     """
     options = "".join(
@@ -883,7 +920,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
 
     Every figure is built only from *sourced book descriptors*; the section opens
     by saying so, and surfaces undescribed books rather than hiding them. Each
-    chart ships as a real data ``<table>`` (no colour-only meaning).
+    chart ships as a real data ``<table>`` (no color-only meaning).
     """
     if report is None or report.total_books == 0:
         return ""
@@ -959,7 +996,7 @@ def _diversity_section(report: Optional[DiversityReport]) -> str:
     )
 
     # R4: every diverse-shelf descriptor with the source that asserted it + when.
-    # The sensitive marker is text (never colour-only) for the a11y contract.
+    # The sensitive marker is text (never color-only) for the a11y contract.
     if report.descriptor_provenance:
         desc_rows = "".join(
             f'<tr><th scope="row">{escape(d.label)}'
@@ -1204,6 +1241,14 @@ READING_SOURCE_PER_BOOK_ONLY = (
     "per-book reading records present; no per-day activity, so streaks and "
     "active reading days are not measured"
 )
+#: The row for a reader whose horizon deleted the per-day log. Both rows above
+#: are statements about which sources are connected, and this reader's are: the
+#: panel whose whole job is to say where the numbers came from would otherwise
+#: report their own deletion as a source they never set up.
+READING_SOURCE_ACTIVITY_NOT_RETAINED = (
+    "per-book reading records present; per-day activity deleted by your "
+    "retention setting, so streaks and active reading days are not measured"
+)
 
 
 def _data_status_section(
@@ -1214,12 +1259,13 @@ def _data_status_section(
     fixture_candidates: bool = False,
     reading_data_measured: bool = True,
     daily_activity_measured: bool = True,
+    daily_activity_deleted: bool = False,
 ) -> str:
     """Say what the dashboard knows and how old it is — never silently stale.
 
     Degrades gracefully: per-source ``RefreshResult`` rows land with FIX-08;
     until then this shows the one honest thing the store already persists —
-    the ``refreshed_at`` stamp — plus a text (not colour-only) staleness banner.
+    the ``refreshed_at`` stamp — plus a text (not color-only) staleness banner.
 
     "How current" is only half of "how trustworthy": a store full of demo
     fixtures carries a perfectly fresh timestamp. The two provenance rows say
@@ -1243,7 +1289,9 @@ def _data_status_section(
     candidate_source = (
         "built-in demo fixtures" if fixture_candidates else "your stored catalog pool"
     )
-    if not reading_data_measured:
+    if daily_activity_deleted:
+        reading_source = READING_SOURCE_ACTIVITY_NOT_RETAINED
+    elif not reading_data_measured:
         reading_source = READING_SOURCE_MISSING
     elif not daily_activity_measured:
         reading_source = READING_SOURCE_PER_BOOK_ONLY
@@ -1344,6 +1392,7 @@ def render_dashboard(
         fixture_candidates=fixture_candidates,
         reading_data_measured=stats.measured,
         daily_activity_measured=stats.activity_measured,
+        daily_activity_deleted=stats.activity_deleted,
     )
     # The Wrapped summary line states figures scoped to a year. With no year
     # there is nothing to scope them to, so the sentence is replaced rather than
@@ -1361,7 +1410,9 @@ def render_dashboard(
             f"locally, shared with no one.{partial}</p>"
         )
     elif not wrapped.retained:
-        wrapped_summary = f'<p class="absence-note" role="status">{escape(NOT_RETAINED_NOTE)}</p>'
+        wrapped_summary = (
+            f'<p class="absence-note" role="status">{escape(_not_retained_note(wrapped))}</p>'
+        )
     elif not stats.measured:
         wrapped_summary = (
             f'<p class="absence-note" role="status">{escape(NO_READING_SOURCE_NOTE)} '
@@ -1488,7 +1539,7 @@ def render_dashboard(
         "</section>"
         '<section id="browse" class="home-section">'
         '<div class="section-heading"><h2>Browse your library</h2>'
-        "<p>Search the full catalogue by title, author, status, or sourced theme.</p></div>"
+        "<p>Search the full catalog by title, author, status, or sourced theme.</p></div>"
         '<form class="browse-form" action="/browse" method="get" role="search">'
         f"{structured_filters}"
         '<label for="lib-filter">Find a book'

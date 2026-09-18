@@ -99,7 +99,7 @@ def test_dnf_signals_downweight(states: list) -> None:
     base = build_taste_profile(states)
     dnf = build_taste_profile(states, dnf_signals=True)
     # Stone Butch Blues is ~47% read (not a DNF), so the soft-DNF rule doesn't
-    # fire here; profiles match. (Behaviour asserted directly below.)
+    # fire here; profiles match. (Behavior asserted directly below.)
     assert base.theme_weights.keys() == dnf.theme_weights.keys()
 
 

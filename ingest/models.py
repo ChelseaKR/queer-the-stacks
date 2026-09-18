@@ -172,6 +172,30 @@ class ReadingStat:
     highlights: int = 0  # count of KOReader highlights for this book
 
     @property
+    def measured(self) -> bool:
+        """Whether this row is evidence that anything was ever read.
+
+        A stat row's *existence* is not that evidence, and the difference is
+        per-source. KOReader writes a row when a book is opened, so for it the
+        two coincide. :mod:`ingest.kobo` reads the device's ``content`` table,
+        which carries a row for **every** sideloaded book — so a book sitting
+        unopened on a Kobo arrives as ``pages_read=0, read_time_seconds=0,
+        last_read_ts=0, sessions=0`` and is a catalog fact wearing a reading
+        record's shape.
+
+        ``total_pages`` is deliberately not consulted: a page count is a fact
+        about the file, present for a book nobody has opened, and counting it
+        would make every Kobo row "measured" again.
+        """
+        return bool(
+            self.pages_read
+            or self.read_time_seconds
+            or self.last_read_ts
+            or self.sessions
+            or self.highlights
+        )
+
+    @property
     def percent_complete(self) -> float:
         if self.total_pages <= 0:
             return 0.0
@@ -247,8 +271,15 @@ class ReadingState:
         started and for a book no reader or device has ever touched. Only this
         separates them, and a surface that draws a progress meter needs the
         difference: an owned, never-opened book is not 0% read, it is unmeasured.
+
+        The question is whether a source *measured* something, not whether a
+        row exists. ``self.stat is not None`` was the same question only for
+        KOReader, which writes a row when a book is opened; :mod:`ingest.kobo`
+        emits one per device ``content`` row whether or not the book was ever
+        opened, which re-opened this defect on every Kobo library. See
+        :attr:`ReadingStat.measured`.
         """
-        return bool(self.progress) or self.stat is not None
+        return bool(self.progress) or (self.stat is not None and self.stat.measured)
 
     @property
     def latest_device(self) -> Optional[str]:

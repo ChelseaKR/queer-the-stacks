@@ -178,7 +178,7 @@ def test_hide_sensitive_keeps_nonsensitive_detail() -> None:
     report = compute_diversity(states, hide_sensitive=True)
     labels = {d.label for d in report.descriptor_provenance}
     assert {"speculative", "literary"} <= labels
-    # No sensitive descriptors present, so no aggregated row is synthesised.
+    # No sensitive descriptors present, so no aggregated row is synthesized.
     assert not any(d.aggregated for d in report.descriptor_provenance)
 
 
@@ -372,7 +372,7 @@ def test_empty_shelf_does_not_claim_a_fallback() -> None:
 #
 # The toggle exists for one situation, named in app/diversity.py: screen-sharing
 # a queer or trans reading history. It used to redact a frozen list of twelve
-# built-in strings while honouring the reader's configured lenses everywhere
+# built-in strings while honoring the reader's configured lenses everywhere
 # else, so on a personalized lens file it redacted less than it said, and on a
 # fully personalized one it redacted nothing while the page still said it had.
 #
@@ -473,7 +473,7 @@ def test_a_custom_lens_file_cannot_unredact_a_builtin_sensitive_descriptor() -> 
 
 
 def test_default_lenses_redact_exactly_what_they_always_did() -> None:
-    """The built-in path is unchanged: same twelve descriptors, same behaviour."""
+    """The built-in path is unchanged: same twelve descriptors, same behavior."""
     assert resolve_sensitive_descriptors(DEFAULT_DIMENSIONS) == SENSITIVE_DESCRIPTORS
 
 

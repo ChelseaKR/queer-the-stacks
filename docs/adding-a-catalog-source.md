@@ -70,10 +70,10 @@ Open Library is CC0, Hardcover is token-gated and explicitly in flux, Bookwyrm i
 per-instance ToS — so they are recorded per source rather than collapsed into one
 "terms" blob. It must state:
 
-- the headline licence or terms obligation, and a link to them;
+- the headline license or terms obligation, and a link to them;
 - the attribution posture;
 - the auth/token posture, and where a token may live (never the browser);
-- the cache, rate-limit, robots and backoff policy you will honour;
+- the cache, rate-limit, robots and backoff policy you will honor;
 - a contact for bulk or automated access.
 
 `stacks doctor` prints one line per adapter with its card. An adapter whose card

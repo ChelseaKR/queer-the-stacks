@@ -409,7 +409,7 @@ def test_the_previous_fallback_missed_these_and_would_have_said_so(query: str, f
     ``app.browse.filter_states`` does not search series, publisher or language.
     On a SQLite build without FTS5 the route ran that filter, got nothing, and
     rendered "No book in your library matched ... Your library is not empty."
-    about a book that *was* in the library. This asserts the old behaviour is
+    about a book that *was* in the library. This asserts the old behavior is
     genuinely absent, not merely unused.
     """
     from app.browse import filter_states

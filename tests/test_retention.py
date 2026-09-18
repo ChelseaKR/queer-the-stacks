@@ -24,11 +24,21 @@ assertion passes for every possible value of it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from app.render import NOT_RETAINED_NOTE
-from app.view import build_view, render_view
+from app.render import (
+    ACTIVITY_NOT_RETAINED_NOTE,
+    ALL_YEARS_NOT_RETAINED_NOTE,
+    NO_DAILY_ACTIVITY_NOTE,
+    NO_WRAPPED_YEAR_NOTE,
+    NOT_RETAINED_NOTE,
+    READING_SOURCE_ACTIVITY_NOT_RETAINED,
+    READING_SOURCE_PER_BOOK_ONLY,
+)
+from app.stats import compute_stats
+from app.view import _infer_today_and_year, build_view, render_view
 from app.wrapped import (
     NOT_RETAINED_LABEL,
     UNMEASURED_YEAR_LABEL,
@@ -639,3 +649,104 @@ def test_day_ordinal_and_iso_round_trip():
     assert day_ordinal(20454 * SECONDS_PER_DAY) == 20454
     with pytest.raises(ValueError):
         iso_to_ordinal("01/01/2026")
+
+
+# --- the deletion that took the year with it (#127) -------------------------
+
+
+def test_a_horizon_that_deleted_every_day_leaves_no_year_and_says_why():
+    """`compute_wrapped` asked the year before it asked the policy that deleted it.
+
+    `test_the_dashboard_says_not_retained_and_not_a_zero` above feeds
+    **unpruned** activity beside a policy that deletes all of it — a store
+    state `ingest.refresh` can never produce — so a year is still inferable
+    there and the `year=2025` branch runs. Pruning first, exactly as
+    `ingest.refresh` does, is what reaches `year is None`, and that return used
+    to hand back `Wrapped.unmeasured()`: `retention_coverage="full"`,
+    `retained` True, and no surface able to reach the deletion wording.
+    """
+    states, activity = _three_years()
+    policy = RetentionPolicy(history_days=1)
+    pruned = apply_policy(states, activity, policy, NOW)
+    assert pruned.daily_activity == [], "the horizon really did take every per-day row"
+    assert pruned.counts.activity_days == 90
+    retention = RetentionState(
+        policy=policy,
+        earliest_retained_ordinal=pruned.earliest_retained_ordinal,
+        last_counts=pruned.counts,
+        applied_at=NOW,
+    )
+
+    today, year = _infer_today_and_year(pruned.states, pruned.daily_activity)
+    assert (today, year) == (0, None)
+
+    wrapped = compute_wrapped(pruned.states, pruned.daily_activity, year, retention=retention)
+    assert wrapped.year is None
+    assert wrapped.retained is False
+    assert wrapped.reportable is False
+    assert wrapped.absence_label == NOT_RETAINED_LABEL
+    assert wrapped.year_label == NOT_RETAINED_LABEL, (
+        "the year is unknowable, but the reason it is missing is known exactly"
+    )
+
+    # Positive control: with no policy in force the same rows are an ordinary
+    # unmeasured year, so this state is reached by a deletion and not by any
+    # empty activity list.
+    assert compute_wrapped(pruned.states, pruned.daily_activity, year) == Wrapped.unmeasured()
+
+
+def test_a_policy_that_deleted_nothing_is_not_read_as_a_deletion():
+    """The flag rests on a prune that really removed rows, not on an active policy.
+
+    A reader with a horizon set and no per-day source has nothing deleted, and
+    telling them their setting removed a record they never had is the same
+    class of false sentence pointed the other way.
+    """
+    states, _ = _three_years()
+    retention = RetentionState(
+        policy=RetentionPolicy(history_days=365),
+        earliest_retained_ordinal=year_bounds(2026)[0],
+        last_counts=PruneCounts(activity_days=0, states_history_cleared=2),
+        applied_at=NOW,
+    )
+    assert retention.active
+    assert retention.deleted_every_activity_day(0) is False
+    assert compute_wrapped(states, [], None, retention=retention) == Wrapped.unmeasured()
+    assert compute_stats(states, [], 0, retention=retention).activity_deleted is False
+    # And the positive half: one deleted day with none retained is the state.
+    deleted = replace(retention, last_counts=PruneCounts(activity_days=1))
+    assert deleted.deleted_every_activity_day(0) is True
+    assert deleted.deleted_every_activity_day(1) is False, (
+        "days still in the store mean the year is partial, not gone"
+    )
+
+
+def test_the_page_blames_the_horizon_and_not_a_source_it_has():
+    """Both false sentences #127 names, asserted on the rendered page."""
+    states, activity = _three_years()
+    policy = RetentionPolicy(history_days=1)
+    pruned = apply_policy(states, activity, policy, NOW)
+    retention = RetentionState(
+        policy=policy,
+        earliest_retained_ordinal=pruned.earliest_retained_ordinal,
+        last_counts=pruned.counts,
+        applied_at=NOW,
+    )
+    html = render_view(build_view(pruned.states, pruned.daily_activity, (), retention=retention))
+    assert ALL_YEARS_NOT_RETAINED_NOTE in html
+    assert ACTIVITY_NOT_RETAINED_NOTE in html
+    assert READING_SOURCE_ACTIVITY_NOT_RETAINED in html
+    assert NOT_RETAINED_LABEL in html
+    # The three sentences that were published instead, each a statement about
+    # sources this reader has.
+    assert NO_WRAPPED_YEAR_NOTE not in html
+    assert NO_DAILY_ACTIVITY_NOTE not in html
+    assert READING_SOURCE_PER_BOOK_ONLY not in html
+
+    # Positive control: the same pruned rows with no policy recorded are an
+    # ordinary per-book-only library, and get the per-book-only wording back.
+    plain = render_view(build_view(pruned.states, pruned.daily_activity, ()))
+    assert NO_DAILY_ACTIVITY_NOTE in plain
+    assert READING_SOURCE_PER_BOOK_ONLY in plain
+    assert ALL_YEARS_NOT_RETAINED_NOTE not in plain
+    assert ACTIVITY_NOT_RETAINED_NOTE not in plain

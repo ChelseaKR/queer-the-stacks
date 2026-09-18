@@ -4,7 +4,7 @@
 
 Instantiates `RESPONSIBLE-TECH-FRAMEWORK.md` §A (ethics) and §B (bias & fairness).
 Two commitments: recommend only from ethical, non-gatekept catalogs (never
-Goodreads), and describe books via *sourced* theme tags rather than labelling
+Goodreads), and describe books via *sourced* theme tags rather than labeling
 authors.
 
 ## Goodreads / Amazon exclusion
@@ -21,7 +21,7 @@ single network choke point, and `assert_allowed()` is default-deny —
 
 ## Representation: describe books, never label authors
 
-- Theme/genre tags are modelled as `ThemeTag`, which **cannot be constructed
+- Theme/genre tags are modeled as `ThemeTag`, which **cannot be constructed
   without a `Source`** (a Calibre tag, OpenLibrary subject, Hardcover/Bookwyrm
   tag, or curated list). There is no inference-shaped `SourceKind` — no NLP, no
   classifier, no name/cover guess.

@@ -38,7 +38,7 @@ UNMEASURED_YEAR_LABEL = "not measured"
 #: DIFFERENT string from :data:`UNMEASURED_YEAR_LABEL`: "no reading source is
 #: connected", "you read nothing that year" and "that year is outside the
 #: history you chose to keep" all produce the same zeros, and only the third is
-#: the reader's own decision being honoured. Rendering it as either of the other
+#: the reader's own decision being honored. Rendering it as either of the other
 #: two would report a deletion as an absence of reading.
 NOT_RETAINED_LABEL = "not retained"
 
@@ -89,7 +89,7 @@ class Wrapped:
     the two must not render alike: every figure below is zero in both cases, but
     only one of them is a measurement. Mirrors :attr:`app.forecast.Forecast.estimable`
     and :attr:`app.diversity.DiversityReport.shelf_fallback` — this module's
-    neighbours already refuse to guess; this one used to answer 1970.
+    neighbors already refuse to guess; this one used to answer 1970.
     """
 
     year: Optional[int]
@@ -128,7 +128,7 @@ class Wrapped:
         )
 
     @staticmethod
-    def not_retained(year: int) -> Wrapped:
+    def not_retained(year: Optional[int]) -> Wrapped:
         """A year the reader's retention policy has deleted.
 
         The year is kept — it is a real year, and naming it is what makes the
@@ -137,6 +137,15 @@ class Wrapped:
         :attr:`retention_coverage`, and every surface must branch on it before
         printing a number: this year is not unmeasured and it is not a zero, it
         is a window the reader asked not to keep.
+
+        ``year`` is ``None`` in the one case where the deletion took the year
+        with it: a horizon that removed **every** per-day row leaves nothing to
+        infer a year from (see :func:`app.view._infer_today_and_year`), so the
+        year is unknowable while the reason for its absence is known exactly.
+        That is still this state and not :meth:`unmeasured` — the records were
+        deleted on request, which is a different sentence from "no source ever
+        wrote any", and :attr:`year_label` says so rather than falling back to
+        :data:`UNMEASURED_YEAR_LABEL`.
         """
         return Wrapped(
             year=year,
@@ -177,8 +186,14 @@ class Wrapped:
 
     @property
     def year_label(self) -> str:
-        """The year as rendered — never a fabricated one."""
-        return UNMEASURED_YEAR_LABEL if self.year is None else str(self.year)
+        """The year as rendered — never a fabricated one.
+
+        With no year to name this defers to :attr:`absence_label` rather than
+        going straight to :data:`UNMEASURED_YEAR_LABEL`, so the one state where
+        the deletion took the year with it is not relabeled as an absent
+        source on its way to the page.
+        """
+        return self.absence_label if self.year is None else str(self.year)
 
     @property
     def absence_label(self) -> str:
@@ -237,8 +252,18 @@ def compute_wrapped(
     year are gone because the reader asked, so summing the (now absent) rows to
     zero and printing that would report their own deletion back to them as a
     year in which they read nothing.
+
+    The policy is asked **before** the year, not after. A horizon that deletes
+    every per-day row also deletes the record ``year`` is inferred from, so the
+    ``year is None`` return used to run first and hand back
+    :meth:`Wrapped.unmeasured` — whose ``retention_coverage`` is ``"full"``, so
+    ``retained`` was True and no surface could reach the not-retained wording
+    in exactly the case a prune had taken everything. The reader's own deletion
+    was then reported to them as a missing source.
     """
     if year is None:
+        if retention is not None and retention.deleted_every_activity_day(len(daily_activity)):
+            return Wrapped.not_retained(None)
         return Wrapped.unmeasured()
     lo, hi = year_bounds(year)
     coverage = "full" if retention is None else retention.coverage_of(lo, hi)
