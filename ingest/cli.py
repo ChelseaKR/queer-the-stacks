@@ -61,7 +61,18 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
     if not args.synthetic:
         print(json.dumps(demo_report, indent=2))
-        if not demo_report["content_beats_popularity"]:
+        verdict = demo_report["content_beats_popularity"]
+        if verdict is None:
+            # Not the same failure, and not a pass. No candidate carries the
+            # ``on_canon`` flag, so there were no ground-truth positives, every model
+            # scored 0.0, and there is no comparison to report either way.
+            print(
+                "FAIL: no candidate is flagged on_canon, so there was no ground truth "
+                "to rank against and the comparison was never made",
+                file=sys.stderr,
+            )
+            return 1
+        if not verdict:
             print("FAIL: the recommender did not beat the popularity baseline", file=sys.stderr)
             return 1
         return 0
