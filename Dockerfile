@@ -8,7 +8,7 @@
 # base as the runtime stage (the standalone `ghcr.io/astral-sh/uv` image has no
 # shell, so `RUN uv export` needs a normal base — just grab the `uv` binary
 # from it via `COPY --from`).
-FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS export
+FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS export
 COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -21,19 +21,21 @@ RUN uv export --locked --extra app --no-dev --no-emit-project -o requirements.lo
 # Pinned by digest (Scorecard Pinned-Dependencies; bump both the tag and the
 # digest together when upgrading — `docker pull python:3.14-slim && docker
 # inspect --format='{{index .RepoDigests 0}}' python:3.14-slim`).
-FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
+FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 
-# Apply Debian security updates for OpenSSL. The base image is pinned by
-# digest, so it lags trixie-security by however long it has been since Docker
-# last rebuilt it; on 2026-08-27 that gap was CVE-2026-14456 (openssl
-# 3.5.6-1~deb13u2, fixed in 3.5.7-1~deb13u2), which the merge-blocking Trivy
-# scan reports as a fixable HIGH. Scoped to the three OpenSSL packages and
-# left unversioned on purpose: pinning the exact patch version would break the
-# build the moment Debian rotates it out of the security pocket. Delete this
-# stanza once a base-image digest ships the fix itself.
+# Apply Debian security updates the pinned base image does not carry yet. The
+# base image is pinned by digest, so it lags trixie-security by however long it
+# has been since Docker last rebuilt it. On 2026-08-27 that gap was
+# CVE-2026-14456 (openssl 3.5.6-1~deb13u2, fixed in 3.5.7-1~deb13u2); on
+# 2026-10-01, with the digest above, it was CVE-2026-103111 (libpcre2-8-0
+# 10.46-1~deb13u2, fixed in 10.46-1~deb13u3). The merge-blocking Trivy scan
+# reports each as a fixable HIGH. Scoped to the named packages and left
+# unversioned on purpose: pinning the exact patch version would break the
+# build the moment Debian rotates it out of the security pocket. Drop a
+# package from this list once a base-image digest ships its fix.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends --only-upgrade \
-      libssl3t64 openssl openssl-provider-legacy \
+      libssl3t64 openssl openssl-provider-legacy libpcre2-8-0 \
  && rm -rf /var/lib/apt/lists/*
 
 # Don't run as root.
