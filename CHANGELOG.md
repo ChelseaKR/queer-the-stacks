@@ -104,6 +104,11 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   make by passing.
 
 ### Changed
+- **The portfolio-standards pin moved from `v3.0.0` to `v3.0.1`**
+  (`.standards-version`, `.github/workflows/standards.yml`). v3.0.1, released
+  2026-10-02, is a patch: re-verified freshness stamps, text corrections and
+  tooling fixes, with no control, threshold or gate changed. Both lockstep
+  locations moved together, as `tests/test_standards_pin.py` requires.
 - **The portfolio-standards pin moved from `v1.0.1` to `v3.0.0`**
   (`.standards-version`, `.github/workflows/standards.yml`). The `standards`
   check was failing on `main`: four of the v1.0.1 documents (CI/CD, Code
