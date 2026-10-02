@@ -103,6 +103,16 @@ keyless-signing/provenance, release, and verify-published lifecycle is in place.
   is pending the sign-offs named above and cutting it is not a decision a test gets to
   make by passing.
 
+### Changed
+- **The portfolio-standards pin moved from `v1.0.1` to `v3.0.0`**
+  (`.standards-version`, `.github/workflows/standards.yml`). The `standards`
+  check was failing on `main`: four of the v1.0.1 documents (CI/CD, Code
+  Quality, Quality & Metrics, and the Responsible-Tech Framework) carried a
+  2026-06-21 verification date, past their 92-day recheck cadence. Upstream
+  re-verified them and released v3.0.0 on 2026-10-02. Against the v3.0.0 tag,
+  the freshness gate reports all 16 documents within cadence. Both lockstep
+  locations moved together, as `tests/test_standards_pin.py` requires.
+
 ### Fixed
 - **A Kobo book nobody had opened rendered as "0% complete"** (`ingest/models.py`,
   `app/stats.py`, #126). `ReadingState.progress_recorded` asked whether a stat row
